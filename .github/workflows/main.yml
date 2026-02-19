@@ -15,24 +15,25 @@ jobs:
     - name: Checkout repo
       uses: actions/checkout@v3
       with:
-        persist-credentials: true  # ensures GITHUB_TOKEN is set
-        fetch-depth: 0            # needed to push
+        persist-credentials: true
+        fetch-depth: 0
 
-    # 2️⃣ Remove old curl folder
+    # 2️⃣ Remove old curl folder (if exists)
     - name: Remove old libcurl
-      run: rm -rf curl
+      run: rm -rf curl curl-temp
 
-    # 3️⃣ Clone libcurl temporarily into a temp folder
+    # 3️⃣ Clone latest libcurl to temp folder
     - name: Clone latest libcurl
       run: git clone --depth=1 https://github.com/wiiu-env/libcurlwrapper.git curl-temp
 
-    # 4️⃣ Copy files only (no nested git repo) into main repo
+    # 4️⃣ Create curl folder and copy files (removes nested .git)
     - name: Copy libcurl files
       run: |
+        mkdir curl
         cp -r curl-temp/* curl/
-        rm -rf curl-temp/.git
+        rm -rf curl-temp
 
-    # 5️⃣ Commit and push
+    # 5️⃣ Commit and push if changes exist
     - name: Commit and push
       run: |
         git config user.name "GitHub Actions"
@@ -40,5 +41,3 @@ jobs:
         git add curl
         git diff-index --quiet HEAD || git commit -m "Update libcurl to latest upstream"
         git push origin main
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
