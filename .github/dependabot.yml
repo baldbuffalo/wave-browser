@@ -1,1 +1,11 @@
-test
+version: 2
+updates:
+  # 1️⃣ Keep all GitHub Actions up-to-date
+  - package-ecosystem: "github-actions"
+    directory: "/"                  # Scan root and all subfolders (includes .github/workflows/)
+    schedule:
+      interval: "daily"             # Check for updates daily
+    commit-message:
+      prefix: "chore"               # PR commit message prefix
+    rebase-strategy: "auto"         # Automatically rebase PRs if branch is behind
+    update-existing-pull-requests: true # Bump open PRs with newer versions
