@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: devkitpro/devkitppc:latest
+      image: devkitpro/devkitppc:6.0.2
 
     steps:
       # 1️⃣ Checkout repo
@@ -32,7 +32,7 @@ jobs:
 
       # 4️⃣ Upload RPX / ELF artifact
       - name: Upload build artifact
-        uses: actions/upload-artifact@6.0.0
+        uses: actions/upload-artifact@6
         with:
           name: wave-browser-build
           path: |
