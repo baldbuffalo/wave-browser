@@ -1,40 +1,50 @@
-name: Build Wave Browser (WiiU)
+name: Auto Update libcurl (WiiU)
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  build:
+  update-libcurl:
     runs-on: ubuntu-latest
 
-    container:
-      image: devkitpro/devkitppc:latest
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      # 1️⃣ Checkout repository
+      - name: Checkout repo
+        uses: actions/checkout@latest
 
-      # 2️⃣ Install required WiiU packages
-      - name: Install WiiU packages
+      # 2️⃣ Remove old folders
+      - name: Clean old folders
+        run: rm -rf curl curl-temp
+
+      # 3️⃣ Clone latest upstream libcurl
+      - name: Clone latest libcurl
+        run: git clone --depth=1 https://github.com/wiiu-env/libcurlwrapper.git curl-temp
+
+      # 4️⃣ Copy files into repo (no nested .git)
+      - name: Copy libcurl files
         run: |
-          sudo dkp-pacman -Syu --noconfirm
-          sudo dkp-pacman -S --noconfirm wiiu-dev wiiu-curl
+          mkdir curl
+          cp -r curl-temp/* curl/
+          rm -rf curl-temp
 
-      # 3️⃣ Build project
-      - name: Build
-        run: make
-
-      # 4️⃣ Upload RPX artifact (optional but useful)
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+      # 5️⃣ Create Pull Request only if changes exist
+      - name: Create Pull Request if needed
+        uses: peter-evans/create-pull-request@latest
         with:
-          name: wave-browser-build
-          path: |
-            *.rpx
-            *.elf
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update libcurl to latest upstream"
+          title: "Update libcurl (auto)"
+          body: |
+            This PR updates libcurl to the latest commit from:
+            https://github.com/wiiu-env/libcurlwrapper
+
+            Automatically created only if upstream changes.
+          branch: update-libcurl
+          delete-branch: true
