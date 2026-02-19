@@ -16,15 +16,14 @@ jobs:
       image: devkitpro/devkitppc:latest
 
     steps:
-      # 1️⃣ Checkout repo
+      # 1️⃣ Checkout repository
       - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v6
 
-      # 2️⃣ Install WiiU packages
+      # 2️⃣ Install required WiiU packages
       - name: Install WiiU packages
         run: |
-          sudo dkp-pacman -Syu --noconfirm
-          sudo dkp-pacman -S --noconfirm wiiu-dev wiiu-curl
+          sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
       # 3️⃣ Build project
       - name: Build
@@ -32,7 +31,7 @@ jobs:
 
       # 4️⃣ Upload RPX / ELF artifact
       - name: Upload build artifact
-        uses: actions/upload-artifact@v6.0.0
+        uses: actions/upload-artifact@v6
         with:
           name: wave-browser-build
           path: |
