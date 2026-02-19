@@ -1,0 +1,40 @@
+name: Build Wave Browser (WiiU)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: devkitpro/devkitppc:latest
+
+    steps:
+      # 1️⃣ Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2️⃣ Install required WiiU packages
+      - name: Install WiiU packages
+        run: |
+          sudo dkp-pacman -Syu --noconfirm
+          sudo dkp-pacman -S --noconfirm wiiu-dev wiiu-curl
+
+      # 3️⃣ Build project
+      - name: Build
+        run: make
+
+      # 4️⃣ Upload RPX artifact (optional but useful)
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: wave-browser-build
+          path: |
+            *.rpx
+            *.elf
