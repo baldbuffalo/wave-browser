@@ -1,43 +1,52 @@
-name: Fetch libcurl for WiiU
+name: Auto Update libcurl (WiiU)
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  fetch-libcurl:
+  update-libcurl:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+      pull-requests: write
+
     steps:
-    # 1️⃣ Checkout your repo
-    - name: Checkout repo
-      uses: actions/checkout@v3
-      with:
-        persist-credentials: true
-        fetch-depth: 0
+      # 1️⃣ Checkout repository
+      - name: Checkout repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-    # 2️⃣ Remove old curl folder (if exists)
-    - name: Remove old libcurl
-      run: rm -rf curl curl-temp
+      # 2️⃣ Remove old folders
+      - name: Clean old folders
+        run: rm -rf curl curl-temp
 
-    # 3️⃣ Clone latest libcurl to temp folder
-    - name: Clone latest libcurl
-      run: git clone --depth=1 https://github.com/wiiu-env/libcurlwrapper.git curl-temp
+      # 3️⃣ Clone latest upstream libcurl
+      - name: Clone latest libcurl
+        run: git clone --depth=1 https://github.com/wiiu-env/libcurlwrapper.git curl-temp
 
-    # 4️⃣ Create curl folder and copy files (removes nested .git)
-    - name: Copy libcurl files
-      run: |
-        mkdir curl
-        cp -r curl-temp/* curl/
-        rm -rf curl-temp
+      # 4️⃣ Copy files into repo (no nested .git)
+      - name: Copy libcurl files
+        run: |
+          mkdir curl
+          cp -r curl-temp/* curl/
+          rm -rf curl-temp
 
-    # 5️⃣ Commit and push if changes exist
-    - name: Commit and push
-      run: |
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
-        git add curl
-        git diff-index --quiet HEAD || git commit -m "Update libcurl to latest upstream"
-        git push origin main
+      # 5️⃣ Create Pull Request only if changes exist
+      - name: Create Pull Request if needed
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update libcurl to latest upstream"
+          title: "Update libcurl (auto)"
+          body: |
+            This PR updates libcurl to the latest commit from:
+            https://github.com/wiiu-env/libcurlwrapper
+
+            Automatically created only if upstream changes.
+          branch: update-libcurl
+          delete-branch: true
