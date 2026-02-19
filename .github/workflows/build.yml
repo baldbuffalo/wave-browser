@@ -1,52 +1,40 @@
-name: Auto Update libcurl (WiiU)
+name: Build Wave Browser (WiiU)
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  update-libcurl:
+  build:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: write
-      pull-requests: write
+    container:
+      image: devkitpro/devkitppc:latest
 
     steps:
-      # 1️⃣ Checkout repository
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      # 1️⃣ Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@latest
 
-      # 2️⃣ Remove old folders
-      - name: Clean old folders
-        run: rm -rf curl curl-temp
-
-      # 3️⃣ Clone latest upstream libcurl
-      - name: Clone latest libcurl
-        run: git clone --depth=1 https://github.com/wiiu-env/libcurlwrapper.git curl-temp
-
-      # 4️⃣ Copy files into repo (no nested .git)
-      - name: Copy libcurl files
+      # 2️⃣ Install WiiU packages
+      - name: Install WiiU packages
         run: |
-          mkdir curl
-          cp -r curl-temp/* curl/
-          rm -rf curl-temp
+          sudo dkp-pacman -Syu --noconfirm
+          sudo dkp-pacman -S --noconfirm wiiu-dev wiiu-curl
 
-      # 5️⃣ Create Pull Request only if changes exist
-      - name: Create Pull Request if needed
-        uses: peter-evans/create-pull-request@v5
+      # 3️⃣ Build project
+      - name: Build
+        run: make
+
+      # 4️⃣ Upload RPX / ELF artifact
+      - name: Upload build artifact
+        uses: actions/upload-artifact@latest
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "Update libcurl to latest upstream"
-          title: "Update libcurl (auto)"
-          body: |
-            This PR updates libcurl to the latest commit from:
-            https://github.com/wiiu-env/libcurlwrapper
-
-            Automatically created only if upstream changes.
-          branch: update-libcurl
-          delete-branch: true
+          name: wave-browser-build
+          path: |
+            *.rpx
+            *.elf
