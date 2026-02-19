@@ -17,7 +17,7 @@ jobs:
     steps:
       # 1️⃣ Checkout repository
       - name: Checkout repo
-        uses: actions/checkout@6.0.2
+        uses: actions/checkout@v6.0.2
 
       # 2️⃣ Remove old folders
       - name: Clean old folders
@@ -36,7 +36,7 @@ jobs:
 
       # 5️⃣ Create Pull Request only if changes exist
       - name: Create Pull Request if needed
-        uses: peter-evans/create-pull-request@latest
+        uses: peter-evans/create-pull-request@v8.1.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "Update libcurl to latest upstream"
