@@ -14,7 +14,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "curl/curl.h" // Include libcurl source in repo
+#include <curl/curl.h> // Use toolchain-provided libcurl headers
 
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
@@ -79,11 +79,20 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 
 // ============ GitHub Release Check ============
 int fetch_latest_release_tag(char *out_tag, size_t out_size) {
+    if(out_size > 0) {
+        strncpy(out_tag, CURRENT_VERSION, out_size - 1);
+        out_tag[out_size - 1] = 0;
+    }
+
     CURL *curl = curl_easy_init();
     if(!curl) return 1;
 
     struct MemoryStruct chunk;
     chunk.memory = malloc(1);
+    if(!chunk.memory) {
+        curl_easy_cleanup(curl);
+        return 1;
+    }
     chunk.size = 0;
 
     char url[256];
@@ -105,13 +114,13 @@ int fetch_latest_release_tag(char *out_tag, size_t out_size) {
     if(tag_ptr) {
         tag_ptr += strlen("\"tag_name\":\"");
         char *end_ptr = strchr(tag_ptr,'"');
-        if(end_ptr) {
+        if(end_ptr && out_size > 0) {
             size_t len = end_ptr - tag_ptr;
-            if(len>=out_size) len = out_size-1;
-            strncpy(out_tag,tag_ptr,len);
-            out_tag[len]=0;
+            if(len >= out_size) len = out_size - 1;
+            strncpy(out_tag, tag_ptr, len);
+            out_tag[len] = 0;
         }
-    } else strcpy(out_tag,CURRENT_VERSION);
+    }
 
     curl_easy_cleanup(curl);
     free(chunk.memory);
@@ -119,38 +128,64 @@ int fetch_latest_release_tag(char *out_tag, size_t out_size) {
 }
 
 // ============ File Download ============
+typedef struct {
+    FILE *fp;
+    size_t downloaded;
+} DownloadContext;
+
 size_t download_write_callback(void *ptr, size_t size, size_t nmemb, void *userdata) {
-    size_t written = size*nmemb;
-    size_t *downloaded = (size_t*)userdata;
-    *downloaded += written;
-    splash_bar.progress = (float)(*downloaded)/50e6; // Example 50MB file
+    DownloadContext *ctx = (DownloadContext*)userdata;
+    size_t bytes = size * nmemb;
+    size_t written = fwrite(ptr, size, nmemb, ctx->fp);
+
+    if(written != nmemb) {
+        return 0;
+    }
+
+    ctx->downloaded += bytes;
+    splash_bar.progress = (float)(ctx->downloaded) / 50e6f; // Example 50MB file
+    if(splash_bar.progress > 1.0f) {
+        splash_bar.progress = 1.0f;
+    }
     draw_progress_bar(&splash_bar);
-    return written;
+    return bytes;
 }
 
 int download_file(const char *url, const char *dest_path) {
     CURL *curl;
     FILE *fp;
     CURLcode res;
-    size_t downloaded = 0;
+    DownloadContext download_ctx;
 
     fp = fopen(dest_path,"wb");
     if(!fp) return 1;
 
     curl = curl_easy_init();
-    if(!curl) return 1;
+    if(!curl) {
+        fclose(fp);
+        return 1;
+    }
+
+    download_ctx.fp = fp;
+    download_ctx.downloaded = 0;
 
     curl_easy_setopt(curl,CURLOPT_URL,url);
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,download_write_callback);
-    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&downloaded);
+    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&download_ctx);
     curl_easy_setopt(curl,CURLOPT_USERAGENT,"wave-browser");
-    curl_easy_setopt(curl,CURLOPT_WRITEDATA,fp);
+    curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,1L);
+    curl_easy_setopt(curl,CURLOPT_FAILONERROR,1L);
 
     res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
     fclose(fp);
 
-    return (res==CURLE_OK)?0:1;
+    if(res != CURLE_OK) {
+        remove(dest_path);
+        return 1;
+    }
+
+    return 0;
 }
 
 // ============ Main Function ============
