@@ -9,12 +9,13 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
 
     container:
       image: devkitpro/devkitppc:latest
@@ -23,37 +24,18 @@ jobs:
       # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
-      # 2️⃣ Install required WiiU packages
+      # 2️⃣ Verify checkout context for containerized runs
+      - name: Verify git checkout
+        run: |
+          echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE}"
+          pwd
+          git rev-parse --is-inside-work-tree
+
+      # 3️⃣ Install required WiiU packages
       - name: Install WiiU packages
         run: |
           sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
-
-      # 3️⃣ Mirror downloaded devkitPro headers into repo
-      - name: Sync devkitPro headers into repository
-        run: |
-          mkdir -p third_party/devkitpro/wut/include
-          mkdir -p third_party/devkitpro/portlibs/wiiu/include
-          cp -a "$DEVKITPRO/wut/include/." third_party/devkitpro/wut/include/
-          cp -a "$DEVKITPRO/portlibs/wiiu/include/." third_party/devkitpro/portlibs/wiiu/include/
-
-      - name: Commit synced devkitPro headers
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          test -d "$REPO_DIR/.git"
-
-          git -C "$REPO_DIR" config user.name "github-actions[bot]"
-          git -C "$REPO_DIR" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C "$REPO_DIR" add third_party/devkitpro
-          if ! git -C "$REPO_DIR" diff --cached --quiet; then
-            git -C "$REPO_DIR" commit -m "chore: sync downloaded devkitPro headers [skip ci]"
-            git -C "$REPO_DIR" push origin HEAD:main
-          else
-            echo "No devkitPro header updates to commit."
-          fi
 
       # 4️⃣ Build project
       - name: Build
