@@ -25,23 +25,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      # 2️⃣ Verify checkout context for containerized runs
+      # 2️⃣ Mark workspace as a safe git directory (container ownership)
+      - name: Configure git safe.directory
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      # 3️⃣ Verify checkout context for containerized runs
       - name: Verify git checkout
         run: |
           echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE}"
           pwd
           git rev-parse --is-inside-work-tree
 
-      # 3️⃣ Install required WiiU packages
+      # 4️⃣ Install required WiiU packages
       - name: Install WiiU packages
         run: |
           sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
-      # 4️⃣ Build project
+      # 5️⃣ Build project
       - name: Build
         run: make
 
-      # 5️⃣ Upload RPX / ELF artifact
+      # 6️⃣ Upload RPX / ELF artifact
       - name: Upload build artifact
         uses: actions/upload-artifact@v6
         with:
