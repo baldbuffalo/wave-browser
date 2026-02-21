@@ -1,5 +1,4 @@
 #include <whb/log.h>
-#include <whb/application.h>
 #include <vpad/input.h>
 #include <gx2/init.h>
 #include <gx2/display.h>
