@@ -21,13 +21,14 @@ INCLUDES    := wave-browser
 
 #-------------------------------------------------------------------------------
 # Build flags
+# Keep defaults from wut/base rules and append project flags.
 #-------------------------------------------------------------------------------
-CFLAGS  := -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP)
-CFLAGS  += $(INCLUDE) -D__WIIU__
+CFLAGS   += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP)
+CFLAGS   += $(INCLUDE) -D__WIIU__
 
-CXXFLAGS := $(CFLAGS) -std=gnu++20
-ASFLAGS  := $(MACHDEP)
-LDFLAGS  := $(ARCH) -Wl,--gc-sections
+CXXFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP) -std=gnu++20
+ASFLAGS  += $(MACHDEP)
+LDFLAGS  += -Wl,--gc-sections
 
 LIBS    := -lcurl -lwhb -lwut
 LIBDIRS := $(PORTLIBS) $(WUT_ROOT)
