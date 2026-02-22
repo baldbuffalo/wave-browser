@@ -43,12 +43,15 @@ jobs:
           sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
       # 5️⃣ Copy devkitPro headers into repository tree
-      - name: Copy devkitPro headers
+      - name: Copy devkitPro, wiiu-dev, and wiiu-curl headers
         run: |
           mkdir -p third_party/devkitpro/wut/include
           mkdir -p third_party/devkitpro/portlibs/wiiu/include
+          mkdir -p curl
+
           cp -a "$DEVKITPRO/wut/include/." third_party/devkitpro/wut/include/
           cp -a "$DEVKITPRO/portlibs/wiiu/include/." third_party/devkitpro/portlibs/wiiu/include/
+          cp -a "$DEVKITPRO/portlibs/wiiu/include/curl/." curl/
 
       # 6️⃣ Build project
       - name: Build
