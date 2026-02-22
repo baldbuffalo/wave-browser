@@ -1,6 +1,6 @@
 #include <whb/log.h>
 #include <vpad/input.h>
-#include <gx2/init.h>
+#include "gx2/init.h"
 #include <gx2/display.h>
 #include <gx2/mem.h>
 #include <gx2/shader.h>
