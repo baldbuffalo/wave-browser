@@ -42,11 +42,19 @@ jobs:
         run: |
           sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
-      # 5️⃣ Build project
+      # 5️⃣ Copy devkitPro headers into repository tree
+      - name: Copy devkitPro headers
+        run: |
+          mkdir -p third_party/devkitpro/wut/include
+          mkdir -p third_party/devkitpro/portlibs/wiiu/include
+          cp -a "$DEVKITPRO/wut/include/." third_party/devkitpro/wut/include/
+          cp -a "$DEVKITPRO/portlibs/wiiu/include/." third_party/devkitpro/portlibs/wiiu/include/
+
+      # 6️⃣ Build project
       - name: Build
         run: make
 
-      # 6️⃣ Upload RPX / ELF artifact
+      # 7️⃣ Upload RPX / ELF artifact
       - name: Upload build artifact
         uses: actions/upload-artifact@v6
         with:
