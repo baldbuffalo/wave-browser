@@ -15,20 +15,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install devkitPro base + WiiU dev packages
-      - name: Install devkitPro + WiiU dev
+      # 1️⃣ Add devkitPro APT repository
+      - name: Setup devkitPro repository
         run: |
           sudo apt update
-          sudo apt install -y git curl unzip
-          mkdir -p $HOME/devkitPro
-          curl -L https://downloads.devkitpro.org/devkitPro-pacman-setup.sh | bash /dev/stdin
-          echo "DEVKITPRO=$HOME/devkitPro" >> $GITHUB_ENV
+          sudo apt install -y wget gnupg
 
-      # Build the project
-      - name: Build
+          wget https://apt.devkitpro.org/install-devkitpro-pacman
+          sudo bash install-devkitpro-pacman
+
+      # 2️⃣ Install WiiU toolchain
+      - name: Install WiiU packages
+        run: |
+          sudo dkp-pacman -Sy --noconfirm
+          sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
+
+      # 3️⃣ Export environment variables
+      - name: Set environment variables
+        run: |
+          echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
+          echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
+
+      # 4️⃣ Build
+      - name: Build project
         run: make
 
-      # Upload artifacts
+      # 5️⃣ Upload artifacts
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
