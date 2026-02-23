@@ -12,11 +12,16 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: devkitpro/wiiu-dev:latest
+      image: devkitpro/devkitppc:latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install WiiU toolchain
+        run: |
+          dkp-pacman -Sy --noconfirm
+          dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
       - name: Build
         run: make
