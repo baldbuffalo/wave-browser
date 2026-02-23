@@ -8,10 +8,18 @@ TOPDIR ?= $(CURDIR)
 
 include $(DEVKITPRO)/wut/share/wut_rules
 
+# -----------------------------------------------------------------------------
+# Project Settings
+# -----------------------------------------------------------------------------
+
 TARGET      := wave-browser
 BUILD       := build
 SOURCES     := wave-browser
 INCLUDES    := wave-browser
+
+# -----------------------------------------------------------------------------
+# Compiler Flags
+# -----------------------------------------------------------------------------
 
 CFLAGS   += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP)
 CFLAGS   += $(INCLUDE) -D__WIIU__
@@ -20,22 +28,32 @@ CXXFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP) -std=gn
 ASFLAGS  += $(MACHDEP)
 LDFLAGS  += -Wl,--gc-sections
 
-LIBS    := -lcurl -lwhb -lwut
-LIBDIRS := $(PORTLIBS) $(WUT_ROOT)
+# -----------------------------------------------------------------------------
+# Libraries (DO NOT set LIBDIRS manually)
+# -----------------------------------------------------------------------------
+
+LIBS := -lcurl -lwhb -lwut
 
 .DEFAULT_GOAL := all
+
+# -----------------------------------------------------------------------------
+# Recursive Build Setup
+# -----------------------------------------------------------------------------
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(CURDIR)/$(TARGET)
 export TOPDIR := $(CURDIR)
 
+# Source search paths
 export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 
+# Source file detection
 CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 
+# Choose linker
 ifeq ($(strip $(CPPFILES)),)
 export LD := $(CC)
 else
@@ -45,8 +63,8 @@ endif
 export OFILES_SRC := $(SFILES:.s=.o) $(CFILES:.c=.o) $(CPPFILES:.cpp=.o)
 export OFILES := $(OFILES_SRC)
 
+# Include paths (ONLY your project includes)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-                  $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
                   -I$(CURDIR)
 
 .PHONY: all rpx elf clean
@@ -64,6 +82,10 @@ $(BUILD):
 
 clean:
 	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).rpx
+
+# -----------------------------------------------------------------------------
+# Subdirectory build rules
+# -----------------------------------------------------------------------------
 
 else
 
