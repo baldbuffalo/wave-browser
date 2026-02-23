@@ -12,18 +12,19 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: devkitpro/devkitppc:latest
+      image: devkitpro/wut:latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install WiiU packages (NO -Sy)
-      - name: Install WiiU toolchain
+      # Install required packages
+      - name: Install WiiU packages
         run: |
+          dkp-pacman -Sy --noconfirm
           dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
-      # Copy headers from installed wut
+      # Copy headers (if you still want them locally)
       - name: Copy wut headers
         run: |
           mkdir -p include
