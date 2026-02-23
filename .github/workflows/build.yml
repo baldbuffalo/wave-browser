@@ -15,27 +15,23 @@ jobs:
       image: devkitpro/devkitppc:latest
 
     steps:
-      # 1️⃣ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Install WiiU toolchain
+      # Install WiiU packages (NO -Sy)
       - name: Install WiiU toolchain
         run: |
-          dkp-pacman -Sy --noconfirm
           dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
-      # 3️⃣ Copy official wut headers into project include/
+      # Copy headers from installed wut
       - name: Copy wut headers
         run: |
           mkdir -p include
           cp -r $DEVKITPRO/wut/include/* include/
 
-      # 4️⃣ Build project
       - name: Build
         run: make
 
-      # 5️⃣ Upload RPX / ELF artifacts
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
