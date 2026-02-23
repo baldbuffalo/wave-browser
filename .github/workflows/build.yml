@@ -12,21 +12,11 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: devkitpro/devkitppc:latest
+      image: devkitpro/wiiu-dev:latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install Wii U packages
-        run: |
-          dkp-pacman -Sy --noconfirm
-          dkp-pacman -S --needed --noconfirm wut wiiu-curl
-
-      - name: Export devkitPro environment
-        run: |
-          echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
-          echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
 
       - name: Build project
         run: make
