@@ -14,8 +14,8 @@ include $(DEVKITPRO)/wut/share/wut_rules
 
 TARGET      := wave-browser
 BUILD       := build
-SOURCES     := wave-browser
-INCLUDES    := wave-browser
+SOURCES     := wave_browser    # app source folder
+INCLUDES    := include         # headers folder
 
 # -----------------------------------------------------------------------------
 # Compiler Flags
@@ -29,7 +29,7 @@ ASFLAGS  += $(MACHDEP)
 LDFLAGS  += -Wl,--gc-sections
 
 # -----------------------------------------------------------------------------
-# Libraries (DO NOT set LIBDIRS manually)
+# Libraries (static linking)
 # -----------------------------------------------------------------------------
 
 LIBS := -lcurl -lwhb -lwut
@@ -63,7 +63,7 @@ endif
 export OFILES_SRC := $(SFILES:.s=.o) $(CFILES:.c=.o) $(CPPFILES:.cpp=.o)
 export OFILES := $(OFILES_SRC)
 
-# Include paths (ONLY your project includes)
+# Include paths (only project include folder)
 export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                   -I$(CURDIR)
 
