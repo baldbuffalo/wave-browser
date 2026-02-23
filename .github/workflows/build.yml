@@ -14,18 +14,28 @@ jobs:
     container:
       image: devkitpro/devkitppc:latest
 
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
+
     steps:
+      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # 2️⃣ Install WiiU toolchain and curl library
       - name: Install WiiU toolchain
         run: |
-          dkp-pacman -Sy --noconfirm
-          dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
+          sudo dkp-pacman -Sy --noconfirm
+          sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
+      # 3️⃣ Build project
       - name: Build
         run: make
 
+      # 4️⃣ Upload RPX / ELF artifacts
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
