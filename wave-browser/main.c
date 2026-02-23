@@ -36,7 +36,6 @@ typedef struct {
 } Color;
 
 void draw_rect(float x, float y, float w, float h, Color color) {
-    // Placeholder: does nothing for now
     (void)x; (void)y; (void)w; (void)h; (void)color;
 }
 
@@ -49,7 +48,6 @@ void draw_progress_bar(ProgressBar *bar) {
 }
 
 void draw_text(const char *text, float x, float y, Color color) {
-    // Placeholder: does nothing
     (void)text; (void)x; (void)y; (void)color;
 }
 
