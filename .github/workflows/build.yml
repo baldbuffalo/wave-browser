@@ -11,6 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Use official devkitPro container
     container:
       image: devkitpro/devkitppc:latest
 
@@ -18,18 +19,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install WiiU packages
+      # Update pacman & install Wii U toolchain components
+      - name: Install Wii U packages
         run: |
           dkp-pacman -Sy --noconfirm
-          dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
+          dkp-pacman -S --needed --noconfirm wut wiiu-curl
 
+      # Optional: verify WHB headers exist (helps debugging)
+      - name: Verify WHB headers
+        run: |
+          ls /opt/devkitpro/wut/include/whb
+
+      # Build your project
       - name: Build project
         run: make
 
-      - name: Upload build artifacts
+      # Upload build outputs
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
           path: |
-            *.rpx
-            *.elf
+            **/*.rpx
+            **/*.elf
