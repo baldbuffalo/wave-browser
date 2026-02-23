@@ -11,20 +11,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    container:
-      image: devkitpro/wut:latestname: Build Wave Browser (WiiU)
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
     steps:
       # 1. Checkout code
       - name: Checkout repository
@@ -47,33 +33,6 @@ jobs:
 
       # 4. Upload artifacts
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: wave-browser-build
-          path: |
-            *.rpx
-            *.elf
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # Install required packages
-      - name: Install WiiU packages
-        run: |
-          dkp-pacman -Sy --noconfirm
-          dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
-
-      # Copy headers (if you still want them locally)
-      - name: Copy wut headers
-        run: |
-          mkdir -p include
-          cp -r $DEVKITPRO/wut/include/* include/
-
-      - name: Build
-        run: make
-
-      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
