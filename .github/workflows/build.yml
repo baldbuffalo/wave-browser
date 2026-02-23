@@ -47,38 +47,32 @@ jobs:
         run: |
           sudo dkp-pacman -S --needed --noconfirm wiiu-dev wiiu-curl
 
-      # 5️⃣ Copy devkitPro headers into repository tree
-      - name: Copy devkitPro, wiiu-dev, and wiiu-curl headers
+      # 5️⃣ Copy WUT headers from devkitPro environment into repository tree
+      - name: Copy WUT headers
         run: |
           mkdir -p third_party/devkitpro/wut/include
-          mkdir -p third_party/devkitpro/portlibs/wiiu/include
-          mkdir -p curl
-
           cp -a "$DEVKITPRO/wut/include/." third_party/devkitpro/wut/include/
-          cp -a "$DEVKITPRO/portlibs/wiiu/include/." third_party/devkitpro/portlibs/wiiu/include/
-          cp -a "$DEVKITPRO/portlibs/wiiu/include/curl/." curl/
 
-      - name: Commit copied headers to repository
+      - name: Commit copied WUT headers to repository
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add third_party/devkitpro curl
+          git add -A third_party/devkitpro/wut/include
 
           if ! git diff --cached --quiet; then
-            git commit -m "chore: sync devkitPro and wiiu-curl headers [skip ci]"
+            git commit -m "chore: sync WUT headers from devkitPro [skip ci]"
             git push origin HEAD:main
           else
-            echo "No header changes to commit."
+            echo "No WUT header changes to commit."
           fi
 
-
-      # 7️⃣ Build project
+      # 6️⃣ Build project
       - name: Build
-        run: make
+        run: sudo make
 
-      # 8️⃣ Upload RPX / ELF artifact
+      # 7️⃣ Upload RPX / ELF artifact
       - name: Upload build artifact
         uses: actions/upload-artifact@v6
         with:
