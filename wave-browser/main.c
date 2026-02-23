@@ -2,7 +2,7 @@
 #include <vpad/input.h>
 #include <gx2/display.h>
 #include <gx2/mem.h>
-#include <gx2/shader.h>
+#include <gx2/shaders.h>
 #include <gx2/tex.h>
 #include <gx2/swap.h>
 
