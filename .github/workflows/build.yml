@@ -12,7 +12,47 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: devkitpro/wut:latest
+      image: devkitpro/wut:latestname: Build Wave Browser (WiiU)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Install dependencies: devkitPro + WUT
+      - name: Install devkitPro WiiU toolchain
+        run: |
+          mkdir -p $HOME/devkitPro
+          git clone https://github.com/devkitPro/devkitPPC.git $HOME/devkitPro/devkitPPC
+          git clone https://github.com/devkitPro/wut.git $HOME/devkitPro/wut
+          export DEVKITPRO=$HOME/devkitPro
+          export DEVKITPPC=$HOME/devkitPro/devkitPPC
+          echo "DEVKITPRO=$DEVKITPRO" >> $GITHUB_ENV
+          echo "DEVKITPPC=$DEVKITPPC" >> $GITHUB_ENV
+
+      # 3. Build the project
+      - name: Build
+        run: make
+
+      # 4. Upload artifacts
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave-browser-build
+          path: |
+            *.rpx
+            *.elf
 
     steps:
       - name: Checkout repository
