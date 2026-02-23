@@ -5,7 +5,7 @@
 #include <gx2/display.h>
 #include <gx2/mem.h>
 #include <gx2/shaders.h>
-#include <gx2/texture.h>
+#include <gx2/textures.h>
 #include <gx2/swap.h>
 
 #include <stdio.h>
@@ -13,8 +13,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-#include <curl/curl.h> // Use toolchain-provided libcurl headers
+#include <stdint.h>
+#include <curl/curl.h> // Toolchain-provided libcurl headers
 
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
@@ -23,40 +23,34 @@
 #define CURRENT_VERSION "v0.1"
 
 typedef struct {
-    float x, y;
-    float width, height;
+    float x, y, width, height;
     float progress; // 0.0 - 1.0
 } ProgressBar;
 
 ProgressBar splash_bar = {320, 600, 640, 40, 0.0f};
 
-// ============ GX2 Drawing Functions ============
+// ============ GX2 Drawing Stubs ============
 
 typedef struct {
     float r,g,b,a;
 } Color;
 
-// Draw a rectangle on screen
 void draw_rect(float x, float y, float w, float h, Color color) {
-    GX2Color clearColor = { (u8)(color.r*255), (u8)(color.g*255), (u8)(color.b*255), (u8)(color.a*255) };
-    // Here you would implement real GX2 rectangle rendering
-    // For brevity, placeholder: real implementation uses GX2Draw calls
+    // Placeholder: does nothing for now
+    (void)x; (void)y; (void)w; (void)h; (void)color;
 }
 
-// Draw progress bar on splash screen
 void draw_progress_bar(ProgressBar *bar) {
     Color background = {0.2f, 0.2f, 0.2f, 1.0f};
     Color fill = {0.0f, 0.8f, 0.0f, 1.0f};
 
-    // Draw background
     draw_rect(bar->x, bar->y, bar->width, bar->height, background);
-    // Draw filled progress
     draw_rect(bar->x, bar->y, bar->width*bar->progress, bar->height, fill);
 }
 
-// Draw centered text (replace with GX2 text rendering)
 void draw_text(const char *text, float x, float y, Color color) {
-    // Real GX2 text rendering here
+    // Placeholder: does nothing
+    (void)text; (void)x; (void)y; (void)color;
 }
 
 // ============ Libcurl Memory Callback ============
@@ -66,14 +60,14 @@ struct MemoryStruct {
 };
 
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
-    size_t realsize = size*nmemb;
+    size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct*)userp;
-    char *ptr = realloc(mem->memory, mem->size + realsize +1);
+    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
     if(!ptr) return 0;
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
     mem->size += realsize;
-    mem->memory[mem->size]=0;
+    mem->memory[mem->size] = 0;
     return realsize;
 }
 
@@ -138,16 +132,13 @@ size_t download_write_callback(void *ptr, size_t size, size_t nmemb, void *userd
     size_t bytes = size * nmemb;
     size_t written = fwrite(ptr, size, nmemb, ctx->fp);
 
-    if(written != nmemb) {
-        return 0;
-    }
+    if(written != nmemb) return 0;
 
     ctx->downloaded += bytes;
-    splash_bar.progress = (float)(ctx->downloaded) / 50e6f; // Example 50MB file
-    if(splash_bar.progress > 1.0f) {
-        splash_bar.progress = 1.0f;
-    }
+    splash_bar.progress = (float)(ctx->downloaded) / 50e6f; // Example 50MB
+    if(splash_bar.progress > 1.0f) splash_bar.progress = 1.0f;
     draw_progress_bar(&splash_bar);
+
     return bytes;
 }
 
@@ -194,17 +185,15 @@ int main(void) {
     WHBProcInit();
     VPADInit();
 
-    // Splash: Loading
     splash_bar.progress = 0.0f;
     draw_progress_bar(&splash_bar);
     draw_text("Loading...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2, (Color){1,1,1,1});
     usleep(500000);
 
-    // Splash: Checking updates
     draw_text("Checking for updates...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+50, (Color){1,1,1,1});
     char latest_tag[32];
-    if(fetch_latest_release_tag(latest_tag,sizeof(latest_tag))==0) {
-        if(strcmp(latest_tag,CURRENT_VERSION)!=0) {
+    if(fetch_latest_release_tag(latest_tag,sizeof(latest_tag)) == 0) {
+        if(strcmp(latest_tag, CURRENT_VERSION) != 0) {
             draw_text("Update found! Downloading...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
             mkdir("wave-temp",0755);
             char download_url[256];
@@ -213,12 +202,15 @@ int main(void) {
                      GITHUB_USER,GITHUB_REPO,latest_tag);
             download_file(download_url,"wave-temp/wave-browser.rpx");
             draw_text("Update complete! Please restart the app.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+150,(Color){1,1,1,1});
-        } else draw_text("No updates found.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
-    } else draw_text("Failed to check updates.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
+        } else {
+            draw_text("No updates found.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
+        }
+    } else {
+        draw_text("Failed to check updates.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
+    }
 
     draw_text("Launching Roblox login...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+200,(Color){1,1,1,1});
 
-    // Main loop
     while(WHBProcIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
