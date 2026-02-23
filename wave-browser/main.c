@@ -3,7 +3,7 @@
 #include <gx2/display.h>
 #include <gx2/mem.h>
 #include <gx2/shaders.h>
-#include <gx2/textures.h>
+#include <gx2/texture.h>
 #include <gx2/swap.h>
 
 #include <stdio.h>
