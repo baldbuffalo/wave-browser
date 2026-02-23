@@ -15,7 +15,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: ${{ github.workspace }}
@@ -70,7 +69,9 @@ jobs:
 
       # 6️⃣ Build project
       - name: Build
-        run: sudo make
+        run: |
+          test -n "$DEVKITPRO"
+          sudo --preserve-env=DEVKITPRO make
 
       # 7️⃣ Upload RPX / ELF artifact
       - name: Upload build artifact
