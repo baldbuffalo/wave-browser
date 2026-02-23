@@ -69,9 +69,7 @@ jobs:
 
       # 6️⃣ Build project
       - name: Build
-        run: |
-          test -n "$DEVKITPRO"
-          sudo --preserve-env=DEVKITPRO make
+        run: make
 
       # 7️⃣ Upload RPX / ELF artifact
       - name: Upload build artifact
