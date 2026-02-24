@@ -11,6 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Preconfigured Wii U dev environment
     container:
       image: devkitpro/wiiu-dev:latest
 
@@ -21,7 +22,7 @@ jobs:
       - name: Build project
         run: make
 
-      - name: Upload artifacts
+      - name: Upload RPX and ELF
         uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
