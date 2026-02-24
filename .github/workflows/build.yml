@@ -1,11 +1,9 @@
 name: Build Wave Browser (WiiU)
 
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,25 +13,17 @@ jobs:
       image: devkitpro/devkitppc:latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # Official way: install Wii U toolchain packages
-      - name: Install Wii U packages
-        run: |
-          dkp-pacman -Syu --noconfirm
-          dkp-pacman -S --needed --noconfirm wiiu-dev
+      - uses: actions/checkout@v4
 
       - name: Export devkitPro environment
         run: |
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
           echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
 
-      - name: Build project
+      - name: Build
         run: make
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
           path: |
