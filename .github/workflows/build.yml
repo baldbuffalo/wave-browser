@@ -11,18 +11,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # Preconfigured Wii U dev environment
     container:
-      image: devkitpro/wiiu-dev:latest
+      image: devkitpro/devkitppc:latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Export devkitPro environment
+        run: |
+          echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
+          echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
+
       - name: Build project
         run: make
 
-      - name: Upload RPX and ELF
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
