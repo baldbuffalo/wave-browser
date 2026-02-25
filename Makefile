@@ -1,28 +1,21 @@
-# -----------------------------------------------------------------------------
-# Project Settings
-# -----------------------------------------------------------------------------
+# Wave Browser Wii U Makefile (Docker devkitppc image)
 
 TARGET      := wave-browser
 BUILD       := build
-SOURCES     := .
-INCLUDES    := include
-
-PORTLIBS    := $(DEVKITPRO)/portlibs/wiiu
+SOURCES     := main.c
 
 # -----------------------------------------------------------------------------
 # Compiler & Linker Flags
 # -----------------------------------------------------------------------------
 
-CFLAGS      += -Wall -Wextra -I$(PORTLIBS)/include
-CXXFLAGS    += -Wall -Wextra -I$(PORTLIBS)/include
-LDFLAGS     += -L$(PORTLIBS)/lib
+CFLAGS      += -Wall -Wextra -D__WIIU__
+CXXFLAGS    += -Wall -Wextra -D__WIIU__
+LDFLAGS     +=
 
-# Only link curl manually.
-# WUT is linked automatically by wut_rules.
+# Libraries (link libcurl from portlibs)
 LIBS        := -lcurl
 
 # -----------------------------------------------------------------------------
-# Include WUT build system (must be last)
+# Include WUT build system (handles .elf -> .rpx)
 # -----------------------------------------------------------------------------
-
 include $(DEVKITPRO)/wut/share/wut_rules
