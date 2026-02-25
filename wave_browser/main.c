@@ -1,5 +1,3 @@
-#include <whb/log.h>
-#include <whb/log_cafe.h>
 #include <whb/proc.h>
 #include <vpad/input.h>
 #include <gx2/display.h>
@@ -14,44 +12,39 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdint.h>
-#include <curl/curl.h> // Toolchain-provided libcurl headers
+#include <curl/curl.h>
 
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 720
-#define GITHUB_USER "YourUsername"
-#define GITHUB_REPO "wave-browser"
-#define CURRENT_VERSION "v0.1"
+#define CURRENT_VERSION "v0.1.0"
+#define GITHUB_API "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
 
 typedef struct {
     float x, y, width, height;
-    float progress; // 0.0 - 1.0
+    float progress;
 } ProgressBar;
-
-ProgressBar splash_bar = {320, 600, 640, 40, 0.0f};
-
-// ============ GX2 Drawing Stubs ============
 
 typedef struct {
     float r,g,b,a;
 } Color;
+
+ProgressBar splash_bar = {320, 600, 640, 40, 0.0f};
 
 void draw_rect(float x, float y, float w, float h, Color color) {
     (void)x; (void)y; (void)w; (void)h; (void)color;
 }
 
 void draw_progress_bar(ProgressBar *bar) {
-    Color background = {0.2f, 0.2f, 0.2f, 1.0f};
-    Color fill = {0.0f, 0.8f, 0.0f, 1.0f};
-
+    Color background = {0.2f,0.2f,0.2f,1};
+    Color fill = {0.0f,0.8f,0.0f,1};
     draw_rect(bar->x, bar->y, bar->width, bar->height, background);
-    draw_rect(bar->x, bar->y, bar->width*bar->progress, bar->height, fill);
+    draw_rect(bar->x, bar->y, bar->width * bar->progress, bar->height, fill);
 }
 
 void draw_text(const char *text, float x, float y, Color color) {
     (void)text; (void)x; (void)y; (void)color;
 }
 
-// ============ Libcurl Memory Callback ============
 struct MemoryStruct {
     char *memory;
     size_t size;
@@ -60,40 +53,30 @@ struct MemoryStruct {
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct*)userp;
+
     char *ptr = realloc(mem->memory, mem->size + realsize + 1);
     if(!ptr) return 0;
+
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
     mem->size += realsize;
     mem->memory[mem->size] = 0;
+
     return realsize;
 }
 
-// ============ GitHub Release Check ============
-int fetch_latest_release_tag(char *out_tag, size_t out_size) {
-    if(out_size > 0) {
-        strncpy(out_tag, CURRENT_VERSION, out_size - 1);
-        out_tag[out_size - 1] = 0;
-    }
-
+int fetch_latest_release(char *out_tag, size_t tag_size, char *out_url, size_t url_size) {
     CURL *curl = curl_easy_init();
     if(!curl) return 1;
 
     struct MemoryStruct chunk;
     chunk.memory = malloc(1);
-    if(!chunk.memory) {
-        curl_easy_cleanup(curl);
-        return 1;
-    }
     chunk.size = 0;
 
-    char url[256];
-    snprintf(url,sizeof(url),"https://api.github.com/repos/%s/%s/releases/latest",GITHUB_USER,GITHUB_REPO);
-
-    curl_easy_setopt(curl,CURLOPT_URL,url);
-    curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,WriteMemoryCallback);
-    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&chunk);
-    curl_easy_setopt(curl,CURLOPT_USERAGENT,"wave-browser");
+    curl_easy_setopt(curl, CURLOPT_URL, GITHUB_API);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &chunk);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
 
     CURLcode res = curl_easy_perform(curl);
     if(res != CURLE_OK) {
@@ -102,15 +85,27 @@ int fetch_latest_release_tag(char *out_tag, size_t out_size) {
         return 1;
     }
 
-    char *tag_ptr = strstr(chunk.memory,"\"tag_name\":\"");
+    char *tag_ptr = strstr(chunk.memory, "\"tag_name\":\"");
     if(tag_ptr) {
-        tag_ptr += strlen("\"tag_name\":\"");
-        char *end_ptr = strchr(tag_ptr,'"');
-        if(end_ptr && out_size > 0) {
-            size_t len = end_ptr - tag_ptr;
-            if(len >= out_size) len = out_size - 1;
+        tag_ptr += 12;
+        char *end = strchr(tag_ptr,'"');
+        if(end) {
+            size_t len = end - tag_ptr;
+            if(len >= tag_size) len = tag_size - 1;
             strncpy(out_tag, tag_ptr, len);
             out_tag[len] = 0;
+        }
+    }
+
+    char *url_ptr = strstr(chunk.memory, "\"browser_download_url\":\"");
+    if(url_ptr) {
+        url_ptr += 23;
+        char *end = strchr(url_ptr,'"');
+        if(end) {
+            size_t len = end - url_ptr;
+            if(len >= url_size) len = url_size - 1;
+            strncpy(out_url, url_ptr, len);
+            out_url[len] = 0;
         }
     }
 
@@ -119,95 +114,121 @@ int fetch_latest_release_tag(char *out_tag, size_t out_size) {
     return 0;
 }
 
-// ============ File Download ============
 typedef struct {
     FILE *fp;
-    size_t downloaded;
+    curl_off_t total;
+    curl_off_t downloaded;
 } DownloadContext;
 
-size_t download_write_callback(void *ptr, size_t size, size_t nmemb, void *userdata) {
-    DownloadContext *ctx = (DownloadContext*)userdata;
-    size_t bytes = size * nmemb;
-    size_t written = fwrite(ptr, size, nmemb, ctx->fp);
+static int progress_callback(void *p,
+    curl_off_t dltotal,
+    curl_off_t dlnow,
+    curl_off_t ultotal,
+    curl_off_t ulnow) {
 
-    if(written != nmemb) return 0;
+    DownloadContext *ctx = (DownloadContext*)p;
 
-    ctx->downloaded += bytes;
-    splash_bar.progress = (float)(ctx->downloaded) / 50e6f; // Example 50MB
-    if(splash_bar.progress > 1.0f) splash_bar.progress = 1.0f;
-    draw_progress_bar(&splash_bar);
+    ctx->total = dltotal;
+    ctx->downloaded = dlnow;
 
-    return bytes;
+    if(dltotal > 0) {
+        splash_bar.progress = (float)dlnow / (float)dltotal;
+        if(splash_bar.progress > 1.0f)
+            splash_bar.progress = 1.0f;
+
+        draw_progress_bar(&splash_bar);
+    }
+
+    (void)ultotal;
+    (void)ulnow;
+
+    return 0;
 }
 
-int download_file(const char *url, const char *dest_path) {
-    CURL *curl;
-    FILE *fp;
-    CURLcode res;
-    DownloadContext download_ctx;
+int download_file(const char *url, const char *dest) {
+    CURL *curl = curl_easy_init();
+    if(!curl) return 1;
 
-    fp = fopen(dest_path,"wb");
-    if(!fp) return 1;
-
-    curl = curl_easy_init();
-    if(!curl) {
-        fclose(fp);
+    FILE *fp = fopen(dest,"wb");
+    if(!fp) {
+        curl_easy_cleanup(curl);
         return 1;
     }
 
-    download_ctx.fp = fp;
-    download_ctx.downloaded = 0;
+    DownloadContext ctx;
+    ctx.fp = fp;
+    ctx.total = 0;
+    ctx.downloaded = 0;
 
-    curl_easy_setopt(curl,CURLOPT_URL,url);
-    curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,download_write_callback);
-    curl_easy_setopt(curl,CURLOPT_WRITEDATA,&download_ctx);
-    curl_easy_setopt(curl,CURLOPT_USERAGENT,"wave-browser");
-    curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,1L);
-    curl_easy_setopt(curl,CURLOPT_FAILONERROR,1L);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 
-    res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &ctx);
+
+    CURLcode res = curl_easy_perform(curl);
+
     fclose(fp);
+    curl_easy_cleanup(curl);
 
     if(res != CURLE_OK) {
-        remove(dest_path);
+        remove(dest);
         return 1;
     }
 
     return 0;
 }
 
-// ============ Main Function ============
 int main(void) {
-    WHBLogCafeInit();
+
     WHBProcInit();
     VPADInit();
+    curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    splash_bar.progress = 0.0f;
-    draw_progress_bar(&splash_bar);
-    draw_text("Loading...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2, (Color){1,1,1,1});
+    draw_text("Wave Browser", SCREEN_WIDTH/2, SCREEN_HEIGHT/2, (Color){1,1,1,1});
     usleep(500000);
 
     draw_text("Checking for updates...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+50, (Color){1,1,1,1});
-    char latest_tag[32];
-    if(fetch_latest_release_tag(latest_tag,sizeof(latest_tag)) == 0) {
-        if(strcmp(latest_tag, CURRENT_VERSION) != 0) {
-            draw_text("Update found! Downloading...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
-            mkdir("wave-temp",0755);
-            char download_url[256];
-            snprintf(download_url,sizeof(download_url),
-                     "https://github.com/%s/%s/releases/download/%s/wave-browser.rpx",
-                     GITHUB_USER,GITHUB_REPO,latest_tag);
-            download_file(download_url,"wave-temp/wave-browser.rpx");
-            draw_text("Update complete! Please restart the app.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+150,(Color){1,1,1,1});
-        } else {
-            draw_text("No updates found.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
-        }
-    } else {
-        draw_text("Failed to check updates.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,(Color){1,1,1,1});
-    }
 
-    draw_text("Launching Roblox login...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2+200,(Color){1,1,1,1});
+    char latest_tag[64] = {0};
+    char download_url[256] = {0};
+
+    if(fetch_latest_release(latest_tag, sizeof(latest_tag),
+                            download_url, sizeof(download_url)) == 0) {
+
+        if(strcmp(latest_tag, CURRENT_VERSION) != 0) {
+
+            draw_text("Update found. Downloading...", SCREEN_WIDTH/2,
+                      SCREEN_HEIGHT/2+100, (Color){1,1,1,1});
+
+            mkdir("wave-update",0755);
+            splash_bar.progress = 0.0f;
+
+            if(download_file(download_url, "wave-update/wave-browser.rpx") == 0) {
+                draw_text("Download complete. Restart app.",
+                          SCREEN_WIDTH/2, SCREEN_HEIGHT/2+150,
+                          (Color){1,1,1,1});
+            } else {
+                draw_text("Download failed.",
+                          SCREEN_WIDTH/2, SCREEN_HEIGHT/2+150,
+                          (Color){1,1,1,1});
+            }
+
+        } else {
+            draw_text("You are up to date.",
+                      SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,
+                      (Color){1,1,1,1});
+        }
+
+    } else {
+        draw_text("Update check failed.",
+                  SCREEN_WIDTH/2, SCREEN_HEIGHT/2+100,
+                  (Color){1,1,1,1});
+    }
 
     while(WHBProcIsRunning()) {
         VPADStatus vpad;
@@ -218,8 +239,7 @@ int main(void) {
         usleep(50000);
     }
 
+    curl_global_cleanup();
     WHBProcShutdown();
-    WHBLogCafeDeinit();
-
     return 0;
 }
