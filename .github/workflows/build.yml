@@ -9,30 +9,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # Use official WUT image with WHB, WUT, libcurl pre-installed
     container:
-      image: ghcr.io/devkitpro/devkitpro/wut:latest
+      image: devkitpro/devkitppc:latest
 
     steps:
-      # Checkout your repo
       - uses: actions/checkout@v4
 
-      # Set devkitPro environment variables
       - name: Export devkitPro environment
         run: |
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
           echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
 
-      # Build
-      - name: Build Wave Browser
+      - name: Build
         run: |
-          mkdir -p build
+          make clean || true
           make
 
-      # Upload build artifacts
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
           path: |
-            build/**/*.rpx
-            build/**/*.elf
+            build/*.rpx
+            build/*.elf
