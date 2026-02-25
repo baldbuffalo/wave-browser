@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# Wave Browser – Wii U (WUT + curl, no WHB)
+# Wave Browser – Wii U (WUT + curl)
 # -----------------------------------------------------------------------------
 
 ifeq ($(strip $(DEVKITPRO)),)
@@ -48,7 +48,7 @@ $(BUILD)/$(TARGET).elf: $(OFILES)
 	$(LD) $(LDFLAGS) $^ $(LIBS) -o $@
 
 $(BUILD)/$(TARGET).rpx: $(BUILD)/$(TARGET).elf
-	$(DEVKITPRO)/wut/bin/make_rpx $< $@
+	wut-make-rpx $< -o $@
 
 clean:
 	rm -rf $(BUILD)
