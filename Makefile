@@ -41,7 +41,10 @@ LDFLAGS  += -L$(PORTLIBS)/lib
 # Libraries
 # -----------------------------------------------------------------------------
 
-LIBS := -lcurl -lwut
+# IMPORTANT:
+# Do NOT manually link -lwut.
+# wut_rules handles that automatically.
+LIBS := -lcurl
 
 .DEFAULT_GOAL := all
 
