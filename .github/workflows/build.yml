@@ -9,21 +9,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # Official WUT Docker image for Wii U development
     container:
-      image: devkitpro/devkitppc:latest
+      image: ghcr.io/devkitpro/devkitpro/wut:latest
 
     steps:
-      - uses: actions/checkout@v4
+      # Checkout your repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Export devkitPro environment
+      # Export devkitPro environment variables for Makefile
+      - name: Set devkitPro environment
         run: |
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
           echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
 
-      - name: Build
+      # Build using your Makefile
+      - name: Build Wave Browser
         run: make
 
-      - uses: actions/upload-artifact@v4
+      # Upload build artifacts (RPX/ELF)
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
           path: |
