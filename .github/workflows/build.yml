@@ -20,8 +20,10 @@ jobs:
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
           echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
 
-      - name: Build
-        run: make
+      - name: Build Wave Browser
+        run: |
+          mkdir -p build
+          make
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
