@@ -5,33 +5,39 @@ $(error "Please set DEVKITPRO in your environment.")
 endif
 
 TOPDIR ?= $(CURDIR)
-
 include $(DEVKITPRO)/wut/share/wut_rules
 
 # -----------------------------------------------------------------------------
 # Project Settings
 # -----------------------------------------------------------------------------
-
 TARGET      := wave-browser
 BUILD       := build
-SOURCES     := wave_browser   # your source folder
-INCLUDES    := include        # your headers folder
+SOURCES     := wave_browser   # source folder
+INCLUDES    := include        # project headers folder
 
 # -----------------------------------------------------------------------------
-# Compiler Flags
+# Include paths for DevkitPro libraries
 # -----------------------------------------------------------------------------
+WHB_INC     := $(DEVKITPRO)/wut/include
+CURL_INC    := $(DEVKITPRO)/portlibs/wiiu/include
 
-CFLAGS   += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP)
-CFLAGS   += $(INCLUDE) -D__WIIU__
+CFLAGS   += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP) \
+            -I$(CURDIR)/$(INCLUDES) \
+            -I$(WHB_INC) \
+            -I$(CURL_INC) \
+            -D__WIIU__
 
-CXXFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP) -std=gnu++20
+CXXFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP) -std=gnu++20 \
+            -I$(CURDIR)/$(INCLUDES) \
+            -I$(WHB_INC) \
+            -I$(CURL_INC)
+
 ASFLAGS  += $(MACHDEP)
 LDFLAGS  += -Wl,--gc-sections
 
 # -----------------------------------------------------------------------------
-# Libraries (static linking)
+# Libraries to link
 # -----------------------------------------------------------------------------
-
 LIBS := -lcurl -lwhb -lwut
 
 .DEFAULT_GOAL := all
@@ -39,7 +45,6 @@ LIBS := -lcurl -lwhb -lwut
 # -----------------------------------------------------------------------------
 # Recursive Build Setup
 # -----------------------------------------------------------------------------
-
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
 export OUTPUT := $(CURDIR)/$(TARGET)
@@ -48,7 +53,7 @@ export TOPDIR := $(CURDIR)
 # Source search paths
 export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
 
-# Source file detection
+# Detect source files
 CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
@@ -62,9 +67,6 @@ endif
 
 export OFILES_SRC := $(SFILES:.s=.o) $(CFILES:.c=.o) $(CPPFILES:.cpp=.o)
 export OFILES := $(OFILES_SRC)
-
-# Include paths
-export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) -I$(CURDIR)
 
 .PHONY: all rpx elf clean
 
@@ -85,7 +87,6 @@ clean:
 # -----------------------------------------------------------------------------
 # Subdirectory build rules
 # -----------------------------------------------------------------------------
-
 else
 
 DEPENDS := $(OFILES:.o=.d)
