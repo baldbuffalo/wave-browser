@@ -15,20 +15,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Wii U libraries
+        run: |
+          dkp-pacman -Sy --noconfirm wiiu-wut wiiu-whb wiiu-curl
+
       - name: Set devkitPro environment
         run: |
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
           echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
 
-      - name: Build Wave Browser
-        run: |
-          mkdir -p build
-          make
+      - name: Build
+        run: make
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
-          path: |
-            build/*.rpx
-            build/*.elf
+          path: build/*
