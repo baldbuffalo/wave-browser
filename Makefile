@@ -14,25 +14,34 @@ include $(DEVKITPRO)/wut/share/wut_rules
 
 TARGET      := wave-browser
 BUILD       := build
-SOURCES     := wave_browser
+SOURCES     := .
 INCLUDES    := include
+
+PORTLIBS    := $(DEVKITPRO)/portlibs/wiiu
 
 # -----------------------------------------------------------------------------
 # Compiler Flags
 # -----------------------------------------------------------------------------
 
 CFLAGS   += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP)
-CFLAGS   += $(INCLUDE) -D__WIIU__
+CFLAGS   += -I$(CURDIR)/$(INCLUDES)
+CFLAGS   += -I$(PORTLIBS)/include
+CFLAGS   += -D__WIIU__
 
 CXXFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections $(MACHDEP) -std=gnu++20
+CXXFLAGS += -I$(CURDIR)/$(INCLUDES)
+CXXFLAGS += -I$(PORTLIBS)/include
+
 ASFLAGS  += $(MACHDEP)
+
 LDFLAGS  += -Wl,--gc-sections
+LDFLAGS  += -L$(PORTLIBS)/lib
 
 # -----------------------------------------------------------------------------
-# Libraries (static linking)
+# Libraries
 # -----------------------------------------------------------------------------
 
-LIBS := -lcurl -lwhb -lwut
+LIBS := -lcurl -lwut
 
 .DEFAULT_GOAL := all
 
@@ -45,47 +54,32 @@ ifneq ($(BUILD),$(notdir $(CURDIR)))
 export OUTPUT := $(CURDIR)/$(TARGET)
 export TOPDIR := $(CURDIR)
 
-# Source search paths
-export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
+export VPATH := $(CURDIR)
 
-# Source file detection
-CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+CFILES   := $(notdir $(wildcard *.c))
+CPPFILES := $(notdir $(wildcard *.cpp))
+SFILES   := $(notdir $(wildcard *.s))
 
-# Choose linker
 ifeq ($(strip $(CPPFILES)),)
 export LD := $(CC)
 else
 export LD := $(CXX)
 endif
 
-export OFILES_SRC := $(SFILES:.s=.o) $(CFILES:.c=.o) $(CPPFILES:.cpp=.o)
-export OFILES := $(OFILES_SRC)
+export OFILES := $(SFILES:.s=.o) \
+                 $(CFILES:.c=.o) \
+                 $(CPPFILES:.cpp=.o)
 
-# Include paths
-export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-                  -I$(CURDIR)
+.PHONY: all clean
 
-.PHONY: all rpx elf clean
-
-all: rpx elf
-
-rpx: $(BUILD)
-	@$(MAKE) -C $(BUILD) -f $(CURDIR)/Makefile $(OUTPUT).rpx
-
-elf: $(BUILD)
-	@$(MAKE) -C $(BUILD) -f $(CURDIR)/Makefile $(OUTPUT).elf
+all: $(BUILD)
+	@$(MAKE) -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(BUILD):
 	@mkdir -p $@
 
 clean:
 	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).rpx
-
-# -----------------------------------------------------------------------------
-# Subdirectory build rules
-# -----------------------------------------------------------------------------
 
 else
 
