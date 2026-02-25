@@ -15,10 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Wii U libraries
-        run: |
-          dkp-pacman -Sy --noconfirm wiiu-wut wiiu-whb wiiu-curl
-
       - name: Set devkitPro environment
         run: |
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
