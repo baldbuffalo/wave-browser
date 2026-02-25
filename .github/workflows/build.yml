@@ -9,30 +9,30 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # Official DevkitPro PPC Docker image (includes Wii/WiiU tools)
+    # Use DevkitPro Docker image for Wii/WiiU/GC development
     container:
       image: devkitpro/devkitppc:latest
 
     steps:
-      # 1️⃣ Checkout your repository
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # Checkout repository
+      - uses: actions/checkout@v4
 
-      # 2️⃣ Export DevkitPro environment variables (already pre-set in the container)
-      - name: Set environment variables
+      # Export DevkitPro environment variables inside container
+      - name: Export devkitPro environment
         run: |
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
           echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
 
-      # 3️⃣ Build using Makefile
+      # Build project
       - name: Build Wave Browser
-        run: make
+        run: |
+          mkdir -p build
+          make
 
-      # 4️⃣ Upload build artifacts
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      # Upload compiled binaries as artifact
+      - uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
           path: |
-            build/**/*.rpx
-            build/**/*.elf
+            build/*.rpx
+            build/*.elf
