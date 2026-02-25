@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Export devkitPro environment
+      - name: Set devkitPro environment
         run: |
           echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
           echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
