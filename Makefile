@@ -1,57 +1,52 @@
 # -----------------------------------------------------------------------------
-# devkitPro / WUT Makefile for Wave Browser (WiiU)
+# Wave Browser Makefile for Wii U (devkitPro Docker)
 # -----------------------------------------------------------------------------
 
 ifeq ($(strip $(DEVKITPRO)),)
-$(error "Please set DEVKITPRO in your environment (e.g., /opt/devkitpro).")
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=/opt/devkitpro")
 endif
 
 TOPDIR ?= $(CURDIR)
-BUILD   ?= build
-TARGET  ?= wave-browser
 
-# Source folder
-SOURCES := wave_browser
-
-# -----------------------------------------------------------------------------
-# Compiler / Toolchain
-# -----------------------------------------------------------------------------
-CC      := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CXX     := $(DEVKITPPC)/bin/powerpc-eabi-g++
-LD      := $(CXX)
-AR      := $(DEVKITPPC)/bin/powerpc-eabi-ar
+TARGET    := wave-browser
+BUILD     := build
+SOURCES   := wave_browser
+INCLUDES  := $(DEVKITPRO)/wut/include $(DEVKITPRO)/portlibs/wiiu/include
 
 # -----------------------------------------------------------------------------
-# Compiler flags
+# Compiler and Linker Flags
 # -----------------------------------------------------------------------------
-CFLAGS   := -Wall -Wextra -ffunction-sections -fdata-sections -D__WIIU__ -I$(DEVKITPRO)/wut/include
+CFLAGS   := -Wall -Wextra -ffunction-sections -fdata-sections -D__WIIU__
+CFLAGS   += $(foreach dir,$(INCLUDES),-I$(dir))
+
 CXXFLAGS := $(CFLAGS) -std=gnu++20
-ASFLAGS  := 
+ASFLAGS  := $(CFLAGS)
 LDFLAGS  := -Wl,--gc-sections -L$(DEVKITPRO)/wut/lib -L$(DEVKITPRO)/portlibs/wiiu/lib
+LIBS     := -lwut -lwhb -lcurl
 
-# Libraries
-LIBS := -lwut -lwhb -lcurl
+CC  := $(DEVKITPPC)/bin/powerpc-eabi-gcc
+CXX := $(DEVKITPPC)/bin/powerpc-eabi-g++
+AS  := $(DEVKITPPC)/bin/powerpc-eabi-as
+LD  := $(CXX)
 
 # -----------------------------------------------------------------------------
 # Files
 # -----------------------------------------------------------------------------
-CFILES   := $(wildcard $(foreach dir,$(SOURCES),$(dir)/*.c))
-CPPFILES := $(wildcard $(foreach dir,$(SOURCES),$(dir)/*.cpp))
-OFILES   := $(CFILES:%.c=$(BUILD)/%.o) $(CPPFILES:%.cpp=$(BUILD)/%.o)
+CFILES   := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
+CPPFILES := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.cpp))
+SFILES   := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.s))
+
+OFILES := $(CFILES:%.c=$(BUILD)/%.o) $(CPPFILES:%.cpp=$(BUILD)/%.o) $(SFILES:%.s=$(BUILD)/%.o)
 
 # -----------------------------------------------------------------------------
-# Targets
+# Default target
 # -----------------------------------------------------------------------------
-.PHONY: all clean rpx elf
+.PHONY: all clean
 
-all: rpx elf
-
-rpx: $(BUILD)/$(TARGET).rpx
-
-elf: $(BUILD)/$(TARGET).elf
+all: $(BUILD)/$(TARGET).rpx $(BUILD)/$(TARGET).elf
 
 # -----------------------------------------------------------------------------
-# Build rules
+# Build object files
 # -----------------------------------------------------------------------------
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
@@ -61,16 +56,22 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(BUILD)/$(TARGET).elf: $(OFILES)
-	$(LD) $(LDFLAGS) -o $@ $^ $(LIBS)
+$(BUILD)/%.o: %.s
+	@mkdir -p $(dir $@)
+	$(AS) $(ASFLAGS) $< -o $@
 
-# Convert ELF to RPX
+# -----------------------------------------------------------------------------
+# Link targets
+# -----------------------------------------------------------------------------
+$(BUILD)/$(TARGET).elf: $(OFILES)
+	$(LD) $(LDFLAGS) $^ $(LIBS) -o $@
+
 $(BUILD)/$(TARGET).rpx: $(BUILD)/$(TARGET).elf
-	@echo "Creating RPX..."
-	wut-make-rpx $< $@
+	@echo "Generating RPX..."
+	$(DEVKITPRO)/wut/bin/make_rpx $< $@
 
 # -----------------------------------------------------------------------------
 # Clean
 # -----------------------------------------------------------------------------
 clean:
-	rm -rf $(BUILD)
+	@rm -rf $(BUILD)
