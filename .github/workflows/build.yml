@@ -2,27 +2,24 @@ name: Build Wave Browser (WiiU)
 
 on:
   push:
-    branches:
-      - main
   pull_request:
 
 jobs:
-  build-wiiu:
+  build:
     runs-on: ubuntu-latest
     container:
-      image: devkitpro/devkitppc:latest
+      image: devkitpro/devkitppc
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v4
 
-      - name: Build Wave Browser
+      - name: Build
         run: |
           make clean
           make
 
-      - name: Upload RPX artifact
-        uses: actions/upload-artifact@v6
+      - name: Upload RPX
+        uses: actions/upload-artifact@v4
         with:
-          name: wave_browser-rpx
+          name: wave_browser
           path: build/wave_browser.rpx
