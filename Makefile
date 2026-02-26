@@ -1,41 +1,51 @@
-# -------------------------------------------------------------------
-# Makefile for Wave Browser (Wii U) WUHB
-# -------------------------------------------------------------------
+#------------------------------------------------------------------------------
+# Wii U Homebrew Makefile (WUT + curl)
+#------------------------------------------------------------------------------
 
-# Compiler
-CC := /opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc
+DEVKITPRO ?= /opt/devkitpro
 
-# Flags
-CFLAGS := -O2 -Wall \
-          -I/opt/devkitpro/wut/include \
-          -I/opt/devkitpro/portlibs/wiiu/include
+TARGET      := wave_browser
+BUILD       := build
+SOURCES     := wave_browser
+INCLUDES    :=
 
-LDFLAGS := -L/opt/devkitpro/wut/lib \
-           -L/opt/devkitpro/portlibs/wiiu/lib \
-           -lwut -lcurl -lm \
-           -specs=/opt/devkitpro/wut/share/wut.specs \
-           -Wl,-Map,build/wavebrowser/wave_browser.map
+CC          := powerpc-eabi-gcc
 
-# Source
-SRC := wave_browser/main.c
+CFLAGS  := -O2 -Wall \
+            -I$(DEVKITPRO)/wut/include \
+            -I$(DEVKITPRO)/portlibs/wiiu/include
 
-# Output folder & file
-OUT_DIR := build/wavebrowser
-OUT := $(OUT_DIR)/wave_browser.rpx
+LDFLAGS := \
+    -specs=$(DEVKITPRO)/wut/share/wut.specs \
+    -L$(DEVKITPRO)/wut/lib \
+    -L$(DEVKITPRO)/portlibs/wiiu/lib \
+    -lwut \
+    -lcurl \
+    -lsocket \
+    -lssl \
+    -lcrypto \
+    -lz \
+    -lbrotlidec \
+    -lbrotlicommon \
+    -lmbedtls \
+    -lmbedx509 \
+    -lmbedcrypto \
+    -lm
 
-# -------------------------------------------------------------------
-# Targets
-# -------------------------------------------------------------------
+SFILES      := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
+OFILES      := $(addprefix $(BUILD)/,$(notdir $(SFILES:.c=.o)))
 
-all: $(OUT)
+#------------------------------------------------------------------------------
+all: $(BUILD) $(BUILD)/$(TARGET).rpx
 
-$(OUT): $(SRC)
-	@echo "Building Wave Browser WUHB..."
-	@mkdir -p $(OUT_DIR)
-	$(CC) $(CFLAGS) $(SRC) -o $(OUT) $(LDFLAGS)
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SOURCES)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/$(TARGET).rpx: $(OFILES)
+	$(CC) $^ -o $@ $(LDFLAGS)
 
 clean:
-	@echo "Cleaning build folder..."
-	@rm -rf build
-
-.PHONY: all clean
+	rm -rf $(BUILD)
