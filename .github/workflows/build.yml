@@ -1,8 +1,9 @@
-name: Build Wii U
+name: Build Wave Browser (WiiU)
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
 
 jobs:
@@ -16,26 +17,25 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y git make cmake wget tar xz-utils
+        sudo apt install -y git make cmake curl libcurl4-openssl-dev
 
-    - name: Setup devkitPro and WUT
+    - name: Setup devkitPPC & WUT 49.1
       run: |
         mkdir -p $HOME/devkitpro
         cd $HOME/devkitpro
-        # Download devkitPPC
-        wget https://github.com/devkitPro/buildscripts/releases/download/devkitPPC-20230805/devkitPPC-20230805-linux.tar.bz2
-        tar -xjf devkitPPC-20230805-linux.tar.bz2
-        # Download WUT (Wii U libraries)
-        wget https://github.com/devkitPro/buildscripts/releases/download/wut-20230805/wut-20230805-linux.tar.bz2
-        tar -xjf wut-20230805-linux.tar.bz2
-      shell: bash
+        wget https://github.com/devkitPro/buildscripts/releases/download/devkitPPC-49.1/devkitPPC-49.1-linux.tar.bz2
+        tar -xjf devkitPPC-49.1-linux.tar.bz2
+        wget https://github.com/devkitPro/buildscripts/releases/download/wut-49.1/wut-49.1-linux.tar.bz2
+        tar -xjf wut-49.1-linux.tar.bz2
 
-    - name: Build
-      env:
-        DEVKITPRO: ${{ github.workspace }}/devkitpro
-        DEVKITPPC: ${{ github.workspace }}/devkitpro/devkitPPC
-        WUT: ${{ github.workspace }}/devkitpro/wut
-        PATH: ${{ github.workspace }}/devkitpro/devkitPPC/bin:${{ github.workspace }}/devkitpro/wut/bin:$PATH
-      run: |
-        make clean
-        make all
+    - name: Add devkitPro to PATH
+      run: echo "$HOME/devkitpro/devkitPPC/bin:$HOME/devkitpro/wut/bin:$PATH" >> $GITHUB_ENV
+
+    - name: Build Project
+      run: make
+
+    - name: Upload RPX Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: wave_browser_rpx
+        path: wave_browser.rpx
