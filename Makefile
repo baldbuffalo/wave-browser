@@ -15,10 +15,12 @@ OUTPUT = $(BUILD_DIR)/$(TARGET).rpx
 CFLAGS = -O2 -Wall -I$(DEVKITPRO)/wut/include
 LDFLAGS = -L$(DEVKITPRO)/wut/lib -lwut -lproc_ui -lvpad -lcurl -lcoreinit -lm
 
-all: $(OUTPUT)
+all: $(BUILD_DIR) $(OUTPUT)
 
-$(OUTPUT): $(SRC) | $(BUILD_DIR)
+$(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
+
+$(OUTPUT): $(SRC)
 	$(DEVKITPPC)/bin/powerpc-eabi-gcc $(CFLAGS) $(SRC) -o $(OUTPUT) $(LDFLAGS)
 
 clean:
