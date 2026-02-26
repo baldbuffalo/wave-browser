@@ -2,8 +2,7 @@ name: Build Wii U
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
 
 jobs:
@@ -11,21 +10,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Set up devkitPro
+    - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y git make cmake
-        git clone https://github.com/devkitPro/pacman.git /opt/pacman
-        export PATH=/opt/pacman/bin:$PATH
-        sudo pacman -Sy --noconfirm devkitPPC wut portlibs-wiiu
+        sudo apt install -y git make cmake wget tar xz-utils
+
+    - name: Setup devkitPro and WUT
+      run: |
+        mkdir -p $HOME/devkitpro
+        cd $HOME/devkitpro
+        # Download devkitPPC
+        wget https://github.com/devkitPro/buildscripts/releases/download/devkitPPC-20230805/devkitPPC-20230805-linux.tar.bz2
+        tar -xjf devkitPPC-20230805-linux.tar.bz2
+        # Download WUT (Wii U libraries)
+        wget https://github.com/devkitPro/buildscripts/releases/download/wut-20230805/wut-20230805-linux.tar.bz2
+        tar -xjf wut-20230805-linux.tar.bz2
+      shell: bash
 
     - name: Build
       env:
-        DEVKITPRO: /opt/devkitpro
-        DEVKITPPC: /opt/devkitpro/devkitPPC
+        DEVKITPRO: ${{ github.workspace }}/devkitpro
+        DEVKITPPC: ${{ github.workspace }}/devkitpro/devkitPPC
+        WUT: ${{ github.workspace }}/devkitpro/wut
+        PATH: ${{ github.workspace }}/devkitpro/devkitPPC/bin:${{ github.workspace }}/devkitpro/wut/bin:$PATH
       run: |
         make clean
         make all
