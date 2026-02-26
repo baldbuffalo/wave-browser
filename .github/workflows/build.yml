@@ -1,28 +1,40 @@
-name: Build Wave Browser (WiiU)
+#-------------------------------------------------------------------------------
+# Makefile for Wave Browser (WiiU)
+#-------------------------------------------------------------------------------
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
+# Toolchain paths (preinstalled in devkitpro/devkitppc container)
+DEVKITPRO ?= /opt/devkitpro
+DEVKITPPC := $(DEVKITPRO)/devkitPPC
+WUT := $(DEVKITPRO)/wut
+WIIU_CURL := $(DEVKITPRO)/wiiu-curl
 
-jobs:
-  build-wiiu:
-    runs-on: ubuntu-latest
-    container:
-      image: devkitpro/devkitppc:latest
+# Compiler and flags
+CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
+CFLAGS := -O2 -Wall \
+           -I$(WUT)/include \
+           -I$(WIIU_CURL)/include
+LDFLAGS := -L$(WUT)/lib -L$(WIIU_CURL)/lib \
+           -lwut -lproc_ui -lvpad -lcurl -lcoreinit -lm
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6.0.2
+# Source and build directories
+SRC_DIR := wave_browser
+BUILD_DIR := build
+TARGET := $(BUILD_DIR)/wave_browser.rpx
 
-      - name: Build Wave Browser
-        run: |
-          make clean
-          make
+# Sources
+SOURCES := $(SRC_DIR)/main.c
 
-      - name: Upload RPX artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: wave_browser-rpx
-          path: build/wave_browser.rpx
+#-------------------------------------------------------------------------------
+# Build rules
+#-------------------------------------------------------------------------------
+
+all: $(TARGET)
+
+$(TARGET): $(SOURCES) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+clean:
+	rm -rf $(BUILD_DIR)
