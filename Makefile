@@ -1,46 +1,46 @@
 #-------------------------------------------------------------------------------
-.SUFFIXES:
+# Paths
 #-------------------------------------------------------------------------------
-
-ifeq ($(strip $(DEVKITPRO)),)
-$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>/devkitpro")
-endif
-
-CURDIR := $(shell pwd)
-TARGET := wave-browser
-BUILD  := build
-SOURCES := wave_browser
+DEVKITPRO ?= /opt/devkitpro
+DEVKITPPC  ?= $(DEVKITPRO)/devkitPPC
+WUT        ?= $(DEVKITPRO)/wut
 
 #-------------------------------------------------------------------------------
-# Compiler Flags
+# Compiler / Linker
 #-------------------------------------------------------------------------------
-CFLAGS   := -Wall -Wextra -ffunction-sections -fdata-sections -D__WIIU__
-CFLAGS   += -I$(DEVKITPRO)/wut/include -I$(DEVKITPRO)/portlibs/wiiu/include
+CC      := $(DEVKITPPC)/bin/powerpc-eabi-gcc
+CXX     := $(DEVKITPPC)/bin/powerpc-eabi-g++
+AR      := $(DEVKITPPC)/bin/powerpc-eabi-ar
+OBJCOPY := $(DEVKITPPC)/bin/powerpc-eabi-objcopy
 
+#-------------------------------------------------------------------------------
+# Flags
+#-------------------------------------------------------------------------------
+CFLAGS   := -m32 -Wall -Wextra -ffunction-sections -fdata-sections -D__WIIU__ \
+            -I$(WUT)/include -I$(DEVKITPRO)/portlibs/wiiu/include
 CXXFLAGS := $(CFLAGS) -std=gnu++20
-LDFLAGS  := -Wl,--gc-sections
-LIBS     := -lwut -lcurl
+LDFLAGS  := -m32 -Wl,-O2 -L$(WUT)/lib -lwut
 
 #-------------------------------------------------------------------------------
-# Source files
+# Sources / Build
 #-------------------------------------------------------------------------------
-CFILES := $(CURDIR)/wave_browser/main.c
-OFILES := $(CFILES:%.c=$(BUILD)/%.o)
+SRC_DIR := wave_browser
+BUILD   := build
+SRC     := $(wildcard $(SRC_DIR)/*.c)
+OBJ     := $(SRC:$(SRC_DIR)/%.c=$(BUILD)/%.o)
+TARGET  := $(BUILD)/wave_browser.elf
 
 #-------------------------------------------------------------------------------
 # Rules
 #-------------------------------------------------------------------------------
-all: $(BUILD)/$(TARGET).rpx
+all: $(TARGET)
 
-$(BUILD)/%.o: %.c
-	@mkdir -p $(dir $@)
+$(BUILD)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/$(TARGET).elf: $(OFILES)
-	$(CXX) $(OFILES) $(LDFLAGS) -L$(DEVKITPRO)/wut/lib -L$(DEVKITPRO)/portlibs/wiiu/lib $(LIBS) -o $@
-
-$(BUILD)/$(TARGET).rpx: $(BUILD)/$(TARGET).elf
-	$(DEVKITPRO)/wut/bin/wut-make-rpx $< -o $@
+$(TARGET): $(OBJ)
+	$(CC) $(OBJ) $(LDFLAGS) -o $@
 
 clean:
 	rm -rf $(BUILD)
