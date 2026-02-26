@@ -1,40 +1,37 @@
 #-------------------------------------------------------------------------------
-# Makefile for Wave Browser (WiiU)
+# Wave Browser (Wii U)
 #-------------------------------------------------------------------------------
 
-# Toolchain paths (preinstalled in devkitpro/devkitppc container)
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC := $(DEVKITPRO)/devkitPPC
+PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
 WUT := $(DEVKITPRO)/wut
-WIIU_CURL := $(DEVKITPRO)/wiiu-curl
 
-# Compiler and flags
 CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CFLAGS := -O2 -Wall \
-           -I$(WUT)/include \
-           -I$(WIIU_CURL)/include
-LDFLAGS := -L$(WUT)/lib -L$(WIIU_CURL)/lib \
-           -lwut -lproc_ui -lvpad -lcurl -lcoreinit -lm
 
-# Source and build directories
 SRC_DIR := wave_browser
 BUILD_DIR := build
 TARGET := $(BUILD_DIR)/wave_browser.rpx
-
-# Sources
 SOURCES := $(SRC_DIR)/main.c
 
-#-------------------------------------------------------------------------------
-# Build rules
+CFLAGS := -O2 -Wall \
+          -I$(WUT)/include \
+          -I$(PORTLIBS)/include
+
+LDFLAGS := -L$(WUT)/lib \
+           -L$(PORTLIBS)/lib
+
+LIBS := -lwut -lproc_ui -lvpad -lcoreinit -lcurl -lm
+
 #-------------------------------------------------------------------------------
 
 all: $(TARGET)
 
-$(TARGET): $(SOURCES) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
-
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
+
+$(TARGET): $(SOURCES) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SOURCES) -o $@ $(LDFLAGS) $(LIBS)
 
 clean:
 	rm -rf $(BUILD_DIR)
