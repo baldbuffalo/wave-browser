@@ -4,38 +4,30 @@ on:
   push:
     branches:
       - main
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitu:latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6.0.2
+      - name: Checkout code
+        uses: actions/checkout@v6.0.2
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y git make cmake curl libcurl4-openssl-dev
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl make
 
-    - name: Setup devkitPPC & WUT 49.1
-      run: |
-        mkdir -p $HOME/devkitpro
-        cd $HOME/devkitpro
-        wget https://github.com/devkitPro/buildscripts/releases/download/devkitPPC-49.1/devkitPPC-49.1-linux.tar.bz2
-        tar -xjf devkitPPC-49.1-linux.tar.bz2
-        wget https://github.com/devkitPro/buildscripts/releases/download/wut-49.1/wut-49.1-linux.tar.bz2
-        tar -xjf wut-49.1-linux.tar.bz2
+      - name: Build Wave Browser
+        run: |
+          make clean
+          make
 
-    - name: Add devkitPro to PATH
-      run: echo "$HOME/devkitpro/devkitPPC/bin:$HOME/devkitpro/wut/bin:$PATH" >> $GITHUB_ENV
-
-    - name: Build Project
-      run: make
-
-    - name: Upload RPX Artifact
-      uses: actions/upload-artifact@v6
-      with:
-        name: wave_browser_rpx
-        path: wave_browser.rpx
+      - name: Upload RPX Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: wave_browser-rpx
+          path: build/wave_browser.rpx
