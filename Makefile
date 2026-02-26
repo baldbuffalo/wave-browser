@@ -1,54 +1,28 @@
-# -----------------------------------------------------------------------------
-# Wave Browser – Wii U (WUT + curl)
-# -----------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+# Wave Browser - Official WUT Makefile
+#---------------------------------------------------------------------------------
+
+TARGET      := wave-browser
+BUILD       := build
+SOURCES     := wave_browser
+DATA        :=
+INCLUDES    :=
+
+#---------------------------------------------------------------------------------
+# Options
+#---------------------------------------------------------------------------------
+
+CFLAGS      := -Wall -Wextra -O2
+CXXFLAGS    := $(CFLAGS)
+
+LIBS        := -lcurl
+
+#---------------------------------------------------------------------------------
+# DO NOT EDIT BELOW THIS LINE
+#---------------------------------------------------------------------------------
 
 ifeq ($(strip $(DEVKITPRO)),)
-$(error DEVKITPRO is not set. Use /opt/devkitpro)
+$(error Please set DEVKITPRO in your environment.)
 endif
 
-TARGET  := wave-browser
-BUILD   := build
-SOURCES := wave_browser
-
-INCLUDES := -I$(DEVKITPRO)/wut/include \
-            -I$(DEVKITPRO)/portlibs/wiiu/include
-
-CFLAGS   := -Wall -Wextra -ffunction-sections -fdata-sections -D__WIIU__ $(INCLUDES)
-CXXFLAGS := $(CFLAGS) -std=gnu++20
-
-LDFLAGS  := -Wl,--gc-sections \
-            -L$(DEVKITPRO)/wut/lib \
-            -L$(DEVKITPRO)/portlibs/wiiu/lib
-
-LIBS := -lwut -lcurl
-
-CC  := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CXX := $(DEVKITPPC)/bin/powerpc-eabi-g++
-LD  := $(CXX)
-
-CFILES   := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
-CPPFILES := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.cpp))
-
-OFILES := $(CFILES:%.c=$(BUILD)/%.o) \
-          $(CPPFILES:%.cpp=$(BUILD)/%.o)
-
-.PHONY: all clean
-
-all: $(BUILD)/$(TARGET).rpx
-
-$(BUILD)/%.o: %.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/%.o: %.cpp
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD)/$(TARGET).elf: $(OFILES)
-	$(LD) $(LDFLAGS) $^ $(LIBS) -o $@
-
-$(BUILD)/$(TARGET).rpx: $(BUILD)/$(TARGET).elf
-	wut-make-rpx $< -o $@
-
-clean:
-	rm -rf $(BUILD)
+include $(DEVKITPRO)/wut/share/wut_rules
