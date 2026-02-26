@@ -2,59 +2,75 @@
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
+#include <socketcore/socket.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <curl/curl.h>
 
 #define CURRENT_VERSION "v0.1.0"
-#define GITHUB_API "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
+#define GITHUB_HOST "api.github.com"
+#define GITHUB_PORT 443
+#define GITHUB_API "/repos/baldbuffalo/wave-browser/releases/latest"
 
 struct MemoryStruct {
     char *memory;
     size_t size;
 };
 
-static size_t WriteMemoryCallback(void *contents, size_t size,
-                                  size_t nmemb, void *userp)
-{
-    size_t realsize = size * nmemb;
-    struct MemoryStruct *mem = (struct MemoryStruct*)userp;
-
-    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
-    if(!ptr) return 0;
-
-    mem->memory = ptr;
-    memcpy(&(mem->memory[mem->size]), contents, realsize);
-    mem->size += realsize;
-    mem->memory[mem->size] = 0;
-
-    return realsize;
-}
-
 int fetch_latest_release(char *out_tag, size_t tag_size)
 {
-    CURL *curl = curl_easy_init();
-    if(!curl) return 1;
+    SC_Socket sock;
+    SC_SockAddr addr;
+    char buffer[4096];
+    int ret;
+
+    // Resolve host
+    ret = SC_GetAddr(GITHUB_HOST, GITHUB_PORT, &addr);
+    if(ret != 0) return 1;
+
+    // Open socket
+    sock = SC_Socket(SC_AF_INET, SC_SOCK_STREAM, 0);
+    if(sock < 0) return 1;
+
+    // Connect
+    ret = SC_Connect(sock, &addr, sizeof(addr));
+    if(ret != 0) {
+        SC_Close(sock);
+        return 1;
+    }
+
+    // Send HTTPS request (Wii U does not support SSL by default; this is plain HTTP request simulation)
+    char request[512];
+    snprintf(request, sizeof(request),
+             "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: wave-browser\r\n\r\n",
+             GITHUB_API, GITHUB_HOST);
+
+    SC_Send(sock, request, strlen(request), 0);
 
     struct MemoryStruct chunk;
     chunk.memory = malloc(1);
     chunk.size = 0;
 
-    curl_easy_setopt(curl, CURLOPT_URL, GITHUB_API);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
-
-    CURLcode res = curl_easy_perform(curl);
-    if(res != CURLE_OK) {
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
-        return 1;
+    // Receive response
+    while((ret = SC_Recv(sock, buffer, sizeof(buffer)-1, 0)) > 0) {
+        buffer[ret] = 0;
+        char *ptr = realloc(chunk.memory, chunk.size + ret + 1);
+        if(!ptr) {
+            free(chunk.memory);
+            SC_Close(sock);
+            return 1;
+        }
+        chunk.memory = ptr;
+        memcpy(&(chunk.memory[chunk.size]), buffer, ret);
+        chunk.size += ret;
+        chunk.memory[chunk.size] = 0;
     }
 
+    SC_Close(sock);
+
+    // Parse JSON manually for "tag_name"
     char *tag_ptr = strstr(chunk.memory, "\"tag_name\":\"");
     if(tag_ptr) {
         tag_ptr += 12;
@@ -67,7 +83,6 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
         }
     }
 
-    curl_easy_cleanup(curl);
     free(chunk.memory);
     return 0;
 }
@@ -76,7 +91,6 @@ int main(void)
 {
     ProcUIInit(NULL);
     VPADInit();
-    curl_global_init(CURL_GLOBAL_DEFAULT);
 
     printf("Wave Browser\n");
     printf("Checking for updates...\n");
@@ -103,7 +117,6 @@ int main(void)
         usleep(50000);
     }
 
-    curl_global_cleanup();
     ProcUIShutdown();
     return 0;
 }
