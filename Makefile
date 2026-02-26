@@ -1,33 +1,27 @@
-#-------------------------------------------------------------------------------
-# Makefile for Wave Browser (WiiU) - builds .rpx
-#-------------------------------------------------------------------------------
+# Makefile for Wave Browser (Wii U)
 
-ifndef DEVKITPRO
-$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path>")
-endif
+# Toolchain paths (from devkitPro pacman install)
+export DEVKITPRO ?= /opt/devkitpro
+export DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
+export PATH := $(DEVKITPPC)/bin:$(PATH)
 
-include $(DEVKITPRO)/wut/share/wut/make/wut_rules
-
+# Project
 TARGET = wave_browser
-BUILD = build
-SRC = $(wildcard wave_browser/*.c)
-OBJ = $(SRC:%.c=$(BUILD)/%.o)
+SRC = wave_browser/main.c
+BUILD_DIR = build
+OUTPUT = $(BUILD_DIR)/$(TARGET).rpx
 
-CFLAGS = -O2 -Wall -I$(DEVKITPRO)/wut/include -I$(DEVKITPRO)/wut/include/libcurl
-LDFLAGS = -lcurl -lwut -lm
+# Compiler flags
+CFLAGS = -O2 -Wall -I$(DEVKITPRO)/wut/include
+LDFLAGS = -L$(DEVKITPRO)/wut/lib -lwut -lproc_ui -lvpad -lcurl -lcoreinit -lm
 
-all: $(TARGET).rpx
+all: $(OUTPUT)
 
-$(BUILD)/%.o: %.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(TARGET).elf: $(OBJ)
-	$(CC) $(OBJ) $(LDFLAGS) -o $@
-
-# Convert ELF to RPX
-$(TARGET).rpx: $(TARGET).elf
-	wut-make-rpx $< $@
+$(OUTPUT): $(SRC) | $(BUILD_DIR)
+	mkdir -p $(BUILD_DIR)
+	$(DEVKITPPC)/bin/powerpc-eabi-gcc $(CFLAGS) $(SRC) -o $(OUTPUT) $(LDFLAGS)
 
 clean:
-	rm -rf $(BUILD) $(TARGET).elf $(TARGET).rpx
+	rm -rf $(BUILD_DIR)
+
+.PHONY: all clean
