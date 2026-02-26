@@ -12,18 +12,26 @@ jobs:
     container:
       image: devkitpro/devkitppc:latest
 
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set devkitPro environment
+      - name: Show repo contents
         run: |
-          echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
-          echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
+          pwd
+          ls -R
 
-      - name: Build
+      - name: Create build folder
+        run: mkdir -p build
+
+      - name: Build Wave Browser
         run: make
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: wave-browser-build
-          path: build/*
+          path: build/*.rpx
