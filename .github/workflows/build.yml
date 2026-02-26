@@ -16,11 +16,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6.0.2
 
-      - name: Update devkitPro portlibs
-        run: |
-          dkp-pacman -Syu --noconfirm
-          dkp-pacman -S --noconfirm devkitPPC wut wiiu-curl
-
       - name: Build Wave Browser
         run: |
           make clean
