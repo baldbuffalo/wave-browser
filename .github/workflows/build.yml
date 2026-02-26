@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: devkitpro/devkitu:latest
+      image: devkitpro/devkitppc:latest
 
     steps:
       - name: Checkout code
