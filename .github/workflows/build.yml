@@ -4,10 +4,10 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  pull_request:
 
 jobs:
-  build:
+  build-wiiu:
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitppc:latest
@@ -16,17 +16,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6.0.2
 
-      - name: Install dependencies
+      - name: Update devkitPro portlibs
         run: |
-          apt-get update
-          apt-get install -y curl make
+          dkp-pacman -Syu --noconfirm
+          dkp-pacman -S --noconfirm devkitPPC wut wiiu-curl
 
       - name: Build Wave Browser
         run: |
           make clean
           make
 
-      - name: Upload RPX Artifact
+      - name: Upload RPX artifact
         uses: actions/upload-artifact@v6
         with:
           name: wave_browser-rpx
