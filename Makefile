@@ -1,33 +1,41 @@
-# Paths
-BUILD_DIR := build
-WUHB_DIR := $(BUILD_DIR)/wavebrowser
+# -------------------------------------------------------------------
+# Makefile for Wave Browser (Wii U) WUHB
+# -------------------------------------------------------------------
 
-# Default target
-all: $(WUHB_DIR)
+# Compiler
+CC := /opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc
 
-# Build and create WUHB directly
-$(WUHB_DIR):
+# Flags
+CFLAGS := -O2 -Wall \
+          -I/opt/devkitpro/wut/include \
+          -I/opt/devkitpro/portlibs/wiiu/include
+
+LDFLAGS := -L/opt/devkitpro/wut/lib \
+           -L/opt/devkitpro/portlibs/wiiu/lib \
+           -lwut -lcurl -lm \
+           -specs=/opt/devkitpro/wut/share/wut.specs \
+           -Wl,-Map,build/wavebrowser/wave_browser.map
+
+# Source
+SRC := wave_browser/main.c
+
+# Output folder & file
+OUT_DIR := build/wavebrowser
+OUT := $(OUT_DIR)/wave_browser.rpx
+
+# -------------------------------------------------------------------
+# Targets
+# -------------------------------------------------------------------
+
+all: $(OUT)
+
+$(OUT): $(SRC)
 	@echo "Building Wave Browser WUHB..."
-	@mkdir -p $(WUHB_DIR)
-	# Build RPX directly inside the WUHB folder
-	/opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc -O2 -Wall \
-	-I/opt/devkitpro/wut/include \
-	-I/opt/devkitpro/portlibs/wiiu/include \
-	wave_browser/main.c \
-	-o $(WUHB_DIR)/wave_browser.rpx \
-	-L/opt/devkitpro/wut/lib \
-	-L/opt/devkitpro/portlibs/wiiu/lib \
-	-lwut -lcoreinit -lm -lcurl \
-	-specs=/opt/devkitpro/wut/share/wut.specs \
-	-Wl,-Map,$(WUHB_DIR)/wave_browser.map
+	@mkdir -p $(OUT_DIR)
+	$(CC) $(CFLAGS) $(SRC) -o $(OUT) $(LDFLAGS)
 
-	# Create meta.xml for Aroma
-	@echo '<homebrew>' > $(WUHB_DIR)/meta.xml
-	@echo '  <name>Wave Browser</name>' >> $(WUHB_DIR)/meta.xml
-	@echo '  <author>baldbuffalo</author>' >> $(WUHB_DIR)/meta.xml
-	@echo '  <version>v0.1.0</version>' >> $(WUHB_DIR)/meta.xml
-	@echo '</homebrew>' >> $(WUHB_DIR)/meta.xml
-
-# Clean
 clean:
-	@rm -rf $(BUILD_DIR)
+	@echo "Cleaning build folder..."
+	@rm -rf build
+
+.PHONY: all clean
