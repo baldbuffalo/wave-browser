@@ -1,5 +1,5 @@
 #-------------------------------------------------------------------------------
-# Wave Browser (Wii U)
+# Wave Browser (Wii U - WUT Proper Build)
 #-------------------------------------------------------------------------------
 
 DEVKITPRO ?= /opt/devkitpro
@@ -18,10 +18,11 @@ CFLAGS := -O2 -Wall \
           -I$(WUT)/include \
           -I$(PORTLIBS)/include
 
-LDFLAGS := -L$(WUT)/lib \
+LDFLAGS := -specs=$(WUT)/share/wut.specs \
+           -Wl,-Map,$(BUILD_DIR)/wave_browser.map \
            -L$(PORTLIBS)/lib
 
-LIBS := -lwut -lproc_ui -lvpad -lcoreinit -lcurl -lm
+LIBS := -lcurl -lwut -lm
 
 #-------------------------------------------------------------------------------
 
