@@ -1,38 +1,33 @@
-#-------------------------------------------------------------------------------
-# Wave Browser (Wii U Proper WUT Build)
-#-------------------------------------------------------------------------------
-
-DEVKITPRO ?= /opt/devkitpro
-DEVKITPPC := $(DEVKITPRO)/devkitPPC
-PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
-WUT := $(DEVKITPRO)/wut
-
-CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-
-SRC_DIR := wave_browser
+# Paths
 BUILD_DIR := build
-TARGET := $(BUILD_DIR)/wave_browser.rpx
-SOURCES := $(SRC_DIR)/main.c
+WUHB_DIR := $(BUILD_DIR)/wavebrowser
 
-CFLAGS := -O2 -Wall \
-          -I$(WUT)/include \
-          -I$(PORTLIBS)/include
+# Default target
+all: $(WUHB_DIR)
 
-LDFLAGS := -specs=$(WUT)/share/wut.specs \
-           -Wl,-Map,$(BUILD_DIR)/wave_browser.map \
-           -L$(PORTLIBS)/lib
+# Build and create WUHB directly
+$(WUHB_DIR):
+	@echo "Building Wave Browser WUHB..."
+	@mkdir -p $(WUHB_DIR)
+	# Build RPX directly inside the WUHB folder
+	/opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc -O2 -Wall \
+	-I/opt/devkitpro/wut/include \
+	-I/opt/devkitpro/portlibs/wiiu/include \
+	wave_browser/main.c \
+	-o $(WUHB_DIR)/wave_browser.rpx \
+	-L/opt/devkitpro/wut/lib \
+	-L/opt/devkitpro/portlibs/wiiu/lib \
+	-lwut -lcoreinit -lm -lcurl \
+	-specs=/opt/devkitpro/wut/share/wut.specs \
+	-Wl,-Map,$(WUHB_DIR)/wave_browser.map
 
-LIBS := -lcurl -lm
+	# Create meta.xml for Aroma
+	@echo '<homebrew>' > $(WUHB_DIR)/meta.xml
+	@echo '  <name>Wave Browser</name>' >> $(WUHB_DIR)/meta.xml
+	@echo '  <author>baldbuffalo</author>' >> $(WUHB_DIR)/meta.xml
+	@echo '  <version>v0.1.0</version>' >> $(WUHB_DIR)/meta.xml
+	@echo '</homebrew>' >> $(WUHB_DIR)/meta.xml
 
-#-------------------------------------------------------------------------------
-
-all: $(TARGET)
-
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
-
-$(TARGET): $(SOURCES) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SOURCES) -o $@ $(LDFLAGS) $(LIBS)
-
+# Clean
 clean:
-	rm -rf $(BUILD_DIR)
+	@rm -rf $(BUILD_DIR)
