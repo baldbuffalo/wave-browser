@@ -1,48 +1,33 @@
 #-------------------------------------------------------------------------------
-# Paths
+# Makefile for Wave Browser (WiiU) - builds .rpx
 #-------------------------------------------------------------------------------
-DEVKITPRO ?= /opt/devkitpro
-DEVKITPPC  ?= $(DEVKITPRO)/devkitPPC
-WUT        ?= $(DEVKITPRO)/wut
 
-#-------------------------------------------------------------------------------
-# Compiler / Linker
-#-------------------------------------------------------------------------------
-CC      := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CXX     := $(DEVKITPPC)/bin/powerpc-eabi-g++
-AR      := $(DEVKITPPC)/bin/powerpc-eabi-ar
-OBJCOPY := $(DEVKITPPC)/bin/powerpc-eabi-objcopy
+ifndef DEVKITPRO
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path>")
+endif
 
-#-------------------------------------------------------------------------------
-# Flags
-#-------------------------------------------------------------------------------
-CFLAGS   := -m32 -Wall -Wextra -ffunction-sections -fdata-sections -D__WIIU__ \
-            -I$(WUT)/include -I$(DEVKITPRO)/portlibs/wiiu/include
-CXXFLAGS := $(CFLAGS) -std=gnu++20
-LDFLAGS  := -m32 -Wl,-O2 -L$(WUT)/lib -lwut
+include $(DEVKITPRO)/wut/share/wut/make/wut_rules
 
-#-------------------------------------------------------------------------------
-# Sources / Build
-#-------------------------------------------------------------------------------
-SRC_DIR := wave_browser
-BUILD   := build
-SRC     := $(wildcard $(SRC_DIR)/*.c)
-OBJ     := $(SRC:$(SRC_DIR)/%.c=$(BUILD)/%.o)
-TARGET  := $(BUILD)/wave_browser.elf
+TARGET = wave_browser
+BUILD = build
+SRC = $(wildcard wave_browser/*.c)
+OBJ = $(SRC:%.c=$(BUILD)/%.o)
 
-#-------------------------------------------------------------------------------
-# Rules
-#-------------------------------------------------------------------------------
-all: $(TARGET)
+CFLAGS = -O2 -Wall -I$(DEVKITPRO)/wut/include -I$(DEVKITPRO)/wut/include/libcurl
+LDFLAGS = -lcurl -lwut -lm
 
-$(BUILD)/%.o: $(SRC_DIR)/%.c
-	@mkdir -p $(BUILD)
+all: $(TARGET).rpx
+
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): $(OBJ)
+$(TARGET).elf: $(OBJ)
 	$(CC) $(OBJ) $(LDFLAGS) -o $@
 
-clean:
-	rm -rf $(BUILD)
+# Convert ELF to RPX
+$(TARGET).rpx: $(TARGET).elf
+	wut-make-rpx $< $@
 
-.PHONY: all clean
+clean:
+	rm -rf $(BUILD) $(TARGET).elf $(TARGET).rpx
