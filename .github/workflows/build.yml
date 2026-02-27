@@ -27,7 +27,7 @@ jobs:
       run: make clean all
 
     - name: Upload WUHB artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: wave_browser_wuhb
         path: build/wavebrowser/wave_browser.wuhb
