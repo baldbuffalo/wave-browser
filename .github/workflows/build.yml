@@ -16,9 +16,13 @@ jobs:
 
       - name: Build WUHB
         run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITPPC=$DEVKITPRO/devkitPPC
+          export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+
           make clean
           make
-          
+
       - name: Upload WUHB
         uses: actions/upload-artifact@v7.0.0
         with:
