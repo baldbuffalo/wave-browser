@@ -1,51 +1,24 @@
-#------------------------------------------------------------------------------
-# Wii U Homebrew Makefile (WUT + curl)
-#------------------------------------------------------------------------------
+# Makefile
+RPX=build/wavebrowser/wave_browser.rpx
+WUHB=build/wavebrowser/wave_browser.wuhb
+ICON=icon.png
+META=meta.xml
 
-DEVKITPRO ?= /opt/devkitpro
+all: $(RPX) $(WUHB)
 
-TARGET      := wave_browser
-BUILD       := build
-SOURCES     := wave_browser
-INCLUDES    :=
+# Existing RPX build
+$(RPX): wave_browser/main.c
+	@echo "Building Wave Browser RPX..."
+	$(DEVKITPPC)/bin/powerpc-eabi-gcc -O2 -Wall -I$(WUT)/include -I$(PORTLIBS)/wiiu/include $< -o $@ -L$(WUT)/lib -L$(PORTLIBS)/wiiu/lib -lwut -lcurl -lm -specs=$(WUT)/share/wut.specs
 
-CC          := powerpc-eabi-gcc
-
-CFLAGS  := -O2 -Wall \
-            -I$(DEVKITPRO)/wut/include \
-            -I$(DEVKITPRO)/portlibs/wiiu/include
-
-LDFLAGS := \
-    -specs=$(DEVKITPRO)/wut/share/wut.specs \
-    -L$(DEVKITPRO)/wut/lib \
-    -L$(DEVKITPRO)/portlibs/wiiu/lib \
-    -lwut \
-    -lcurl \
-    -lsocket \
-    -lssl \
-    -lcrypto \
-    -lz \
-    -lbrotlidec \
-    -lbrotlicommon \
-    -lmbedtls \
-    -lmbedx509 \
-    -lmbedcrypto \
-    -lm
-
-SFILES      := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
-OFILES      := $(addprefix $(BUILD)/,$(notdir $(SFILES:.c=.o)))
-
-#------------------------------------------------------------------------------
-all: $(BUILD) $(BUILD)/$(TARGET).rpx
-
-$(BUILD):
-	mkdir -p $(BUILD)
-
-$(BUILD)/%.o: $(SOURCES)/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/$(TARGET).rpx: $(OFILES)
-	$(CC) $^ -o $@ $(LDFLAGS)
+# New WUHB build
+$(WUHB): $(RPX) $(ICON) $(META)
+	@echo "Packaging WUHB..."
+	mkdir -p $(dir $@)/temp
+	cp $(RPX) $(ICON) $(META) $(dir $@)/temp
+	cd $(dir $@)/temp && zip -r ../$(notdir $@) *
+	rm -rf $(dir $@)/temp
 
 clean:
-	rm -rf $(BUILD)
+	@echo "Cleaning build..."
+	rm -rf build
