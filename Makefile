@@ -1,61 +1,36 @@
-# ---------------------------------------------------------
-# Wave Browser - WiiU (WUT + curl)
-# ---------------------------------------------------------
-
 DEVKITPRO ?= /opt/devkitpro
-TARGET      := wave_browser
-BUILD       := build
-SRC_DIR     := wave_browser
+DEVKITPPC := $(DEVKITPRO)/devkitPPC
+WUT := $(DEVKITPRO)/wut
 
 CC := powerpc-eabi-gcc
 
 CFLAGS := -O2 -Wall \
-	-I$(DEVKITPRO)/wut/include \
-	-I$(DEVKITPRO)/portlibs/wiiu/include
+-I$(WUT)/include \
+-I$(DEVKITPRO)/portlibs/wiiu/include
 
 LDFLAGS := \
-	-specs=$(DEVKITPRO)/wut/share/wut.specs \
-	-L$(DEVKITPRO)/wut/lib \
-	-L$(DEVKITPRO)/portlibs/wiiu/lib \
-	-lwut \
-	-lcurl \
-	-lsocket \
-	-lssl \
-	-lcrypto \
-	-lz \
-	-lbrotlidec \
-	-lbrotlicommon \
-	-lmbedtls \
-	-lmbedx509 \
-	-lmbedcrypto \
-	-lm
+-specs=$(WUT)/share/wut.specs \
+-L$(WUT)/lib \
+-lwut -lm
 
-SOURCES := $(wildcard $(SRC_DIR)/*.c)
-OBJECTS := $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o)))
+BUILD := build
+TARGET := wave_browser
 
-RPX  := $(BUILD)/$(TARGET).rpx
-WUHB := $(BUILD)/$(TARGET).wuhb
+SOURCES := wave_browser/main.c
+OBJECTS := $(BUILD)/main.o
 
-# ---------------------------------------------------------
-
-all: $(WUHB)
+all: $(BUILD)/$(TARGET).rpx
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+$(BUILD)/main.o: wave_browser/main.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(RPX): $(OBJECTS)
-	$(CC) $^ -o $@ $(LDFLAGS)
-
-$(WUHB): $(RPX)
-	@echo "Packaging WUHB..."
-	mkdir -p $(BUILD)/temp
-	cp $(RPX) $(BUILD)/temp/
-	echo '<app><title>Wave Browser</title><author>Rishi</author><version>0.1.0</version></app>' > $(BUILD)/temp/meta.xml
-	cd $(BUILD)/temp && zip -r ../$(TARGET).wuhb *
-	rm -rf $(BUILD)/temp
+$(BUILD)/$(TARGET).rpx: $(OBJECTS)
+	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
 
 clean:
 	rm -rf $(BUILD)
+
+.PHONY: all clean
