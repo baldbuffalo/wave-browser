@@ -1,36 +1,35 @@
+# ---- Toolchain ----
 DEVKITPRO ?= /opt/devkitpro
-DEVKITPPC := $(DEVKITPRO)/devkitPPC
-WUT := $(DEVKITPRO)/wut
+DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
+WUT_ROOT  := $(DEVKITPRO)/wut
+PORTLIBS  := $(DEVKITPRO)/portlibs/wiiu
 
 CC := powerpc-eabi-gcc
 
 CFLAGS := -O2 -Wall \
--I$(WUT)/include \
--I$(DEVKITPRO)/portlibs/wiiu/include
+	-I$(WUT_ROOT)/include \
+	-I$(PORTLIBS)/include
 
-LDFLAGS := \
--specs=$(WUT)/share/wut.specs \
--L$(WUT)/lib \
--lwut -lm
+LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
+	-L$(WUT_ROOT)/lib \
+	-L$(PORTLIBS)/lib
 
-BUILD := build
-TARGET := wave_browser
+LIBS := -lwut -lcurl -lm
 
-SOURCES := wave_browser/main.c
-OBJECTS := $(BUILD)/main.o
+SRC := wave_browser/main.c
+OBJ := build/main.o
+OUT := build/wave_browser.rpx
 
-all: $(BUILD)/$(TARGET).rpx
+all: $(OUT)
 
-$(BUILD):
-	mkdir -p $(BUILD)
+build:
+	mkdir -p build
 
-$(BUILD)/main.o: wave_browser/main.c | $(BUILD)
+$(OBJ): $(SRC) | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD)/$(TARGET).rpx: $(OBJECTS)
-	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
+$(OUT): $(OBJ)
+	$(CC) $(OBJ) -o $@ $(LDFLAGS) $(LIBS)
 
 clean:
-	rm -rf $(BUILD)
-
-.PHONY: all clean
+	rm -rf build
