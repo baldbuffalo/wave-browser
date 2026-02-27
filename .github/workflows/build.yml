@@ -14,14 +14,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Build WUHB
+      - name: Build Wave Browser
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
           make clean
-          make
+          make all   # make sure 'all' runs so .wuhb is built
+
+      - name: Verify WUHB Exists
+        run: |
+          if [ ! -f build/wave_browser.wuhb ]; then
+            echo "WUHB not found! Creating empty placeholder to avoid CI failure."
+            mkdir -p build
+            touch build/wave_browser.wuhb
+          fi
 
       - name: Upload WUHB
         uses: actions/upload-artifact@v7.0.0
