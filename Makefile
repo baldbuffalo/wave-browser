@@ -1,26 +1,61 @@
-# Paths
-DEVKITPPC ?= /opt/devkitpro/devkitPPC
-WUT ?= /opt/devkitpro/wut
-PORTLIBS ?= /opt/devkitpro/portlibs/wiiu
+#---------------------------------------------------------------------------------
+# Wave Browser - WiiU (WUT + curl)
+#---------------------------------------------------------------------------------
 
-# Compiler flags
-CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CFLAGS := -O2 -Wall -I$(WUT)/include -I$(PORTLIBS)/include
-LDFLAGS := -L$(WUT)/lib -L$(PORTLIBS)/lib -lwut -lcurl -lm -specs=$(WUT)/share/wut.specs
+DEVKITPRO ?= /opt/devkitpro
+TARGET      := wave_browser
+BUILD       := build
+SOURCE_DIR  := wave_browser
 
-# Source & output
-SRC := wave_browser/main.c
-BUILD_DIR := build/wavebrowser
-OUT := $(BUILD_DIR)/wave_browser.wuhb
+CC := powerpc-eabi-gcc
 
-.PHONY: all clean
+CFLAGS := -O2 -Wall \
+	-I$(DEVKITPRO)/wut/include \
+	-I$(DEVKITPRO)/portlibs/wiiu/include
 
-all: $(OUT)
+LDFLAGS := \
+	-specs=$(DEVKITPRO)/wut/share/wut.specs \
+	-L$(DEVKITPRO)/wut/lib \
+	-L$(DEVKITPRO)/portlibs/wiiu/lib \
+	-lwut \
+	-lcurl \
+	-lsocket \
+	-lssl \
+	-lcrypto \
+	-lz \
+	-lbrotlidec \
+	-lbrotlicommon \
+	-lmbedtls \
+	-lmbedx509 \
+	-lmbedcrypto \
+	-lm
 
-$(OUT): $(SRC)
-	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+SOURCES := $(wildcard $(SOURCE_DIR)/*.c)
+OBJECTS := $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o)))
+
+RPX := $(BUILD)/$(TARGET).rpx
+WUHB := $(BUILD)/$(TARGET).wuhb
+
+#---------------------------------------------------------------------------------
+
+all: $(WUHB)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SOURCE_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(RPX): $(OBJECTS)
+	$(CC) $^ -o $@ $(LDFLAGS)
+
+$(WUHB): $(RPX)
+	@echo "Packaging WUHB..."
+	mkdir -p $(BUILD)/temp
+	cp $(RPX) $(BUILD)/temp/
+	echo '<app><title>Wave Browser</title><author>Rishi</author><version>0.1.0</version></app>' > $(BUILD)/temp/meta.xml
+	cd $(BUILD)/temp && zip -r ../$(TARGET).wuhb *
+	rm -rf $(BUILD)/temp
 
 clean:
-	@echo "Cleaning build folder..."
-	@rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD)
