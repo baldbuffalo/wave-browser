@@ -14,27 +14,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Build Wave Browser
+      - name: Build WUHB
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
           make clean
-          make all
+          make
 
       - name: Prepare WUHB folder
         run: |
           mkdir -p build/WaveBrowser
-          if [ -f build/wave_browser.wuhb ]; then
-            mv build/wave_browser.wuhb build/WaveBrowser/
-          else
-            # fallback dummy file so upload doesn't fail
-            touch build/WaveBrowser/wave_browser.wuhb
-          fi
+          mv build/wave_browser.wuhb build/WaveBrowser/
 
       - name: Upload WUHB
         uses: actions/upload-artifact@v7.0.0
         with:
           name: wave_browser_wuhb
-          path: build/WaveBrowser/
+          path: build/WaveBrowser
