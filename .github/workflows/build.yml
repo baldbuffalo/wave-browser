@@ -14,7 +14,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Build WUHB
+      - name: Build
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
@@ -23,15 +23,16 @@ jobs:
           make clean
           make
 
-          # Create folder for Aroma and move .rpx into it as .wuhb
-          mkdir -p build/WaveBrowser
-          mv build/wave_browser.rpx build/WaveBrowser/wave_browser.wuhb
+          # Create proper Aroma folder structure
+          mkdir -p release/WaveBrowser
+          cp build/wave_browser.rpx release/WaveBrowser/wave_browser.wuhb
 
-      - name: Upload WUHB
+          # Zip manually so folder is preserved
+          cd release
+          zip -r WaveBrowser.zip WaveBrowser
+
+      - name: Upload Release Zip
         uses: actions/upload-artifact@v7.0.0
         with:
-          name: wave_browser_wuhb
-          # Use **build/** here so the zip keeps WaveBrowser folder
-          path: build/WaveBrowser
-          # Include the folder itself in the zip
-          if-no-files-found: error
+          name: WaveBrowser
+          path: release/WaveBrowser.zip
