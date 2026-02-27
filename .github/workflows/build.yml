@@ -1,3 +1,5 @@
+name: Build Wave Browser (WiiU)
+
 on:
   push:
     branches:
@@ -10,7 +12,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6.0.2
 
     - name: Set up DevkitPro
       run: |
@@ -27,7 +29,7 @@ jobs:
       run: make clean all
 
     - name: Upload WUHB artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7.0.0
       with:
         name: wave_browser_wuhb
         path: build/wavebrowser/wave_browser.wuhb
