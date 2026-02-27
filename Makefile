@@ -1,11 +1,11 @@
-#---------------------------------------------------------------------------------
+# ---------------------------------------------------------
 # Wave Browser - WiiU (WUT + curl)
-#---------------------------------------------------------------------------------
+# ---------------------------------------------------------
 
 DEVKITPRO ?= /opt/devkitpro
 TARGET      := wave_browser
 BUILD       := build
-SOURCE_DIR  := wave_browser
+SRC_DIR     := wave_browser
 
 CC := powerpc-eabi-gcc
 
@@ -30,20 +30,20 @@ LDFLAGS := \
 	-lmbedcrypto \
 	-lm
 
-SOURCES := $(wildcard $(SOURCE_DIR)/*.c)
+SOURCES := $(wildcard $(SRC_DIR)/*.c)
 OBJECTS := $(addprefix $(BUILD)/,$(notdir $(SOURCES:.c=.o)))
 
-RPX := $(BUILD)/$(TARGET).rpx
+RPX  := $(BUILD)/$(TARGET).rpx
 WUHB := $(BUILD)/$(TARGET).wuhb
 
-#---------------------------------------------------------------------------------
+# ---------------------------------------------------------
 
 all: $(WUHB)
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(BUILD)/%.o: $(SOURCE_DIR)/%.c | $(BUILD)
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(RPX): $(OBJECTS)
