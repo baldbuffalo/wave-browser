@@ -2,34 +2,25 @@ name: Build Wave Browser (WiiU)
 
 on:
   push:
-    branches:
-      - main
   pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6.0.2
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
 
-    - name: Set up DevkitPro
-      run: |
-        sudo apt update
-        sudo apt install -y wget unzip tar
-        wget https://apt.devkitpro.org/devkitpro-keyring_2020_all.deb
-        sudo dpkg -i devkitpro-keyring_2020_all.deb
-        sudo apt update
-        sudo apt install -y dkp-pacman
-        sudo dkp-pacman -Syu --noconfirm
-        sudo dkp-pacman -S --noconfirm devkitPPC wut wiiu-curl
-
-    - name: Build WUHB
-      run: make clean all
-
-    - name: Upload WUHB artifact
-      uses: actions/upload-artifact@v7.0.0
-      with:
-        name: wave_browser_wuhb
-        path: build/wavebrowser/wave_browser.wuhb
+      - name: Build WUHB
+        run: |
+          make clean
+          make
+          
+      - name: Upload WUHB
+        uses: actions/upload-artifact@v7.0.0
+        with:
+          name: wave_browser_wuhb
+          path: build/wave_browser.wuhb
