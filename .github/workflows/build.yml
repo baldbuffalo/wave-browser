@@ -23,10 +23,9 @@ jobs:
           make clean
           make
 
-      - name: Prepare WUHB folder
-        run: |
+          # Prepare WaveBrowser folder with .wuhb for Aroma
           mkdir -p build/WaveBrowser
-          mv build/wave_browser.wuhb build/WaveBrowser/
+          mv build/wave_browser.rpx build/WaveBrowser/wave_browser.wuhb
 
       - name: Upload WUHB
         uses: actions/upload-artifact@v7.0.0
