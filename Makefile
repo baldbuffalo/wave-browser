@@ -1,4 +1,3 @@
-# ---- Toolchain ----
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT  := $(DEVKITPRO)/wut
@@ -11,10 +10,9 @@ CFLAGS := -O2 -Wall \
 	-I$(PORTLIBS)/include
 
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
-	-L$(WUT_ROOT)/lib \
 	-L$(PORTLIBS)/lib
 
-LIBS := -lwut -lcurl -lm
+LIBS := -lcurl
 
 SRC := wave_browser/main.c
 OBJ := build/main.o
