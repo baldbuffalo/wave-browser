@@ -1,24 +1,26 @@
-# Makefile
-RPX=build/wavebrowser/wave_browser.rpx
-WUHB=build/wavebrowser/wave_browser.wuhb
-ICON=icon.png
-META=meta.xml
+# Paths
+DEVKITPPC ?= /opt/devkitpro/devkitPPC
+WUT ?= /opt/devkitpro/wut
+PORTLIBS ?= /opt/devkitpro/portlibs/wiiu
 
-all: $(RPX) $(WUHB)
+# Compiler flags
+CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
+CFLAGS := -O2 -Wall -I$(WUT)/include -I$(PORTLIBS)/include
+LDFLAGS := -L$(WUT)/lib -L$(PORTLIBS)/lib -lwut -lcurl -lm -specs=$(WUT)/share/wut.specs
 
-# Existing RPX build
-$(RPX): wave_browser/main.c
-	@echo "Building Wave Browser RPX..."
-	$(DEVKITPPC)/bin/powerpc-eabi-gcc -O2 -Wall -I$(WUT)/include -I$(PORTLIBS)/wiiu/include $< -o $@ -L$(WUT)/lib -L$(PORTLIBS)/wiiu/lib -lwut -lcurl -lm -specs=$(WUT)/share/wut.specs
+# Source & output
+SRC := wave_browser/main.c
+BUILD_DIR := build/wavebrowser
+OUT := $(BUILD_DIR)/wave_browser.wuhb
 
-# New WUHB build
-$(WUHB): $(RPX) $(ICON) $(META)
-	@echo "Packaging WUHB..."
-	mkdir -p $(dir $@)/temp
-	cp $(RPX) $(ICON) $(META) $(dir $@)/temp
-	cd $(dir $@)/temp && zip -r ../$(notdir $@) *
-	rm -rf $(dir $@)/temp
+.PHONY: all clean
+
+all: $(OUT)
+
+$(OUT): $(SRC)
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 clean:
-	@echo "Cleaning build..."
-	rm -rf build
+	@echo "Cleaning build folder..."
+	@rm -rf $(BUILD_DIR)
