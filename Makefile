@@ -1,4 +1,4 @@
-# Paths
+# Paths for Docker image
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT  := $(DEVKITPRO)/wut
@@ -7,28 +7,28 @@ PORTLIBS  := $(DEVKITPRO)/portlibs/wiiu
 # Compiler
 CC := powerpc-eabi-gcc
 
-# Compiler flags
+# Compilation flags
 CFLAGS := -O2 -Wall \
 	-I$(WUT_ROOT)/include \
 	-I$(PORTLIBS)/include
 
-# Linker flags (entry point __rpx_start)
+# Linking flags
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
 	-L$(PORTLIBS)/lib \
 	-Wl,-e,__rpx_start
 
-# Libraries
-LIBS := -lcurl -lproc_ui -lvpad -los -lz -lmbedtls -lmbedx509 -lmbedcrypto -lws2 -lbrotlicommon -lbrotlidec
+# Libraries (make sure they exist in $(PORTLIBS)/lib)
+LIBS := -lcurl -lproc_ui -lvpad -los -lz -lws2 -lbrotlicommon -lbrotlidec
 
-# Source and output
+# Source & output
 SRC := wave_browser/main.c
 OBJ := build/main.o
 OUT := build/wave_browser.rpx
 
-# Default target
+# Build everything
 all: $(OUT)
 
-# Create build folder
+# Ensure build folder exists
 build:
 	mkdir -p build
 
