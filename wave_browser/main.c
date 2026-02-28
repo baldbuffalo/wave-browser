@@ -15,7 +15,7 @@
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
-// -------------------- Memory callback for CURL --------------------
+// -------------------- CURL Memory Struct --------------------
 struct MemoryStruct {
     char *memory;
     size_t size;
@@ -45,7 +45,7 @@ int read_local_version(char *out_version, size_t size)
     if (!file)
         return 1;
 
-    char buffer[1024];
+    char buffer[2048];
     size_t len = fread(buffer, 1, sizeof(buffer) - 1, file);
     buffer[len] = 0;
     fclose(file);
@@ -67,6 +67,15 @@ int read_local_version(char *out_version, size_t size)
     out_version[ver_len] = 0;
 
     return 0;
+}
+
+// -------------------- Normalize Version --------------------
+// Removes leading 'v' if present
+void normalize_version(char *version)
+{
+    if (version[0] == 'v' || version[0] == 'V') {
+        memmove(version, version + 1, strlen(version));
+    }
 }
 
 // -------------------- Fetch latest GitHub release --------------------
@@ -112,7 +121,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     return 0;
 }
 
-// -------------------- Main --------------------
+// -------------------- MAIN --------------------
 int main(void)
 {
     ProcUIInit(NULL);
@@ -127,10 +136,12 @@ int main(void)
     if (read_local_version(local_version, sizeof(local_version)) != 0) {
         OSReport("Failed to read local version.\n");
     } else {
+        normalize_version(local_version);
         OSReport("Local version: %s\n", local_version);
     }
 
     if (fetch_latest_release(latest_version, sizeof(latest_version)) == 0) {
+        normalize_version(latest_version);
         OSReport("Latest version: %s\n", latest_version);
 
         if (strcmp(local_version, latest_version) != 0) {
@@ -142,6 +153,7 @@ int main(void)
         OSReport("Failed to check GitHub release.\n");
     }
 
+    // Basic loop
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
