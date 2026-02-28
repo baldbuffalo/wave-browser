@@ -14,19 +14,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Set up environment
+      - name: Build RPX
         run: |
+          # Set up environment for devkitPPC
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
-      - name: Build RPX
-        run: |
+          # Build RPX
           make clean
           make
 
       - name: Convert RPX to WUHB
         run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITPPC=$DEVKITPRO/devkitPPC
+          export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+
           # Ensure meta.xml exists
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
