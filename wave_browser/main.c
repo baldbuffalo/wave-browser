@@ -40,7 +40,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     CURL *curl = curl_easy_init();
     if (!curl) return 1;
 
-    struct MemoryStruct chunk;
+    struct MemoryStruct chunk = {0};
     chunk.memory = malloc(1);
     chunk.size = 0;
 
@@ -74,15 +74,23 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     return 0;
 }
 
+// -------------------- Dummy save callback for ProcUI --------------------
+void dummySaveCallback(void)
+{
+    // Nothing to save, placeholder
+}
+
 // -------------------- RPX Entry Point --------------------
+// This is where the splash screen / main UI starts
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
 int main(void)
 {
-    ProcUIInit();
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    ProcUIInit(dummySaveCallback);  // fixed: pass callback
 
     printf("Wave Browser\n");
     printf("Current version: %s\n", CURRENT_VERSION);
@@ -104,7 +112,7 @@ int main(void)
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
-        VPADRead(0, &vpad, 1, &error); // channel 0
+        VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
         if (vpad.trigger & VPAD_BUTTON_A) {
             printf("A button pressed!\n");
