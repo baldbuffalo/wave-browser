@@ -15,41 +15,36 @@ jobs:
         uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 1
-          submodules: false
 
-      - name: Set up DevkitPro environment
+      - name: Build RPX and WUHB
         run: |
+          # Set up DevkitPro environment for this shell
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export WUT_ROOT=$DEVKITPRO/wut
           export PORTLIBS=$DEVKITPRO/portlibs/wiiu
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
-          echo "DEVKITPPC path: $DEVKITPPC/bin"
-          echo "PATH is: $PATH"
+          # Verify compiler is available
+          which powerpc-eabi-gcc
 
-      - name: Build RPX
-        run: |
+          # Clean and build
           make clean
           make
 
-      - name: Ensure meta.xml exists
-        run: |
+          # Ensure meta.xml exists
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
 
-      - name: Convert RPX → WUHB
-        run: |
+          # Convert RPX → WUHB
           wuhbtool build/wave_browser.rpx build/wave_browser.wuhb -m meta.xml
 
-      - name: Prepare Aroma folder
-        run: |
+          # Prepare release folder
           mkdir -p release/WaveBrowser
           cp build/wave_browser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
 
-      - name: Zip WaveBrowser folder
-        run: |
+          # Create zip with folder inside
           cd release
           zip -r WaveBrowser.zip WaveBrowser
