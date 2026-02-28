@@ -1,45 +1,43 @@
-# Paths for Docker image
+# DevkitPro / DevkitPPC setup
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT  := $(DEVKITPRO)/wut
 PORTLIBS  := $(DEVKITPRO)/portlibs/wiiu
 
-# Compiler
 CC := powerpc-eabi-gcc
 
-# Compilation flags
+# Include headers
 CFLAGS := -O2 -Wall \
 	-I$(WUT_ROOT)/include \
 	-I$(PORTLIBS)/include
 
-# Linking flags
+# Linker flags
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
-	-L$(PORTLIBS)/lib \
+	-L$(PORTLIBS)/lib/wiiu \
 	-Wl,-e,__rpx_start
 
-# Libraries (make sure they exist in $(PORTLIBS)/lib)
-LIBS := -lcurl -lproc_ui -lvpad -los -lz -lws2 -lbrotlicommon -lbrotlidec
+# Automatically gather all .a static libraries in portlibs
+STATIC_LIBS := $(wildcard $(PORTLIBS)/lib/wiiu/*.a)
 
-# Source & output
 SRC := wave_browser/main.c
 OBJ := build/main.o
 OUT := build/wave_browser.rpx
 
-# Build everything
+# Default target
 all: $(OUT)
 
-# Ensure build folder exists
+# Create build folder
 build:
 	mkdir -p build
 
-# Compile
+# Compile source
 $(OBJ): $(SRC) | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Link
+# Link with all static libraries automatically
 $(OUT): $(OBJ)
-	$(CC) $(OBJ) -o $@ $(LDFLAGS) $(LIBS)
+	$(CC) $(OBJ) -o $@ $(LDFLAGS) $(STATIC_LIBS)
 
-# Clean
+# Clean build artifacts
 clean:
 	rm -rf build
