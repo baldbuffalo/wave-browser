@@ -2,7 +2,6 @@
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +32,6 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     return realsize;
 }
 
-// Fetch latest GitHub release
 int fetch_latest_release(char *out_tag, size_t tag_size)
 {
     CURL *curl = curl_easy_init();
@@ -81,16 +79,18 @@ int main(void)
 {
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    // ProcUI init with NULL save callback
     ProcUIInit(NULL);
 
-    // Splash screen
-    ProcUIShowMessage("Loading...");
-    ProcUIShowProgress(0.0f);
+    // Display a text-based splash manually
+    ProcUIDisplayText("Loading...", 0, 0);
+    ProcUIProcessMessages(); // refresh screen
     sleep(1);
 
-    // Check for updates
-    ProcUIShowMessage("Checking for updates...");
-    ProcUIShowProgress(0.0f);
+    ProcUIDisplayText("Checking for updates...", 0, 0);
+    ProcUIProcessMessages();
+    sleep(1);
 
     char latest_tag[64] = {0};
     int has_update = 0;
@@ -101,18 +101,18 @@ int main(void)
     }
 
     if (has_update) {
-        // Download update (simplified, progress shown in ProcUI)
-        ProcUIShowMessage("Downloading update...");
-        // simulate download progress
+        // simulate download progress (text only)
         for (int i = 1; i <= 100; i++) {
-            ProcUIShowProgress(i / 100.0f);
-            usleep(30000); // simulate network
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Downloading update: %d%%", i);
+            ProcUIDisplayText(buf, 0, 0);
+            ProcUIProcessMessages();
+            usleep(30000);
         }
     }
 
-    // Finished
-    ProcUIShowMessage("Loading complete!");
-    ProcUIShowProgress(1.0f);
+    ProcUIDisplayText("Loading complete!", 0, 0);
+    ProcUIProcessMessages();
     sleep(1);
 
     // Main loop
