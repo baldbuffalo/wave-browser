@@ -7,12 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
 #include <curl/curl.h>
 
 #define CURRENT_VERSION "v0.1.0"
 #define GITHUB_API "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
 
+// -------------------- Memory callback for CURL --------------------
 struct MemoryStruct {
     char *memory;
     size_t size;
@@ -34,6 +34,7 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     return realsize;
 }
 
+// -------------------- Fetch latest GitHub release --------------------
 int fetch_latest_release(char *out_tag, size_t tag_size)
 {
     CURL *curl = curl_easy_init();
@@ -73,14 +74,13 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     return 0;
 }
 
-// Define RPX entry point for Aroma
-void main(void); // forward declaration
+// -------------------- RPX Entry Point --------------------
+// This is where the splash screen / main UI starts
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
 int main(void)
 {
-    // Entry point: splash screen code starts here
     ProcUIInit(NULL);
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -101,6 +101,7 @@ int main(void)
         printf("Update check failed.\n");
     }
 
+    // Main loop
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
