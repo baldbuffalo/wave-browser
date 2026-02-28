@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<app version="1">
+    <name>Wave Browser</name>
+    <coder>GameBuster</coder>
+    <version>1.0</version>
+    <short_description>Lightweight Wii U web browser</short_description>
+    <long_description>
+        Wave Browser is a simple web browser built using WUT for the Wii U.
+    </long_description>
+</app>
