@@ -16,37 +16,48 @@ jobs:
       PATH: /opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:${PATH}
 
     steps:
+      # Install tar and zip (needed inside container)
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y tar zip curl
+        shell: bash
+
+      # Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v6.0.2
 
+      # Build the RPX
       - name: Build RPX
         run: |
           make clean
           make
         shell: bash
 
-      - name: Ensure meta.xml exists
+      # Ensure meta.xml exists
+      - name: Check meta.xml
         run: |
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
         shell: bash
 
-      - name: Convert RPX to WUHB
-        run: |
-          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb
-        shell: bash
-
-      - name: Prepare Aroma folder
+      # Convert RPX to WUHB and place in Aroma folder
+      - name: Convert to WUHB
         run: |
           mkdir -p release/WaveBrowser
-          cp build/wave_browser.wuhb release/WaveBrowser/
-          cp meta.xml release/WaveBrowser/
-          cd release
-          zip -r WaveBrowser.zip WaveBrowser/*
+          wuhbtool build/wave_browser.rpx release/WaveBrowser/wave_browser.wuhb --meta meta.xml
         shell: bash
 
-      - name: Upload artifact
+      # Zip the folder (single zip, folder preserved)
+      - name: Package ZIP
+        run: |
+          cd release
+          zip -r WaveBrowser.zip WaveBrowser
+        shell: bash
+
+      # Upload final ZIP
+      - name: Upload Artifact
         uses: actions/upload-artifact@v7.0.0
         with:
           name: WaveBrowser
