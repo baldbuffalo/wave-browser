@@ -11,19 +11,23 @@ jobs:
       image: devkitpro/devkitppc
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Set up devkitPro environment
+      - name: Setup DEVKITPRO
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+          echo "DEVKITPRO=$DEVKITPRO"
+          echo "DEVKITPPC=$DEVKITPPC"
+          echo "PATH=$PATH"
 
       - name: Build RPX
         run: |
           make clean
           make
+        working-directory: ${{ github.workspace }}
 
       - name: Ensure meta.xml exists
         run: |
@@ -33,19 +37,19 @@ jobs:
 
       - name: Convert RPX to WUHB
         run: |
-          mkdir -p build/WaveBrowser
-          cp build/wave_browser.rpx build/WaveBrowser/
-          cp meta.xml build/WaveBrowser/
-          # Use wuhbtool to generate WUHB from RPX + meta.xml
-          wuhbtool build/WaveBrowser/wave_browser.rpx build/WaveBrowser/wave_browser.wuhb
+          # wuhbtool generates the WUHB package for Aroma
+          mkdir -p release/WaveBrowser
+          wuhbtool build/wave_browser.rpx release/WaveBrowser/wave_browser.wuhb --meta meta.xml
+        working-directory: ${{ github.workspace }}
 
-      - name: Prepare ZIP for Aroma
+      - name: Zip for release
         run: |
-          cd build
+          cd release
           zip -r WaveBrowser.zip WaveBrowser
+        working-directory: ${{ github.workspace }}
 
-      - name: Upload ZIP artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v7.0.0
         with:
           name: WaveBrowser
-          path: build/WaveBrowser.zip
+          path: release/WaveBrowser.zip
