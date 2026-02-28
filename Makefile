@@ -1,5 +1,3 @@
-# Makefile for Wave Browser (Wii U) using WUT container paths
-
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT  := $(DEVKITPRO)/wut
@@ -11,8 +9,8 @@ CFLAGS := -O2 -Wall \
 	-I$(WUT_ROOT)/include \
 	-I$(PORTLIBS)/include
 
-# Use WUT spec file; no manual linking needed
-LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs
+LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
+	-L$(PORTLIBS)/lib/wiiu
 
 SRC := wave_browser/main.c
 OBJ := build/main.o
