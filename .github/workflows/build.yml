@@ -11,7 +11,7 @@ jobs:
       image: devkitpro/devkitppc
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v6.0.2
 
       - name: Build RPX and WUHB
@@ -23,19 +23,19 @@ jobs:
           export PORTLIBS=$DEVKITPRO/portlibs/wiiu
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
-          # Verify compiler is available
+          # Verify compiler
           which powerpc-eabi-gcc
 
-          # Clean and build RPX
+          # Clean and build RPX using Makefile
           make clean
           make
 
-          # Ensure meta.xml exists
+          # Check meta.xml exists
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
 
-          # Convert RPX → WUHB using meta.xml (old-style argument)
+          # Convert RPX → WUHB using meta.xml
           wuhbtool build/wave_browser.rpx build/wave_browser.wuhb meta.xml
 
           # Prepare release folder for Aroma
@@ -43,7 +43,7 @@ jobs:
           cp build/wave_browser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
 
-          # Create zip with folder inside
+          # Create zip including folder
           cd release
           zip -r WaveBrowser.zip WaveBrowser
         shell: sh -e {0}
