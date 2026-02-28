@@ -17,18 +17,23 @@ jobs:
           fetch-depth: 1
           submodules: false
 
-      - name: Set up DevkitPro
+      - name: Set up DevkitPro environment
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
+          export WUT_ROOT=$DEVKITPRO/wut
+          export PORTLIBS=$DEVKITPRO/portlibs/wiiu
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+
+          echo "DEVKITPPC path: $DEVKITPPC/bin"
+          echo "PATH is: $PATH"
 
       - name: Build RPX
         run: |
           make clean
           make
 
-      - name: Check meta.xml
+      - name: Ensure meta.xml exists
         run: |
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
@@ -36,7 +41,6 @@ jobs:
 
       - name: Convert RPX → WUHB
         run: |
-          # Convert using existing meta.xml
           wuhbtool build/wave_browser.rpx build/wave_browser.wuhb -m meta.xml
 
       - name: Prepare Aroma folder
