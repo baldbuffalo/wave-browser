@@ -80,17 +80,13 @@ void dummySaveCallback(void)
     // Nothing to save, placeholder
 }
 
-// -------------------- RPX Entry Point --------------------
-// This is where the splash screen / main UI starts
-__asm__(".global __rpx_start\n\t"
-        "__rpx_start: b main");
-
+// -------------------- Main --------------------
 int main(void)
 {
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    ProcUIInit(dummySaveCallback);  // fixed: pass callback
+    ProcUIInit(dummySaveCallback);  // pass callback
 
     printf("Wave Browser\n");
     printf("Current version: %s\n", CURRENT_VERSION);
