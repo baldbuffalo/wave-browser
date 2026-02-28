@@ -34,29 +34,28 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     return realsize;
 }
 
-// -------------------- CURL download progress callback --------------------
-struct DownloadProgress {
+// -------------------- Struct for progress --------------------
+struct ProgressData {
+    ProcUIElement *text;
+    ProcUIElement *bar;
     double total;
     double downloaded;
 };
 
+// -------------------- Download progress callback --------------------
 static int ProgressCallback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow)
 {
-    struct DownloadProgress *prog = (struct DownloadProgress *)clientp;
+    struct ProgressData *prog = (struct ProgressData*)clientp;
     prog->total = dltotal;
     prog->downloaded = dlnow;
 
-    float progress = 0.0f;
-    if (dltotal > 0.0)
-        progress = (float)(dlnow / dltotal);
-
+    float progress = (dltotal > 0.0) ? (float)(dlnow / dltotal) : 0.0f;
     char buf[128];
-    snprintf(buf, sizeof(buf), "Downloading update: %.1fMB / %.1fMB", dlnow / (1024*1024.0), dltotal / (1024*1024.0));
+    snprintf(buf, sizeof(buf), "Downloading update: %.1fMB / %.1fMB",
+             dlnow / (1024*1024.0), dltotal / (1024*1024.0));
 
-    // Show progress and text on screen
-    ProcUIShowMessage(buf);
-    ProcUIShowProgress(progress);
-
+    ProcUITextSetString(prog->text, buf);
+    ProcUIProgressBarSetValue(prog->bar, progress);
     ProcUIProcessMessages(TRUE);
 
     return 0;
@@ -68,7 +67,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     CURL *curl = curl_easy_init();
     if (!curl) return 1;
 
-    struct MemoryStruct chunk;
+    struct MemoryStruct chunk = {0};
     chunk.memory = malloc(1);
     chunk.size = 0;
 
@@ -108,65 +107,72 @@ __asm__(".global __rpx_start\n\t"
 
 int main(void)
 {
+    // Initialize Wii U libraries
     VPADInit();
-    ProcUIInit(NULL);
     curl_global_init(CURL_GLOBAL_DEFAULT);
+    ProcUIInit(NULL);
 
-    // Show initial splash
-    ProcUIShowMessage("Loading...");
-    ProcUIShowProgress(0.0f);
+    // -------------------- Splash Screen --------------------
+    ProcUILayer *layer = ProcUILayerCreate();
+    ProcUILayerSet(layer, 0, 0, 1280, 720);
+
+    ProcUIElement *statusText = ProcUITextCreate(layer, "Loading...", 640, 360, 1.0f);
+    ProcUIElement *progressBar = ProcUIProgressBarCreate(layer, 440, 400, 400, 20); // green bar
+    ProcUIProgressBarSetColor(progressBar, 0x00FF00FF);
+
+    ProcUILayerAddElement(layer, statusText);
+    ProcUILayerAddElement(layer, progressBar);
+    ProcUILayerShow(layer);
+
+    ProcUITextSetString(statusText, "Loading...");
+    ProcUIProgressBarSetValue(progressBar, 0.0f);
     ProcUIProcessMessages(TRUE);
 
-    // Check for updates
-    ProcUIShowMessage("Checking for updates...");
-    ProcUIShowProgress(0.0f);
+    // -------------------- Check for updates --------------------
+    ProcUITextSetString(statusText, "Checking for updates...");
+    ProcUIProgressBarSetValue(progressBar, 0.0f);
     ProcUIProcessMessages(TRUE);
 
     char latest_tag[64] = {0};
-    if (fetch_latest_release(latest_tag, sizeof(latest_tag)) == 0)
-    {
-        if (strcmp(latest_tag, CURRENT_VERSION) != 0)
-        {
-            // Simulate downloading update with CURL
-            CURL *curl = curl_easy_init();
-            if (curl)
-            {
-                struct DownloadProgress prog = {0};
-
-                curl_easy_setopt(curl, CURLOPT_URL, "https://example.com/fake_update_file"); // replace with actual asset URL
-                curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-                curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
-                curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog);
-                curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
-                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-                struct MemoryStruct dummy = {0};
-                dummy.memory = malloc(1);
-                dummy.size = 0;
-                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &dummy);
-
-                curl_easy_perform(curl);
-                free(dummy.memory);
-                curl_easy_cleanup(curl);
-            }
+    int update_needed = 0;
+    if (fetch_latest_release(latest_tag, sizeof(latest_tag)) == 0) {
+        if (strcmp(latest_tag, CURRENT_VERSION) != 0) {
+            update_needed = 1;
         }
     }
 
-    // Done loading
-    ProcUIShowMessage("Loading browser...");
-    ProcUIShowProgress(1.0f);
+    // -------------------- Download update if needed --------------------
+    if (update_needed) {
+        struct ProgressData prog = { statusText, progressBar, 0, 0 };
+
+        CURL *curl = curl_easy_init();
+        if (curl) {
+            FILE *fp = fopen("/vol/content/download_update.tmp", "wb");
+            curl_easy_setopt(curl, CURLOPT_URL, "https://github.com/baldbuffalo/wave-browser/releases/latest/download/wave_browser.rpx");
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fwrite);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+            curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+            curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
+            curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog);
+            curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
+
+            curl_easy_perform(curl);
+            fclose(fp);
+            curl_easy_cleanup(curl);
+        }
+    }
+
+    // -------------------- Done loading --------------------
+    ProcUITextSetString(statusText, "Loading browser...");
+    ProcUIProgressBarSetValue(progressBar, 1.0f);
     ProcUIProcessMessages(TRUE);
 
-    // Main loop
-    while (1)
-    {
+    // -------------------- Main loop --------------------
+    while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-
-        // Here, you would launch your actual browser UI
-
         usleep(50000);
-        ProcUIProcessMessages(TRUE);
     }
 
     curl_global_cleanup();
