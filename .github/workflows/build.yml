@@ -26,25 +26,21 @@ jobs:
           make
         shell: bash
 
-      - name: Check meta.xml
+      - name: Prepare Aroma Release Folder
         run: |
-          if [ ! -f meta.xml ]; then
-            echo "meta.xml missing!" && exit 1
-          fi
+          mkdir -p release/WaveBrowser
+          cp build/wave_browser.rpx release/WaveBrowser/wave_browser.rpx
+          cp meta.xml release/WaveBrowser/
         shell: bash
 
       - name: Convert RPX → WUHB
         run: |
-          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb
+          cd release/WaveBrowser
+          wuhbtool wave_browser.rpx wave_browser.wuhb
+          rm wave_browser.rpx
         shell: bash
 
-      - name: Prepare Aroma Folder
-        run: |
-          mkdir -p release/WaveBrowser
-          cp build/wave_browser.wuhb release/WaveBrowser/
-        shell: bash
-
-      - name: Zip Release
+      - name: Zip Aroma Package
         run: |
           cd release
           zip -r WaveBrowser.zip WaveBrowser
