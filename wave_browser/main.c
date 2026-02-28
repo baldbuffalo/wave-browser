@@ -1,4 +1,5 @@
 #include <coreinit/core.h>
+#include <coreinit/debug.h>
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
