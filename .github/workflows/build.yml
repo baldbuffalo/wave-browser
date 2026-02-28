@@ -11,53 +11,41 @@ jobs:
       image: devkitpro/devkitppc
 
     steps:
-      # Step 1: Checkout the repo
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v6.0.2
 
-      # Step 2: Build RPX
-      - name: Build RPX
+      - name: Set up devkitPro environment
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
+      - name: Build RPX
+        run: |
           make clean
           make
 
-      # Step 3: Convert RPX to WUHB using meta.xml
-      - name: Convert RPX to WUHB
+      - name: Ensure meta.xml exists
         run: |
-          export DEVKITPRO=/opt/devkitpro
-          export DEVKITPPC=$DEVKITPRO/devkitPPC
-          export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
-
-          # Ensure meta.xml exists
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
 
-          # Copy meta.xml into build folder so wuhbtool can pick it up
-          cp meta.xml build/
-
-          # Convert RPX to WUHB
-          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb
-
-      # Step 4: Prepare release folder for Aroma
-      - name: Prepare Aroma folder
+      - name: Convert RPX to WUHB
         run: |
-          mkdir -p release/WaveBrowser
-          cp build/wave_browser.wuhb release/WaveBrowser/
+          mkdir -p build/WaveBrowser
+          cp build/wave_browser.rpx build/WaveBrowser/
+          cp meta.xml build/WaveBrowser/
+          # Use wuhbtool to generate WUHB from RPX + meta.xml
+          wuhbtool build/WaveBrowser/wave_browser.rpx build/WaveBrowser/wave_browser.wuhb
 
-      # Step 5: Zip release folder with folder preserved
-      - name: Create ZIP package
+      - name: Prepare ZIP for Aroma
         run: |
-          cd release
+          cd build
           zip -r WaveBrowser.zip WaveBrowser
 
-      # Step 6: Upload ZIP artifact
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v7.0.0
         with:
           name: WaveBrowser
-          path: release/WaveBrowser.zip
+          path: build/WaveBrowser.zip
