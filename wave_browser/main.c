@@ -40,7 +40,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     CURL *curl = curl_easy_init();
     if (!curl) return 1;
 
-    struct MemoryStruct chunk = {0};
+    struct MemoryStruct chunk;
     chunk.memory = malloc(1);
     chunk.size = 0;
 
@@ -75,13 +75,12 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
 }
 
 // -------------------- RPX Entry Point --------------------
-// This is where the splash screen / main UI starts
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
 int main(void)
 {
-    ProcUIInit(NULL);
+    ProcUIInit();
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
@@ -105,7 +104,12 @@ int main(void)
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
-        VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+        VPADRead(0, &vpad, 1, &error); // channel 0
+
+        if (vpad.trigger & VPAD_BUTTON_A) {
+            printf("A button pressed!\n");
+        }
+
         usleep(50000);
     }
 
