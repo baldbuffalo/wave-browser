@@ -14,32 +14,36 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Build RPX
+      - name: Set up environment
         run: |
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
+      - name: Build RPX
+        run: |
           make clean
           make
 
-      - name: Convert to WUHB
+      - name: Convert RPX to WUHB
         run: |
-          # Ensure meta.xml exists in repo root
+          # Ensure meta.xml exists
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
 
-          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb --meta meta.xml
+          # Convert RPX to WUHB using existing meta.xml
+          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb -x meta.xml
 
+      - name: Prepare Aroma package
+        run: |
           mkdir -p release/WaveBrowser
           cp build/wave_browser.wuhb release/WaveBrowser/
 
           cd release
           zip -r WaveBrowser.zip WaveBrowser
-        shell: sh -e {0}
 
-      - name: Upload WUHB Package
+      - name: Upload Aroma package
         uses: actions/upload-artifact@v7.0.0
         with:
           name: WaveBrowser
