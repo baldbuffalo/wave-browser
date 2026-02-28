@@ -73,10 +73,14 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     return 0;
 }
 
+// Define RPX entry point for Aroma
+void main(void); // forward declaration
+__asm__(".global __rpx_start\n\t"
+        "__rpx_start: b main");
+
 int main(void)
 {
-    // No WUT_INIT() needed
-
+    // Entry point: splash screen code starts here
     ProcUIInit(NULL);
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
