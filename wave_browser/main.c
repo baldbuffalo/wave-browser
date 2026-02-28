@@ -1,3 +1,6 @@
+#include <wut.h>
+WUT_INIT();
+
 #include <coreinit/core.h>
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
@@ -18,15 +21,13 @@ struct MemoryStruct {
     size_t size;
 };
 
-static size_t WriteMemoryCallback(void *contents, size_t size,
-                                  size_t nmemb, void *userp)
+static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
     size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct*)userp;
 
     char *ptr = realloc(mem->memory, mem->size + realsize + 1);
-    if (!ptr)
-        return 0;
+    if (!ptr) return 0;
 
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
@@ -39,10 +40,9 @@ static size_t WriteMemoryCallback(void *contents, size_t size,
 int fetch_latest_release(char *out_tag, size_t tag_size)
 {
     CURL *curl = curl_easy_init();
-    if (!curl)
-        return 1;
+    if (!curl) return 1;
 
-    struct MemoryStruct chunk;
+    struct MemoryStruct chunk = {0};
     chunk.memory = malloc(1);
     chunk.size = 0;
 
@@ -65,9 +65,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
         char *end = strchr(tag_ptr, '"');
         if (end) {
             size_t len = end - tag_ptr;
-            if (len >= tag_size)
-                len = tag_size - 1;
-
+            if (len >= tag_size) len = tag_size - 1;
             strncpy(out_tag, tag_ptr, len);
             out_tag[len] = 0;
         }
@@ -78,7 +76,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     return 0;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     ProcUIInit(NULL);
     VPADInit();
@@ -100,12 +98,10 @@ int main(void)
         printf("Update check failed.\n");
     }
 
-    while (ProcUIIsRunning())
-    {
+    while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-
         usleep(50000);
     }
 
