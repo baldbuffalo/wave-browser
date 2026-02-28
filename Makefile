@@ -9,8 +9,10 @@ CFLAGS := -O2 -Wall \
 	-I$(WUT_ROOT)/include \
 	-I$(PORTLIBS)/include
 
+# Add entry point __rpx_start
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
-	-L$(PORTLIBS)/lib
+	-L$(PORTLIBS)/lib \
+	-Wl,-e,__rpx_start
 
 LIBS := -lcurl
 
