@@ -9,49 +9,52 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkitppc
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+      PATH: /opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:${PATH}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Set Environment
+      - name: Ensure build tools
         run: |
-          export DEVKITPRO=/opt/devkitpro
-          export DEVKITPPC=$DEVKITPRO/devkitPPC
-          export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
-        shell: bash
+          echo "DEVKITPRO: $DEVKITPRO"
+          echo "DEVKITPPC: $DEVKITPPC"
+          which powerpc-eabi-gcc
 
       - name: Build RPX
+        shell: bash
         run: |
           make clean
           make
-        shell: bash
 
-      - name: Ensure meta.xml exists
+      - name: Check meta.xml
         run: |
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
-        shell: bash
 
-      - name: Convert RPX → WUHB
+      - name: Convert RPX to WUHB
+        shell: bash
         run: |
           wuhbtool build/wave_browser.rpx build/wave_browser.wuhb
-        shell: bash
 
-      - name: Prepare Aroma Folder
+      - name: Prepare Aroma folder
+        shell: bash
         run: |
           mkdir -p release/WaveBrowser
-          cp build/wave_browser.wuhb meta.xml release/WaveBrowser/
-        shell: bash
+          cp build/wave_browser.wuhb release/WaveBrowser/
+          cp meta.xml release/WaveBrowser/
 
-      - name: Zip for Aroma
+      - name: Zip WaveBrowser
+        shell: bash
         run: |
           cd release
           zip -r WaveBrowser.zip WaveBrowser
-        shell: bash
 
-      - name: Upload WUHB Package
+      - name: Upload WUHB package
         uses: actions/upload-artifact@v7.0.0
         with:
           name: WaveBrowser
