@@ -16,9 +16,10 @@ jobs:
 
       - name: Set Environment
         run: |
-          echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
-          echo "DEVKITPPC=/opt/devkitpro/devkitPPC" >> $GITHUB_ENV
-          echo "PATH=/opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:$PATH" >> $GITHUB_ENV
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITPPC=$DEVKITPRO/devkitPPC
+          export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+        shell: bash
 
       - name: Build RPX
         run: |
@@ -26,21 +27,25 @@ jobs:
           make
         shell: bash
 
-      - name: Prepare Aroma Release Folder
+      - name: Ensure meta.xml exists
         run: |
-          mkdir -p release/WaveBrowser
-          cp build/wave_browser.rpx release/WaveBrowser/wave_browser.rpx
-          cp meta.xml release/WaveBrowser/
+          if [ ! -f meta.xml ]; then
+            echo "meta.xml missing!" && exit 1
+          fi
         shell: bash
 
       - name: Convert RPX → WUHB
         run: |
-          cd release/WaveBrowser
-          wuhbtool wave_browser.rpx wave_browser.wuhb
-          rm wave_browser.rpx
+          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb
         shell: bash
 
-      - name: Zip Aroma Package
+      - name: Prepare Aroma Folder
+        run: |
+          mkdir -p release/WaveBrowser
+          cp build/wave_browser.wuhb meta.xml release/WaveBrowser/
+        shell: bash
+
+      - name: Zip for Aroma
         run: |
           cd release
           zip -r WaveBrowser.zip WaveBrowser
