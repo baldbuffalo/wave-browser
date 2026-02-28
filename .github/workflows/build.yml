@@ -11,20 +11,21 @@ jobs:
       image: devkitpro/devkitppc
 
     steps:
+      # Step 1: Checkout the repo
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
+      # Step 2: Build RPX
       - name: Build RPX
         run: |
-          # Set up environment for devkitPPC
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
-          # Build RPX
           make clean
           make
 
+      # Step 3: Convert RPX to WUHB using meta.xml
       - name: Convert RPX to WUHB
         run: |
           export DEVKITPRO=/opt/devkitpro
@@ -36,18 +37,26 @@ jobs:
             echo "meta.xml missing!" && exit 1
           fi
 
-          # Convert RPX to WUHB using existing meta.xml
-          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb -x meta.xml
+          # Copy meta.xml into build folder so wuhbtool can pick it up
+          cp meta.xml build/
 
-      - name: Prepare Aroma package
+          # Convert RPX to WUHB
+          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb
+
+      # Step 4: Prepare release folder for Aroma
+      - name: Prepare Aroma folder
         run: |
           mkdir -p release/WaveBrowser
           cp build/wave_browser.wuhb release/WaveBrowser/
 
+      # Step 5: Zip release folder with folder preserved
+      - name: Create ZIP package
+        run: |
           cd release
           zip -r WaveBrowser.zip WaveBrowser
 
-      - name: Upload Aroma package
+      # Step 6: Upload ZIP artifact
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v7.0.0
         with:
           name: WaveBrowser
