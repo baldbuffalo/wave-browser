@@ -3,6 +3,7 @@
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -11,13 +12,13 @@
 #define CURRENT_VERSION "v0.1.0"
 #define GITHUB_API "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
 
-// -------------------- Memory callback --------------------
 struct MemoryStruct {
     char *memory;
     size_t size;
 };
 
-static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
     size_t realsize = size * nmemb;
     struct MemoryStruct *mem = (struct MemoryStruct*)userp;
 
@@ -32,20 +33,9 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
     return realsize;
 }
 
-// -------------------- CURL progress callback --------------------
-static int ProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
-    if (dltotal > 0) {
-        float progress = (float)dlnow / (float)dltotal;
-        char buf[64];
-        snprintf(buf, sizeof(buf), "Downloading update: %.1fMB of %.1fMB", dlnow / 1024.0f / 1024.0f, dltotal / 1024.0f / 1024.0f);
-        ProcUIDisplayText(buf, 0, 0);
-        ProcUIDisplayProgress(progress);
-    }
-    return 0;
-}
-
 // -------------------- Fetch latest release --------------------
-int fetch_latest_release(char *out_tag, size_t tag_size, curl_off_t *asset_size, char *asset_url, size_t url_size) {
+int fetch_latest_release(char *out_tag, size_t tag_size)
+{
     CURL *curl = curl_easy_init();
     if (!curl) return 1;
 
@@ -59,13 +49,13 @@ int fetch_latest_release(char *out_tag, size_t tag_size, curl_off_t *asset_size,
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
 
     CURLcode res = curl_easy_perform(curl);
+
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl);
         free(chunk.memory);
         return 1;
     }
 
-    // Parse tag_name
     char *tag_ptr = strstr(chunk.memory, "\"tag_name\":\"");
     if (tag_ptr) {
         tag_ptr += 12;
@@ -78,93 +68,99 @@ int fetch_latest_release(char *out_tag, size_t tag_size, curl_off_t *asset_size,
         }
     }
 
-    // Parse first asset url and size (assume first asset)
-    char *asset_ptr = strstr(chunk.memory, "\"browser_download_url\":\"");
-    if (asset_ptr) {
-        asset_ptr += 23;
-        char *end = strchr(asset_ptr, '"');
-        if (end) {
-            size_t len = end - asset_ptr;
-            if (len >= url_size) len = url_size - 1;
-            strncpy(asset_url, asset_ptr, len);
-            asset_url[len] = 0;
-        }
-    }
-
-    char *size_ptr = strstr(chunk.memory, "\"size\":");
-    if (size_ptr) {
-        size_ptr += 7;
-        *asset_size = strtoll(size_ptr, NULL, 10);
-    }
-
     curl_easy_cleanup(curl);
     free(chunk.memory);
     return 0;
 }
 
-// -------------------- Download asset --------------------
-int download_asset(const char *url, curl_off_t total_size) {
-    CURL *curl = curl_easy_init();
-    if (!curl) return 1;
+// -------------------- Download with progress --------------------
+struct DownloadProgress {
+    ProcUIElement *text;
+    ProcUIElement *bar;
+};
 
-    FILE *fp = tmpfile(); // download to temp memory/file
-    if (!fp) return 1;
+static int ProgressCallback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow)
+{
+    struct DownloadProgress *prog = (struct DownloadProgress*)clientp;
 
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
+    if (dltotal > 0) {
+        float progress = (float)dlnow / (float)dltotal;
+        ProcUIProgressBarSetValue(prog->bar, progress);
 
-    // Progress function
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, NULL);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-
-    CURLcode res = curl_easy_perform(curl);
-    fclose(fp);
-    curl_easy_cleanup(curl);
-    return (res == CURLE_OK) ? 0 : 1;
+        char buf[128];
+        snprintf(buf, sizeof(buf), "%lld of %lld bytes", dlnow, dltotal);
+        ProcUITextSetString(prog->text, buf);
+    }
+    return 0;
 }
 
-// -------------------- RPX Entry Point --------------------
+// -------------------- RPX Entry --------------------
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
-int main(void) {
+int main(void)
+{
+    // Init UI and controller
     ProcUIInit(NULL);
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    // 1️⃣ Splash: Loading...
-    ProcUIDisplayText("Loading...", 0, 0);
-    ProcUIDisplayProgress(0.2f);
-    usleep(500000);
+    // Splash screen
+    ProcUILayer *layer = ProcUILayerCreate();
+    ProcUILayerSet(layer, 0, 0, 1280, 720);
 
-    // 2️⃣ Splash: Checking for updates...
-    ProcUIDisplayText("Checking for updates...", 0, 0);
-    ProcUIDisplayProgress(0.4f);
+    ProcUIElement *statusText = ProcUITextCreate(layer, "Loading...", 640, 360, 1.0f);
+    ProcUIElement *progressBar = ProcUIProgressBarCreate(layer, 440, 400, 400, 20); // green bar
+    ProcUIProgressBarSetColor(progressBar, 0x00FF00FF);
+
+    ProcUILayerAddElement(layer, statusText);
+    ProcUILayerAddElement(layer, progressBar);
+
+    ProcUILayerShow(layer);
+
+    // Give a small delay for splash
+    sleep(1);
+
+    // Checking updates
+    ProcUITextSetString(statusText, "Checking for updates...");
+    ProcUIProgressBarSetValue(progressBar, 0.0f);
 
     char latest_tag[64] = {0};
-    char asset_url[256] = {0};
-    curl_off_t asset_size = 0;
-
     int has_update = 0;
-    if (fetch_latest_release(latest_tag, sizeof(latest_tag), &asset_size, asset_url, sizeof(asset_url)) == 0) {
-        if (strcmp(latest_tag, CURRENT_VERSION) != 0 && asset_size > 0) {
+
+    if (fetch_latest_release(latest_tag, sizeof(latest_tag)) == 0) {
+        if (strcmp(latest_tag, CURRENT_VERSION) != 0) {
             has_update = 1;
         }
     }
 
-    // 3️⃣ If update exists → download with real progress
+    // If update available, download it
     if (has_update) {
-        download_asset(asset_url, asset_size);
+        ProcUITextSetString(statusText, "Downloading update...");
+
+        struct DownloadProgress prog = {statusText, progressBar};
+        CURL *curl = curl_easy_init();
+        if (curl) {
+            FILE *fp = fopen("/tmp/update.bin", "wb");
+            curl_easy_setopt(curl, CURLOPT_URL, "https://github.com/baldbuffalo/wave-browser/releases/latest/download/wave_browser.rpx");
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+            curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+            curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
+            curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &prog);
+            curl_easy_perform(curl);
+            fclose(fp);
+            curl_easy_cleanup(curl);
+        }
     }
 
-    // 4️⃣ Done loading, launch browser UI
-    ProcUIDisplayText("Loading browser...", 0, 0);
-    ProcUIDisplayProgress(1.0f);
-    usleep(300000);
+    // Loading complete
+    ProcUITextSetString(statusText, "Loading complete!");
+    ProcUIProgressBarSetValue(progressBar, 1.0f);
 
+    sleep(1);
+
+    // Main loop
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
