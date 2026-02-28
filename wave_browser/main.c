@@ -1,6 +1,3 @@
-#include <wut.h>
-WUT_INIT();
-
 #include <coreinit/core.h>
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
@@ -12,6 +9,8 @@ WUT_INIT();
 #include <unistd.h>
 
 #include <curl/curl.h>
+
+#include <wut.h> // <-- Include this, but don't call WUT_INIT() at top-level
 
 #define CURRENT_VERSION "v0.1.0"
 #define GITHUB_API "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
@@ -76,8 +75,10 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     return 0;
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
+    WUT_INIT(); // <-- Move it inside main, before using WUT
+
     ProcUIInit(NULL);
     VPADInit();
     curl_global_init(CURL_GLOBAL_DEFAULT);
