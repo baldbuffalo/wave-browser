@@ -1,17 +1,12 @@
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
-WUT_ROOT  := $(DEVKITPRO)/wut
-PORTLIBS  := $(DEVKITPRO)/portlibs/wiiu
+WUT_ROOT := $(DEVKITPRO)/wut
 
 CC := powerpc-eabi-gcc
 
-CFLAGS := -O2 -Wall \
-    -I$(WUT_ROOT)/include \
-    -I$(PORTLIBS)/include
-
-LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
-    -L$(PORTLIBS)/lib/wiiu \
-    -Wl,-e,__rpx_start
+# Use wut-config to auto-detect include and link flags
+CFLAGS := $(shell $(WUT_ROOT)/bin/wut-config --cflags)
+LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs $(shell $(WUT_ROOT)/bin/wut-config --libs)
 
 SRC := wave_browser/main.c
 OBJ := build/main.o
