@@ -17,22 +17,22 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y zip xmllint wuhbtool
+          sudo apt-get install -y libxml2-utils zip
 
       - name: Build RPX and WUHB
         run: |
-          # Environment
+          # Environment variables
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export WUT_ROOT=$DEVKITPRO/wut
           export PORTLIBS=$DEVKITPRO/portlibs/wiiu
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
-          # Build
+          # Clean previous builds
           make clean
           make
 
-          # Validate meta.xml
+          # Validate meta.xml exists and is well-formed
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
