@@ -11,36 +11,48 @@ jobs:
       image: devkitpro/devkitppc:latest
 
     steps:
-      - uses: actions/checkout@v6.0.2
+      - name: Checkout code
+        uses: actions/checkout@v6.0.2
 
-      - name: Build RPX
+      - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y zip xmllint wuhbtool
+
+      - name: Build RPX and WUHB
+        run: |
+          # Environment
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export WUT_ROOT=$DEVKITPRO/wut
           export PORTLIBS=$DEVKITPRO/portlibs/wiiu
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
+          # Build
           make clean
           make
 
-          # Check meta.xml
+          # Validate meta.xml
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
+          xmllint --noout meta.xml
 
           # Convert RPX → WUHB
           wuhbtool build/wave_browser.rpx build/wave_browser.wuhb meta.xml
 
+          # Prepare release folder
           mkdir -p release/WaveBrowser
           cp build/wave_browser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
 
+          # Zip release
           cd release
           zip -r WaveBrowser.zip WaveBrowser
         shell: sh -e {0}
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
         with:
           name: WaveBrowser
           path: release/WaveBrowser.zip
