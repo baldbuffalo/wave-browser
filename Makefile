@@ -1,21 +1,24 @@
+# Environment paths
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC := $(DEVKITPRO)/devkitPPC
 WUT_ROOT := $(DEVKITPRO)/wut
 PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
 
+# Source & build
 SRC := $(wildcard wave_browser/*.c)
 OBJ := $(SRC:wave_browser/%.c=build/%.o)
 TARGET := build/wave_browser.rpx
 
+# Default target
 all: $(TARGET)
 
-# Build RPX using DevkitPPC and WUT specs
+# Link RPX
 $(TARGET): $(OBJ)
 	$(DEVKITPPC)/bin/powerpc-eabi-gcc $^ -o $@ \
 		-specs=$(WUT_ROOT)/share/wut.specs \
-		-L$(PORTLIBS)/lib/wiiu
+		-L$(PORTLIBS)/lib/wiiu -lwut
 
-# Compile object files
+# Compile objects
 build/%.o: wave_browser/%.c
 	mkdir -p build
 	$(DEVKITPPC)/bin/powerpc-eabi-gcc -O2 -Wall \
@@ -23,5 +26,7 @@ build/%.o: wave_browser/%.c
 		-I$(PORTLIBS)/include \
 		-c $< -o $@
 
+# Clean
+.PHONY: clean
 clean:
-	rm -rf build
+	rm -rf build $(TARGET)
