@@ -1,27 +1,24 @@
-# Wave Browser (WiiU) Makefile
+# Paths from container
 DEVKITPRO ?= /opt/devkitpro
-DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
-WUT_ROOT ?= $(DEVKITPRO)/wut
-PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
+DEVKITPPC := $(DEVKITPRO)/devkitPPC
+WUT_ROOT := $(DEVKITPRO)/wut
+PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
 
 CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
 CFLAGS := -O2 -Wall -I$(WUT_ROOT)/include -I$(PORTLIBS)/include
-LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs -L$(PORTLIBS)/lib/wiiu -lwut -lportlibs -lcurl
+LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs
 
-SRC := wave_browser/main.c
-OBJ := build/main.o
-RPX := build/wave_browser.rpx
+SRC := $(wildcard wave_browser/*.c)
+OBJ := $(patsubst wave_browser/%.c,build/%.o,$(SRC))
 
-all: $(RPX)
+all: build/wave_browser.rpx
 
-build:
+build/%.o: wave_browser/%.c
 	mkdir -p build
-
-$(OBJ): $(SRC) | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(RPX): $(OBJ)
-	$(CC) $^ -o $@ $(LDFLAGS)
+build/wave_browser.rpx: $(OBJ)
+	$(CC) $(OBJ) -o $@ $(LDFLAGS)
 
 clean:
-	rm -rf build
+	rm -rf build wave_browser.rpx
