@@ -11,8 +11,7 @@ jobs:
       image: devkitpro/devkitppc
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v6.0.2
 
       - name: Build RPX
         run: |
@@ -33,18 +32,15 @@ jobs:
           # Convert RPX → WUHB
           wuhbtool build/wave_browser.rpx build/wave_browser.wuhb meta.xml
 
-          # Prepare release folder
           mkdir -p release/WaveBrowser
           cp build/wave_browser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
 
-          # Zip release folder
           cd release
           zip -r WaveBrowser.zip WaveBrowser
         shell: sh -e {0}
 
-      - name: Upload WUHB zip
-        uses: actions/upload-artifact@v7.0.0
+      - uses: actions/upload-artifact@v7
         with:
           name: WaveBrowser
           path: release/WaveBrowser.zip
