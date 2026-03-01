@@ -12,13 +12,13 @@ TARGET := build/wave_browser.rpx
 # Default target
 all: $(TARGET)
 
-# Link RPX
+# Link RPX with correct libwut.a path
 $(TARGET): $(OBJ)
 	$(DEVKITPPC)/bin/powerpc-eabi-gcc $^ -o $@ \
 		-specs=$(WUT_ROOT)/share/wut.specs \
 		-L$(PORTLIBS)/lib/wiiu -lwut
 
-# Compile objects
+# Compile object files
 build/%.o: wave_browser/%.c
 	mkdir -p build
 	$(DEVKITPPC)/bin/powerpc-eabi-gcc -O2 -Wall \
@@ -26,7 +26,7 @@ build/%.o: wave_browser/%.c
 		-I$(PORTLIBS)/include \
 		-c $< -o $@
 
-# Clean
+# Clean build folder
 .PHONY: clean
 clean:
 	rm -rf build $(TARGET)
