@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: devkitpro/devkitppc
+      image: devkitpro/devkitppc:latest
 
     steps:
       - uses: actions/checkout@v6.0.2
@@ -24,7 +24,7 @@ jobs:
           make clean
           make
 
-          # Check meta.xml exists
+          # Check meta.xml
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
