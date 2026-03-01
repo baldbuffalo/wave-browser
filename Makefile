@@ -1,4 +1,3 @@
-# Paths from container
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC := $(DEVKITPRO)/devkitPPC
 WUT_ROOT := $(DEVKITPRO)/wut
@@ -18,6 +17,7 @@ build/%.o: wave_browser/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/wave_browser.rpx: $(OBJ)
+	# The specs file will automatically pull in wut, portlibs, VPAD, ProcUI, curl
 	$(CC) $(OBJ) -o $@ $(LDFLAGS)
 
 clean:
