@@ -14,37 +14,45 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6.0.2
 
-      - name: Prepare release and convert RPX
+      - name: Set up DevkitPro environment
         run: |
-          # Set up DevkitPro environment
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export WUT_ROOT=$DEVKITPRO/wut
           export PORTLIBS=$DEVKITPRO/portlibs/wiiu
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+          which powerpc-eabi-gcc
+        shell: sh
 
-          # Verify prebuilt RPX exists
+      - name: Build RPX
+        run: |
+          make clean
+          make
+        shell: sh
+
+      - name: Verify RPX and meta.xml
+        run: |
           if [ ! -f build/wave_browser.rpx ]; then
-            echo "Prebuilt wave_browser.rpx missing! Make sure the container image includes it." && exit 1
+            echo "wave_browser.rpx not found!" && exit 1
           fi
-
-          # Check meta.xml exists
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
+        shell: sh
 
-          # Convert RPX → WUHB
-          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb meta.xml
-
-          # Prepare release folder
+      - name: Convert RPX → WUHB
+        run: |
           mkdir -p release/WaveBrowser
+          wuhbtool build/wave_browser.rpx build/wave_browser.wuhb meta.xml
           cp build/wave_browser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
+        shell: sh
 
-          # Zip release folder
+      - name: Create ZIP for Aroma
+        run: |
           cd release
           zip -r WaveBrowser.zip WaveBrowser
-        shell: sh -e {0}
+        shell: sh
 
       - name: Upload WUHB zip
         uses: actions/upload-artifact@v7.0.0
