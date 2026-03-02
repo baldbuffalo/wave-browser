@@ -5,7 +5,7 @@
 APP_NAME = WaveBrowser
 SRC = wave_browser/main.c
 BUILD_DIR = build
-OUTPUT_ELF = $(APP_NAME).elf
+OUTPUT_RPX = $(APP_NAME).rpx
 OUTPUT_WUHB = $(APP_NAME).wuhb
 
 DEVKITPRO ?= /opt/devkitpro
@@ -14,16 +14,11 @@ WUT_ROOT ?= $(DEVKITPRO)/wut
 PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
 
 CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc
-
-# Include paths: WUT headers + Portlibs + libogc network
 CFLAGS = -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
          -I$(WUT_ROOT)/include -I$(PORTLIBS)/include -I$(DEVKITPRO)/libogc/include
-
-# Linker flags: define __end__ for sbrk
 LDFLAGS = -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
           -L$(WUT_ROOT)/lib -L$(PORTLIBS)/lib \
-          -lwut -lc -lm -lsysbase \
-          -Wl,--defsym=__end__=0x81200000
+          -lwut -lc -lm -lsysbase
 
 # -----------------------------
 # Targets
@@ -35,12 +30,12 @@ $(BUILD_DIR)/main.o: $(SRC)
 	mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OUTPUT_ELF): $(BUILD_DIR)/main.o
+$(OUTPUT_RPX): $(BUILD_DIR)/main.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
-$(OUTPUT_WUHB): $(OUTPUT_ELF)
-	# Use wut-tool to convert ELF -> .wuhb
-	$(WUT_ROOT)/bin/wut-tool pack $< $@ --icon=icon.png
+$(OUTPUT_WUHB): $(OUTPUT_RPX)
+	# Convert .rpx to .wuhb
+	$(WUT_ROOT)/bin/wut-tool pack $< $@
 
 clean:
-	rm -rf $(BUILD_DIR) *.elf *.wuhb
+	rm -rf $(BUILD_DIR) *.rpx *.wuhb
