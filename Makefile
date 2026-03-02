@@ -1,44 +1,64 @@
-# -------------------------------
+# -----------------------------
 # Wave Browser Makefile (WiiU)
-# -------------------------------
+# -----------------------------
 
-# Toolchain
-DEVKITPRO ?= /opt/devkitpro
-DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
-WUT_ROOT ?= $(DEVKITPRO)/wut
-PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
-PORTLIBS_PPC ?= $(DEVKITPRO)/portlibs/ppc
+# Compiler & tools
+CC       := /opt/devkitpro/devkitPPC/bin/powerpc-eabi-gcc
+WUT      := /opt/devkitpro/wut
+PORTLIBS := /opt/devkitpro/portlibs/wiiu
 
-CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CFLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
-           -I$(WUT_ROOT)/include -I$(PORTLIBS)/include
-LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
-           -L$(WUT_ROOT)/lib \
-           -L$(PORTLIBS)/lib
+# Output files
+ELF      := wave_browser.elf
+RPX      := wave_browser.rpx
+WUHB     := wave_browser.wuhb
 
-LIBS := $(PORTLIBS)/lib/libcurl.a \
-        $(PORTLIBS)/lib/libmbedtls.a \
-        $(PORTLIBS)/lib/libmbedx509.a \
-        $(PORTLIBS)/lib/libmbedcrypto.a \
-        -lbrotlidec -lbrotlicommon -lz -lm -lwut
+# Source & object files
+SRC      := wave_browser/main.c
+OBJ      := build/main.o
 
-SRC := wave_browser/main.c
-OBJ := build/main.o
-TARGET := wave_browser.elf
+# Compiler flags
+CFLAGS   := -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections
+CFLAGS   += -I$(WUT)/include -I$(PORTLIBS)/include
 
-# -------------------------------
-# Rules
-# -------------------------------
-all: $(TARGET)
+# Linker flags
+LDFLAGS  := -specs=$(WUT)/share/wut.specs -Wl,--gc-sections
+LIBS     := $(PORTLIBS)/lib/libcurl.a \
+            $(PORTLIBS)/lib/libmbedtls.a \
+            $(PORTLIBS)/lib/libmbedx509.a \
+            $(PORTLIBS)/lib/libmbedcrypto.a \
+            -lm -lwut
+LDFLAGS += -L$(WUT)/lib
 
-$(TARGET): $(OBJ)
-	$(CC) $(OBJ) $(LDFLAGS) $(LIBS) -o $@
+# -----------------------------
+# Targets
+# -----------------------------
 
+all: $(WUHB)
+
+# Build WUHB from RPX
+$(WUHB): $(RPX)
+	@echo "Creating WUHB..."
+	@$(WUT)/bin/make_wuhb $(RPX) $@
+
+# Build RPX from ELF
+$(RPX): $(ELF)
+	@echo "Creating RPX..."
+	@$(WUT)/bin/make_rpx $(ELF) $@
+
+# Link ELF
+$(ELF): $(OBJ)
+	@echo "Linking ELF..."
+	@$(CC) $(OBJ) $(LDFLAGS) $(LIBS) -o $@
+
+# Compile C sources
 $(OBJ): $(SRC)
-	mkdir -p build
-	$(CC) $(CFLAGS) -c $< -o $@
+	@mkdir -p build
+	@echo "Compiling $<..."
+	@$(CC) $(CFLAGS) -c $< -o $@
 
+# Clean build
 clean:
-	rm -rf build *.elf *.rpx *.wuhb
+	@echo "Cleaning..."
+	@rm -rf build *.elf *.rpx *.wuhb
 
 .PHONY: all clean
