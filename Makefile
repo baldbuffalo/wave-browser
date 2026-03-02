@@ -34,8 +34,8 @@ $(OUTPUT_ELF): $(BUILD_DIR)/main.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
 $(OUTPUT_WUHB): $(OUTPUT_ELF)
-	# Simply copy ELF to WUHB for simplicity
-	cp $(OUTPUT_ELF) $(OUTPUT_WUHB)
+	# Use wut-tool to convert ELF -> .wuhb
+	$(WUT_ROOT)/bin/wut-tool pack $< $@ --icon=icon.png
 
 clean:
 	rm -rf $(BUILD_DIR) *.elf *.wuhb
