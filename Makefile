@@ -34,7 +34,7 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs
 LDFLAGS += -Wl,--gc-sections
 LDFLAGS += -L$(WUT_ROOT)/lib
 LDFLAGS += -L$(PORTLIBS_WIIU)/lib
-LDFLAGS += -L$(PORTLIBS_PPC)/lib   # needed for libz.a
+LDFLAGS += -L$(PORTLIBS_PPC)/lib   # for libz.a
 
 LIBS := -lwut -lcurl -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer -lSDL2_net \
         -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm
