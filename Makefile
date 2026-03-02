@@ -15,14 +15,13 @@ PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
 
 CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc
 
-CFLAGS = -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
-         -I$(WUT_ROOT)/include -I$(PORTLIBS)/include -I$(DEVKITPRO)/libogc/include
+CFLAGS = -O2 -Wall -mcpu=750 -meabi -mhard-float \
+         -ffunction-sections -fdata-sections \
+         -I$(WUT_ROOT)/include \
+         -I$(PORTLIBS)/include
 
-# Prevent GCC from linking libsysbase and other default libraries
-LDFLAGS = -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
-          -nostartfiles -nodefaultlibs \
-          -L$(WUT_ROOT)/lib -L$(PORTLIBS)/lib \
-          -lwut -lm
+LDFLAGS = -specs=$(WUT_ROOT)/share/wut.specs \
+          -Wl,--gc-sections
 
 # -----------------------------
 # Targets
