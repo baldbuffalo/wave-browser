@@ -12,13 +12,18 @@ DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT ?= $(DEVKITPRO)/wut
 PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
+LIBOGC ?= $(DEVKITPRO)/libogc
 
 CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc
+
+# Added libogc include path for network.h/socket.h
 CFLAGS = -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
-         -I$(WUT_ROOT)/include -I$(PORTLIBS)/include
+         -I$(WUT_ROOT)/include -I$(PORTLIBS)/include -I$(LIBOGC)/include
+
+# Removed curl/zlib/Brotli libs; only link wut + math
 LDFLAGS = -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
           -L$(WUT_ROOT)/lib -L$(PORTLIBS)/lib \
-          -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lwut -lm
+          -lwut -lm
 
 # -----------------------------
 # Targets
