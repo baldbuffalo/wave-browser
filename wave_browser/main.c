@@ -1,11 +1,6 @@
 #include <coreinit/core.h>
 #include <coreinit/debug.h>
 #include <coreinit/filesystem.h>
-#include <coreinit/network.h>
-#include <coreinit/socket.h>
-#include <coreinit/thread.h>
-#include <coreinit/time.h>
-#include <coreinit/cache.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
 
@@ -13,9 +8,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <netdb.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <netdb.h>
+
+// Include network headers from libogc
+#include <network.h>
+#include <socket.h>
 
 #define GITHUB_HOST "api.github.com"
 #define GITHUB_PATH "/repos/baldbuffalo/wave-browser/releases/latest"
