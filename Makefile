@@ -12,28 +12,23 @@ DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT ?= $(DEVKITPRO)/wut
 PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
-LIBOGC ?= $(DEVKITPRO)/libogc
 
 CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc
 
-# -----------------------------
-# Compiler flags
-# -----------------------------
+# Include paths: WUT headers + Portlibs + libogc network
 CFLAGS = -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
-         -I$(WUT_ROOT)/include \
-         -I$(PORTLIBS)/include \
-         -I$(LIBOGC)/include
+         -I$(WUT_ROOT)/include -I$(PORTLIBS)/include -I$(DEVKITPRO)/libogc/include
 
-# -----------------------------
-# Linker flags
-# -----------------------------
+# Linker flags: define __end__ for sbrk
 LDFLAGS = -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
           -L$(WUT_ROOT)/lib -L$(PORTLIBS)/lib \
-          -lwut -lc -lm -lsysbase
+          -lwut -lc -lm -lsysbase \
+          -Wl,--defsym=__end__=0x81200000
 
 # -----------------------------
 # Targets
 # -----------------------------
+
 all: $(OUTPUT_WUHB)
 
 $(BUILD_DIR)/main.o: $(SRC)
@@ -44,7 +39,7 @@ $(OUTPUT_ELF): $(BUILD_DIR)/main.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
 $(OUTPUT_WUHB): $(OUTPUT_ELF)
-	# Convert ELF -> .wuhb using wut-tool
+	# Use wut-tool to convert ELF -> .wuhb
 	$(WUT_ROOT)/bin/wut-tool pack $< $@ --icon=icon.png
 
 clean:
