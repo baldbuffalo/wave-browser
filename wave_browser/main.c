@@ -1,173 +1,64 @@
-#include <coreinit/core.h>
-#include <coreinit/debug.h>
-#include <coreinit/filesystem.h>
-#include <proc_ui/procui.h>
-#include <vpad/input.h>
-
+#include <coreinit/network.h>
+#include <coreinit/socket.h>
+#include <coreinit/thread.h>
+#include <coreinit/time.h>
+#include <coreinit/cache.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+#include <stdlib.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #include <unistd.h>
-#include <curl/curl.h>
 
-#define GITHUB_API "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
+int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
+    int ret = 1;
 
-__asm__(".global __rpx_start\n\t"
-        "__rpx_start: b main");
+    if (netInitialize() != 0) return 1;
 
-// -------------------- CURL Memory Struct --------------------
-struct MemoryStruct {
-    char *memory;
-    size_t size;
-};
+    struct hostent *he = gethostbyname("api.github.com");
+    if (!he) return 1;
 
-static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp)
-{
-    size_t realsize = size * nmemb;
-    struct MemoryStruct *mem = (struct MemoryStruct*)userp;
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) return 1;
 
-    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
-    if (!ptr)
-        return 0;
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(80);
+    memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
 
-    mem->memory = ptr;
-    memcpy(&(mem->memory[mem->size]), contents, realsize);
-    mem->size += realsize;
-    mem->memory[mem->size] = 0;
-
-    return realsize;
-}
-
-// -------------------- Read version from meta.xml --------------------
-int read_local_version(char *out_version, size_t size)
-{
-    FILE *file = fopen("meta.xml", "r");
-    if (!file)
-        return 1;
-
-    char buffer[2048];
-    size_t len = fread(buffer, 1, sizeof(buffer) - 1, file);
-    buffer[len] = 0;
-    fclose(file);
-
-    char *ver_ptr = strstr(buffer, "<version>");
-    if (!ver_ptr)
-        return 1;
-
-    ver_ptr += 9;
-    char *end = strstr(ver_ptr, "</version>");
-    if (!end)
-        return 1;
-
-    size_t ver_len = end - ver_ptr;
-    if (ver_len >= size)
-        ver_len = size - 1;
-
-    strncpy(out_version, ver_ptr, ver_len);
-    out_version[ver_len] = 0;
-
-    return 0;
-}
-
-// -------------------- Normalize Version --------------------
-void normalize_version(char *version)
-{
-    if (version[0] == 'v' || version[0] == 'V') {
-        memmove(version, version + 1, strlen(version));
-    }
-}
-
-// -------------------- Fetch latest GitHub release --------------------
-int fetch_latest_release(char *out_tag, size_t tag_size)
-{
-    CURL *curl = curl_easy_init();
-    if (!curl)
-        return 1;
-
-    struct MemoryStruct chunk;
-    chunk.memory = malloc(1);
-    chunk.size = 0;
-
-    curl_easy_setopt(curl, CURLOPT_URL, GITHUB_API);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
-
-    // Disable SSL verification for homebrew testing (optional)
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-    CURLcode res = curl_easy_perform(curl);
-
-    if (res != CURLE_OK) {
-        OSReport("curl error: %d\n", res);
-        curl_easy_cleanup(curl);
-        free(chunk.memory);
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        closesocket(sock);
         return 1;
     }
 
-    char *tag_ptr = strstr(chunk.memory, "\"tag_name\":\"");
-    if (tag_ptr) {
-        tag_ptr += 12;
-        char *end = strchr(tag_ptr, '"');
-        if (end) {
-            size_t len = end - tag_ptr;
-            if (len >= tag_size)
-                len = tag_size - 1;
+    const char *req = 
+        "GET /repos/baldbuffalo/wave-browser/releases/latest HTTP/1.0\r\n"
+        "Host: api.github.com\r\n"
+        "User-Agent: wave-browser\r\n"
+        "\r\n";
 
-            strncpy(out_tag, tag_ptr, len);
-            out_tag[len] = 0;
+    send(sock, req, strlen(req), 0);
+
+    char buffer[4096];
+    int bytes = recv(sock, buffer, sizeof(buffer)-1, 0);
+    if (bytes > 0) {
+        buffer[bytes] = 0;
+        char *tag_ptr = strstr(buffer, "\"tag_name\":\"");
+        if (tag_ptr) {
+            tag_ptr += 12;
+            char *end = strchr(tag_ptr, '"');
+            if (end) {
+                size_t len = end - tag_ptr;
+                if (len >= tag_size) len = tag_size - 1;
+                strncpy(out_tag, tag_ptr, len);
+                out_tag[len] = 0;
+                ret = 0; // success
+            }
         }
     }
 
-    curl_easy_cleanup(curl);
-    free(chunk.memory);
-    return 0;
-}
-
-// -------------------- MAIN --------------------
-int main(void)
-{
-    ProcUIInit(NULL);
-    VPADInit();
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-
-    OSReport("Wave Browser starting...\n");
-
-    char local_version[64] = {0};
-    char latest_version[64] = {0};
-
-    if (read_local_version(local_version, sizeof(local_version)) != 0) {
-        OSReport("Failed to read local version.\n");
-    } else {
-        normalize_version(local_version);
-        OSReport("Local version: %s\n", local_version);
-    }
-
-    if (fetch_latest_release(latest_version, sizeof(latest_version)) == 0) {
-        normalize_version(latest_version);
-        OSReport("Latest version: %s\n", latest_version);
-
-        if (strcmp(local_version, latest_version) != 0) {
-            OSReport("Update available!\n");
-        } else {
-            OSReport("App is up to date.\n");
-        }
-    } else {
-        OSReport("Failed to check GitHub release.\n");
-    }
-
-    // Basic loop
-    while (ProcUIIsRunning()) {
-        VPADStatus vpad;
-        VPADReadError error;
-        VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-
-        ProcUIProcessMessages(TRUE);
-        usleep(16000);
-    }
-
-    curl_global_cleanup();
-    ProcUIShutdown();
-    return 0;
+    closesocket(sock);
+    return ret;
 }
