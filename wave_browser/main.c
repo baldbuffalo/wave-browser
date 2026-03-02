@@ -4,44 +4,42 @@
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
 
+#include <network.h>            // from /opt/devkitpro/libogc/include/network.h
+#include <nsysnet/socket.h>     // from /opt/devkitpro/wut/include/nsysnet/socket.h
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sys/socket.h>
 #include <netdb.h>
 
-// Include network headers from libogc
-#include <network.h>
-#include <socket.h>
-
-#define GITHUB_HOST "api.github.com"
-#define GITHUB_PATH "/repos/baldbuffalo/wave-browser/releases/latest"
+#define GITHUB_API_HOST "api.github.com"
+#define GITHUB_API_PATH "/repos/baldbuffalo/wave-browser/releases/latest"
 
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
 // -------------------- Read version from meta.xml --------------------
-int read_local_version(char *out_version, size_t size) {
+int read_local_version(char *out_version, size_t size)
+{
     FILE *file = fopen("meta.xml", "r");
     if (!file) return 1;
 
     char buffer[2048];
-    size_t len = fread(buffer, 1, sizeof(buffer)-1, file);
+    size_t len = fread(buffer, 1, sizeof(buffer) - 1, file);
     buffer[len] = 0;
     fclose(file);
 
     char *ver_ptr = strstr(buffer, "<version>");
     if (!ver_ptr) return 1;
-    ver_ptr += 9;
 
+    ver_ptr += 9;
     char *end = strstr(ver_ptr, "</version>");
     if (!end) return 1;
 
     size_t ver_len = end - ver_ptr;
-    if (ver_len >= size) ver_len = size-1;
+    if (ver_len >= size) ver_len = size - 1;
 
     strncpy(out_version, ver_ptr, ver_len);
     out_version[ver_len] = 0;
@@ -49,25 +47,21 @@ int read_local_version(char *out_version, size_t size) {
 }
 
 // -------------------- Normalize Version --------------------
-void normalize_version(char *version) {
-    if (version[0]=='v' || version[0]=='V') {
-        memmove(version, version+1, strlen(version));
-    }
+void normalize_version(char *version)
+{
+    if (version[0] == 'v' || version[0] == 'V')
+        memmove(version, version + 1, strlen(version));
 }
 
 // -------------------- Fetch latest GitHub release --------------------
-int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
-    int ret = 1;
+int fetch_latest_release_simple(char *out_tag, size_t tag_size)
+{
+    if (netInitialize() != 0) return 1;
 
-    if (netInitialize() != 0) {
-        OSReport("Failed to initialize network\n");
-        return 1;
-    }
-
-    struct hostent *he = gethostbyname(GITHUB_HOST);
+    struct hostent *he = gethostbyname(GITHUB_API_HOST);
     if (!he) return 1;
 
-    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) return 1;
 
     struct sockaddr_in addr;
@@ -81,8 +75,8 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
     }
 
     const char *req =
-        "GET " GITHUB_PATH " HTTP/1.0\r\n"
-        "Host: " GITHUB_HOST "\r\n"
+        "GET " GITHUB_API_PATH " HTTP/1.0\r\n"
+        "Host: " GITHUB_API_HOST "\r\n"
         "User-Agent: wave-browser\r\n"
         "\r\n";
 
@@ -90,6 +84,8 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
 
     char buffer[8192];
     int bytes = recv(sock, buffer, sizeof(buffer)-1, 0);
+    int ret = 1;
+
     if (bytes > 0) {
         buffer[bytes] = 0;
         char *tag_ptr = strstr(buffer, "\"tag_name\":\"");
@@ -98,7 +94,7 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
             char *end = strchr(tag_ptr, '"');
             if (end) {
                 size_t len = end - tag_ptr;
-                if (len >= tag_size) len = tag_size-1;
+                if (len >= tag_size) len = tag_size - 1;
                 strncpy(out_tag, tag_ptr, len);
                 out_tag[len] = 0;
                 ret = 0; // success
@@ -111,7 +107,8 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
 }
 
 // -------------------- MAIN --------------------
-int main(void) {
+int main(void)
+{
     ProcUIInit(NULL);
     VPADInit();
 
@@ -120,9 +117,9 @@ int main(void) {
     char local_version[64] = {0};
     char latest_version[64] = {0};
 
-    if (read_local_version(local_version, sizeof(local_version)) != 0) {
-        OSReport("Failed to read local version\n");
-    } else {
+    if (read_local_version(local_version, sizeof(local_version)) != 0)
+        OSReport("Failed to read local version.\n");
+    else {
         normalize_version(local_version);
         OSReport("Local version: %s\n", local_version);
     }
@@ -131,13 +128,12 @@ int main(void) {
         normalize_version(latest_version);
         OSReport("Latest version: %s\n", latest_version);
 
-        if (strcmp(local_version, latest_version) != 0) {
+        if (strcmp(local_version, latest_version) != 0)
             OSReport("Update available!\n");
-        } else {
+        else
             OSReport("App is up to date.\n");
-        }
     } else {
-        OSReport("Failed to check GitHub release\n");
+        OSReport("Failed to check GitHub release.\n");
     }
 
     // Basic loop
@@ -151,6 +147,5 @@ int main(void) {
     }
 
     ProcUIShutdown();
-    netUninitialize();
     return 0;
 }
