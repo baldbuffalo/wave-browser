@@ -15,9 +15,9 @@ BUILD := build
 SRC_DIR := wave_browser
 
 # WUT + portlibs
-WUT_ROOT := $(DEVKITPRO)/wut
-PORTLIBS_WIIU := $(DEVKITPRO)/portlibs/wiiu
-PORTLIBS_PPC := $(DEVKITPRO)/portlibs/ppc   # for libz.a
+WUT_ROOT ?= $(DEVKITPRO)/wut
+PORTLIBS_WIIU ?= $(DEVKITPRO)/portlibs/wiiu
+PORTLIBS_PPC ?= $(DEVKITPRO)/portlibs/ppc   # for libz.a
 
 #---------------------------------------------
 # Compiler Flags
