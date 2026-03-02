@@ -19,11 +19,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxml2-utils zip
 
-      - name: Build RPX and WUHB
+      - name: Build Wave Browser
         run: |
-          #---------------------------------------
-          # Environment variables
-          #---------------------------------------
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export WUT_ROOT=$DEVKITPRO/wut
@@ -31,38 +28,28 @@ jobs:
           export PORTLIBS_PPC=$DEVKITPRO/portlibs/ppc
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
-          #---------------------------------------
           # Clean previous builds
-          #---------------------------------------
           make clean
 
-          #---------------------------------------
-          # Build project using all CPU cores
-          #---------------------------------------
+          # Build ELF and WUHB
           make -j$(nproc)
 
-          #---------------------------------------
           # Validate meta.xml exists
-          #---------------------------------------
           if [ ! -f meta.xml ]; then
             echo "meta.xml missing!" && exit 1
           fi
           xmllint --noout meta.xml
 
-          #---------------------------------------
           # Prepare release folder
-          #---------------------------------------
           mkdir -p release/WaveBrowser
           cp wave_browser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
 
-          #---------------------------------------
           # Zip release folder
-          #---------------------------------------
           pushd release
           zip -r WaveBrowser.zip WaveBrowser
           popd
-        shell: sh -e {0}
+        shell: bash -e {0}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
