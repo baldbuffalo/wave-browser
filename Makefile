@@ -12,18 +12,14 @@ DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT ?= $(DEVKITPRO)/wut
 PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
-LIBOGC ?= $(DEVKITPRO)/libogc
+LIBOGC_INCLUDE ?= $(DEVKITPRO)/libogc/include
 
 CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc
-
-# Added libogc include path for network.h/socket.h
 CFLAGS = -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
-         -I$(WUT_ROOT)/include -I$(PORTLIBS)/include -I$(LIBOGC)/include
-
-# Removed curl/zlib/Brotli libs; only link wut + math
+         -I$(WUT_ROOT)/include -I$(PORTLIBS)/include -I$(LIBOGC_INCLUDE)
 LDFLAGS = -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
           -L$(WUT_ROOT)/lib -L$(PORTLIBS)/lib \
-          -lwut -lm
+          -lmbedtls -lmbedx509 -lmbedcrypto -lwut -lm
 
 # -----------------------------
 # Targets
@@ -39,7 +35,7 @@ $(OUTPUT_ELF): $(BUILD_DIR)/main.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
 $(OUTPUT_WUHB): $(OUTPUT_ELF)
-	# Use wut-tool to convert ELF -> .wuhb
+	# Convert ELF -> .wuhb
 	$(WUT_ROOT)/bin/wut-tool pack $< $@ --icon=icon.png
 
 clean:
