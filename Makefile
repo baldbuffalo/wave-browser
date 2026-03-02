@@ -16,7 +16,8 @@ SRC_DIR := wave_browser
 
 # WUT + portlibs
 WUT_ROOT := $(DEVKITPRO)/wut
-PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
+PORTLIBS_WIIU := $(DEVKITPRO)/portlibs/wiiu
+PORTLIBS_PPC := $(DEVKITPRO)/portlibs/ppc  # contains libz.a
 
 #---------------------------------------------
 # Compiler Flags
@@ -24,7 +25,7 @@ PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
 CFLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float
 CFLAGS += -ffunction-sections -fdata-sections
 CFLAGS += -I$(WUT_ROOT)/include
-CFLAGS += -I$(PORTLIBS)/include
+CFLAGS += -I$(PORTLIBS_WIIU)/include
 
 #---------------------------------------------
 # Linker Flags
@@ -32,7 +33,8 @@ CFLAGS += -I$(PORTLIBS)/include
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs
 LDFLAGS += -Wl,--gc-sections
 LDFLAGS += -L$(WUT_ROOT)/lib
-LDFLAGS += -L$(PORTLIBS)/lib
+LDFLAGS += -L$(PORTLIBS_WIIU)/lib
+LDFLAGS += -L$(PORTLIBS_PPC)/lib  # <-- needed for libz.a
 
 LIBS := -lwut -lcurl -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer -lSDL2_net -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm
 
