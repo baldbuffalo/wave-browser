@@ -16,9 +16,10 @@ PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
 CC = $(DEVKITPPC)/bin/powerpc-eabi-gcc
 CFLAGS = -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
          -I$(WUT_ROOT)/include -I$(PORTLIBS)/include -I$(DEVKITPRO)/libogc/include
+# Remove -lsysbase and -lc (WUT provides its own minimal C runtime)
 LDFLAGS = -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
           -L$(WUT_ROOT)/lib -L$(PORTLIBS)/lib \
-          -lwut -lc -lm -lsysbase
+          -lwut -lm
 
 # -----------------------------
 # Targets
@@ -34,7 +35,6 @@ $(OUTPUT_RPX): $(BUILD_DIR)/main.o
 	$(CC) $^ $(LDFLAGS) -o $@
 
 $(OUTPUT_WUHB): $(OUTPUT_RPX)
-	# Convert .rpx to .wuhb
 	$(WUT_ROOT)/bin/wut-tool pack $< $@
 
 clean:
