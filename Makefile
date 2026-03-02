@@ -1,71 +1,80 @@
 #---------------------------------------
-# Wave Browser Makefile (WiiU)
+# Wave Browser Makefile (Wii U)
 #---------------------------------------
 
 #---------------------------------------
-# Toolchain
+# Environment
 #---------------------------------------
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 WUT_ROOT ?= $(DEVKITPRO)/wut
-PORTLIBS_WIIU ?= $(DEVKITPRO)/portlibs/wiiu
+PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
 PORTLIBS_PPC ?= $(DEVKITPRO)/portlibs/ppc
+
 PATH := $(DEVKITPPC)/bin:$(DEVKITPRO)/tools/bin:$(PATH)
 
-CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CFLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections
-INCLUDES := -I$(WUT_ROOT)/include -I$(PORTLIBS_WIIU)/include
+#---------------------------------------
+# Compiler flags
+#---------------------------------------
+CFLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float \
+          -ffunction-sections -fdata-sections \
+          -I$(WUT_ROOT)/include \
+          -I$(PORTLIBS)/include
 
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -Wl,--gc-sections \
            -L$(WUT_ROOT)/lib \
-           -L$(PORTLIBS_WIIU)/lib/wiiu \
+           -L$(PORTLIBS)/lib \
            -L$(PORTLIBS_PPC)/lib
 
-LIBS := -lwut \
-        -lcurl \
-        -lbrotlidec -lbrotlicommon \
-        -lmbedtls -lmbedx509 -lmbedcrypto \
-        -lz \
-        -lnsysnet \
-        -lm
-
-SRC := $(wildcard wave_browser/*.c)
-OBJ := $(patsubst wave_browser/%.c, build/%.o, $(SRC))
+#---------------------------------------
+# Source and build directories
+#---------------------------------------
+SRC := wave_browser/main.c
+BUILD_DIR := build
+OBJ := $(BUILD_DIR)/main.o
 TARGET := wave_browser.elf
-WUH := wave_browser.wuhb
+
+#---------------------------------------
+# Libraries (use full paths to static .a)
+#---------------------------------------
+LIBS := $(PORTLIBS)/lib/libcurl.a \
+        $(PORTLIBS)/lib/libnsysnet.a \
+        $(PORTLIBS)/lib/libmbedtls.a \
+        $(PORTLIBS)/lib/libmbedx509.a \
+        $(PORTLIBS)/lib/libmbedcrypto.a \
+        -lbrotlidec -lbrotlicommon -lz -lm -lwut
 
 #---------------------------------------
 # Default target
 #---------------------------------------
-all: $(TARGET) $(WUH)
+all: $(TARGET)
 
 #---------------------------------------
-# Build object files
+# Build object
 #---------------------------------------
-build/%.o: wave_browser/%.c
-	@mkdir -p build
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+$(OBJ): $(SRC) | $(BUILD_DIR)
+	$(DEVKITPPC)/bin/powerpc-eabi-gcc $(CFLAGS) -c $< -o $@
 
 #---------------------------------------
-# Link ELF
+# Link
 #---------------------------------------
 $(TARGET): $(OBJ)
-	$(CC) $(OBJ) $(LDFLAGS) $(LIBS) -o $@
+	$(DEVKITPPC)/bin/powerpc-eabi-gcc $(OBJ) $(LDFLAGS) $(LIBS) -o $@
 
 #---------------------------------------
-# Convert ELF to WUHB
+# Create build directory
 #---------------------------------------
-$(WUH): $(TARGET)
-	wut-make-wuhb $< -o $@
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
 
 #---------------------------------------
 # Clean
 #---------------------------------------
 clean:
-	rm -rf build *.elf *.rpx *.wuhb
+	rm -rf $(BUILD_DIR) *.elf *.rpx *.wuhb
 
 #---------------------------------------
-# Phony targets
+# Phony
 #---------------------------------------
 .PHONY: all clean
