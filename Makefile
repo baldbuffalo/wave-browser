@@ -1,32 +1,31 @@
-# Environment paths
+# ===== DevkitPro Paths =====
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC := $(DEVKITPRO)/devkitPPC
-WUT_ROOT := $(DEVKITPRO)/wut
-PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
+WUT_ROOT  := $(DEVKITPRO)/wut
 
-# Source & build
-SRC := $(wildcard wave_browser/*.c)
-OBJ := $(SRC:wave_browser/%.c=build/%.o)
-TARGET := build/wave_browser.rpx
+# ===== Project Files =====
+SRC     := $(wildcard wave_browser/*.c)
+OBJ     := $(SRC:wave_browser/%.c=build/%.o)
+TARGET  := build/wave_browser.rpx
 
-# Default target
+# ===== Default Target =====
 all: $(TARGET)
 
-# Link RPX with correct libwut.a path
+# ===== Link RPX =====
+# IMPORTANT: libwut.a is inside $(WUT_ROOT)/lib
 $(TARGET): $(OBJ)
 	$(DEVKITPPC)/bin/powerpc-eabi-gcc $^ -o $@ \
 		-specs=$(WUT_ROOT)/share/wut.specs \
-		-L$(PORTLIBS)/lib/wiiu -lwut
+		-L$(WUT_ROOT)/lib -lwut
 
-# Compile object files
+# ===== Compile C Files =====
 build/%.o: wave_browser/%.c
 	mkdir -p build
 	$(DEVKITPPC)/bin/powerpc-eabi-gcc -O2 -Wall \
 		-I$(WUT_ROOT)/include \
-		-I$(PORTLIBS)/include \
 		-c $< -o $@
 
-# Clean build folder
+# ===== Clean =====
 .PHONY: clean
 clean:
-	rm -rf build $(TARGET)
+	rm -rf build
