@@ -1,26 +1,73 @@
+#include <coreinit/core.h>
+#include <coreinit/debug.h>
+#include <coreinit/filesystem.h>
 #include <coreinit/network.h>
 #include <coreinit/socket.h>
 #include <coreinit/thread.h>
 #include <coreinit/time.h>
 #include <coreinit/cache.h>
+#include <proc_ui/procui.h>
+#include <vpad/input.h>
+
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
-#include <netinet/in.h>
+#include <string.h>
+#include <unistd.h>
+#include <netdb.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
-#include <netdb.h>
-#include <unistd.h>
 
+#define GITHUB_HOST "api.github.com"
+#define GITHUB_PATH "/repos/baldbuffalo/wave-browser/releases/latest"
+
+__asm__(".global __rpx_start\n\t"
+        "__rpx_start: b main");
+
+// -------------------- Read version from meta.xml --------------------
+int read_local_version(char *out_version, size_t size) {
+    FILE *file = fopen("meta.xml", "r");
+    if (!file) return 1;
+
+    char buffer[2048];
+    size_t len = fread(buffer, 1, sizeof(buffer)-1, file);
+    buffer[len] = 0;
+    fclose(file);
+
+    char *ver_ptr = strstr(buffer, "<version>");
+    if (!ver_ptr) return 1;
+    ver_ptr += 9;
+
+    char *end = strstr(ver_ptr, "</version>");
+    if (!end) return 1;
+
+    size_t ver_len = end - ver_ptr;
+    if (ver_len >= size) ver_len = size-1;
+
+    strncpy(out_version, ver_ptr, ver_len);
+    out_version[ver_len] = 0;
+    return 0;
+}
+
+// -------------------- Normalize Version --------------------
+void normalize_version(char *version) {
+    if (version[0]=='v' || version[0]=='V') {
+        memmove(version, version+1, strlen(version));
+    }
+}
+
+// -------------------- Fetch latest GitHub release --------------------
 int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
     int ret = 1;
 
-    if (netInitialize() != 0) return 1;
+    if (netInitialize() != 0) {
+        OSReport("Failed to initialize network\n");
+        return 1;
+    }
 
-    struct hostent *he = gethostbyname("api.github.com");
+    struct hostent *he = gethostbyname(GITHUB_HOST);
     if (!he) return 1;
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (sock < 0) return 1;
 
     struct sockaddr_in addr;
@@ -33,15 +80,15 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
         return 1;
     }
 
-    const char *req = 
-        "GET /repos/baldbuffalo/wave-browser/releases/latest HTTP/1.0\r\n"
-        "Host: api.github.com\r\n"
+    const char *req =
+        "GET " GITHUB_PATH " HTTP/1.0\r\n"
+        "Host: " GITHUB_HOST "\r\n"
         "User-Agent: wave-browser\r\n"
         "\r\n";
 
     send(sock, req, strlen(req), 0);
 
-    char buffer[4096];
+    char buffer[8192];
     int bytes = recv(sock, buffer, sizeof(buffer)-1, 0);
     if (bytes > 0) {
         buffer[bytes] = 0;
@@ -51,7 +98,7 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
             char *end = strchr(tag_ptr, '"');
             if (end) {
                 size_t len = end - tag_ptr;
-                if (len >= tag_size) len = tag_size - 1;
+                if (len >= tag_size) len = tag_size-1;
                 strncpy(out_tag, tag_ptr, len);
                 out_tag[len] = 0;
                 ret = 0; // success
@@ -61,4 +108,49 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size) {
 
     closesocket(sock);
     return ret;
+}
+
+// -------------------- MAIN --------------------
+int main(void) {
+    ProcUIInit(NULL);
+    VPADInit();
+
+    OSReport("Wave Browser starting...\n");
+
+    char local_version[64] = {0};
+    char latest_version[64] = {0};
+
+    if (read_local_version(local_version, sizeof(local_version)) != 0) {
+        OSReport("Failed to read local version\n");
+    } else {
+        normalize_version(local_version);
+        OSReport("Local version: %s\n", local_version);
+    }
+
+    if (fetch_latest_release_simple(latest_version, sizeof(latest_version)) == 0) {
+        normalize_version(latest_version);
+        OSReport("Latest version: %s\n", latest_version);
+
+        if (strcmp(local_version, latest_version) != 0) {
+            OSReport("Update available!\n");
+        } else {
+            OSReport("App is up to date.\n");
+        }
+    } else {
+        OSReport("Failed to check GitHub release\n");
+    }
+
+    // Basic loop
+    while (ProcUIIsRunning()) {
+        VPADStatus vpad;
+        VPADReadError error;
+        VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+
+        ProcUIProcessMessages(TRUE);
+        usleep(16000);
+    }
+
+    ProcUIShutdown();
+    netUninitialize();
+    return 0;
 }
