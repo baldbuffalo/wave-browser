@@ -4,8 +4,6 @@
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
 
-#include <nsysnet/socket.h>   // 🔥 Required for networking
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,16 +84,16 @@ int fetch_latest_release(char *out_tag, size_t tag_size)
     if (!curl)
         return 1;
 
-    struct MemoryStruct chunk = {0};
+    struct MemoryStruct chunk;
     chunk.memory = malloc(1);
     chunk.size = 0;
 
     curl_easy_setopt(curl, CURLOPT_URL, GITHUB_API);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &chunk);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "wave-browser");
 
-    // Optional (useful for Wii U homebrew testing)
+    // Disable SSL verification for homebrew testing (optional)
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
@@ -132,10 +130,6 @@ int main(void)
 {
     ProcUIInit(NULL);
     VPADInit();
-
-    // 🔥 Initialize Wii U socket stack
-    socket_lib_init();
-
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     OSReport("Wave Browser starting...\n");
@@ -163,6 +157,7 @@ int main(void)
         OSReport("Failed to check GitHub release.\n");
     }
 
+    // Basic loop
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
@@ -173,7 +168,6 @@ int main(void)
     }
 
     curl_global_cleanup();
-    socket_lib_finish();   // 🔥 Cleanup networking
     ProcUIShutdown();
     return 0;
 }
