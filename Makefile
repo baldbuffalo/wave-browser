@@ -2,28 +2,22 @@
 # Wii U Wave Browser Makefile
 #---------------------------------------------
 
-#---------------------------------------------
 # Devkit paths
-#---------------------------------------------
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 PREFIX := $(DEVKITPPC)/bin/powerpc-eabi-
 CC := $(PREFIX)gcc
 OBJCOPY := $(PREFIX)objcopy
 
-#---------------------------------------------
 # Project
-#---------------------------------------------
 TARGET := wave_browser
 BUILD := build
 SRC_DIR := wave_browser
 
-#---------------------------------------------
 # WUT + portlibs
-#---------------------------------------------
 WUT_ROOT ?= $(DEVKITPRO)/wut
 PORTLIBS_WIIU ?= $(DEVKITPRO)/portlibs/wiiu
-PORTLIBS_PPC ?= $(DEVKITPRO)/portlibs/ppc
+PORTLIBS_PPC ?= $(DEVKITPRO)/portlibs/ppc   # for libz.a
 
 #---------------------------------------------
 # Compiler Flags
@@ -40,15 +34,18 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs
 LDFLAGS += -Wl,--gc-sections
 LDFLAGS += -L$(WUT_ROOT)/lib
 LDFLAGS += -L$(PORTLIBS_WIIU)/lib
-LDFLAGS += -L$(PORTLIBS_PPC)/lib
+LDFLAGS += -L$(PORTLIBS_PPC)/lib  # for libz.a
 
 #---------------------------------------------
-# Libraries (ORDER MATTERS!)
+# Libraries (order matters!)
 #---------------------------------------------
 LIBS := -lwut \
         -lcurl \
+        -lbrotlidec -lbrotlicommon \
         -lmbedtls -lmbedx509 -lmbedcrypto \
-        -lz -lm
+        -lz \
+        -lnsysnet \
+        -lm
 
 #---------------------------------------------
 # Source files
@@ -61,20 +58,26 @@ OFILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(CFILES))
 #---------------------------------------------
 all: $(BUILD) $(TARGET).wuhb
 
+# Create build folder
 $(BUILD):
 	mkdir -p $(BUILD)
 
+# Compile C files
 $(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Link ELF
 $(TARGET).elf: $(OFILES)
 	$(CC) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
+# Convert ELF → RPX
 $(TARGET).rpx: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
+# Convert RPX → WUHB with meta.xml
 $(TARGET).wuhb: $(TARGET).rpx
 	wuhbtool $< $@ --meta meta.xml
 
+# Clean build
 clean:
 	rm -rf $(BUILD) *.elf *.rpx *.wuhb
