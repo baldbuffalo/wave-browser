@@ -2,19 +2,25 @@
 # Wii U Wave Browser Makefile
 #---------------------------------------------
 
+#---------------------------------------------
 # Devkit paths
+#---------------------------------------------
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
 PREFIX := $(DEVKITPPC)/bin/powerpc-eabi-
 CC := $(PREFIX)gcc
 OBJCOPY := $(PREFIX)objcopy
 
+#---------------------------------------------
 # Project
+#---------------------------------------------
 TARGET := wave_browser
 BUILD := build
 SRC_DIR := wave_browser
 
+#---------------------------------------------
 # WUT + portlibs
+#---------------------------------------------
 WUT_ROOT ?= $(DEVKITPRO)/wut
 PORTLIBS_WIIU ?= $(DEVKITPRO)/portlibs/wiiu
 PORTLIBS_PPC ?= $(DEVKITPRO)/portlibs/ppc
@@ -40,7 +46,6 @@ LDFLAGS += -L$(PORTLIBS_PPC)/lib
 # Libraries (ORDER MATTERS!)
 #---------------------------------------------
 LIBS := -lwut \
-        -lnsysnet \
         -lcurl \
         -lmbedtls -lmbedx509 -lmbedcrypto \
         -lz -lm
