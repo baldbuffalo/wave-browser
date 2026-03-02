@@ -2,6 +2,8 @@ name: Build Wave Browser (WiiU)
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 jobs:
@@ -21,24 +23,35 @@ jobs:
 
       - name: Build Wave Browser
         run: |
+          # Set environment variables
           export DEVKITPRO=/opt/devkitpro
           export DEVKITPPC=$DEVKITPRO/devkitPPC
           export WUT_ROOT=$DEVKITPRO/wut
           export PORTLIBS=$DEVKITPRO/portlibs/wiiu
-          export PORTLIBS_PPC=$DEVKITPRO/portlibs/ppc
           export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
 
+          # Clean previous builds
           make clean
+
+          # Build using all cores
           make -j$(nproc)
 
-          # Prepare release
+          # Validate meta.xml
+          if [ ! -f meta.xml ]; then
+            echo "meta.xml missing!" && exit 1
+          fi
+          xmllint --noout meta.xml
+
+          # Prepare release folder
           mkdir -p release/WaveBrowser
-          cp wave_browser.elf release/WaveBrowser/
+          cp wave_browser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
 
+          # Zip release folder
           pushd release
           zip -r WaveBrowser.zip WaveBrowser
           popd
+        shell: sh -e {0}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
