@@ -1,9 +1,5 @@
 #---------------------------------------
-# Wave Browser Makefile (Wii U)
-#---------------------------------------
-
-#---------------------------------------
-# Environment
+# Paths
 #---------------------------------------
 DEVKITPRO ?= /opt/devkitpro
 DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
@@ -11,33 +7,12 @@ WUT_ROOT ?= $(DEVKITPRO)/wut
 PORTLIBS ?= $(DEVKITPRO)/portlibs/wiiu
 PORTLIBS_PPC ?= $(DEVKITPRO)/portlibs/ppc
 
-PATH := $(DEVKITPPC)/bin:$(DEVKITPRO)/tools/bin:$(PATH)
+CC := $(DEVKITPPC)/bin/powerpc-eabi-gcc
+CFLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float -ffunction-sections -fdata-sections \
+          -I$(WUT_ROOT)/include -I$(PORTLIBS)/include
+LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs -Wl,--gc-sections \
+           -L$(WUT_ROOT)/lib -L$(PORTLIBS)/lib -L$(PORTLIBS_PPC)/lib
 
-#---------------------------------------
-# Compiler flags
-#---------------------------------------
-CFLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float \
-          -ffunction-sections -fdata-sections \
-          -I$(WUT_ROOT)/include \
-          -I$(PORTLIBS)/include
-
-LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
-           -Wl,--gc-sections \
-           -L$(WUT_ROOT)/lib \
-           -L$(PORTLIBS)/lib \
-           -L$(PORTLIBS_PPC)/lib
-
-#---------------------------------------
-# Source and build directories
-#---------------------------------------
-SRC := wave_browser/main.c
-BUILD_DIR := build
-OBJ := $(BUILD_DIR)/main.o
-TARGET := wave_browser.elf
-
-#---------------------------------------
-# Libraries (use full paths to static .a)
-#---------------------------------------
 LIBS := $(PORTLIBS)/lib/libcurl.a \
         $(PORTLIBS)/lib/libnsysnet.a \
         $(PORTLIBS)/lib/libmbedtls.a \
@@ -45,36 +20,39 @@ LIBS := $(PORTLIBS)/lib/libcurl.a \
         $(PORTLIBS)/lib/libmbedcrypto.a \
         -lbrotlidec -lbrotlicommon -lz -lm -lwut
 
+SRC := $(wildcard wave_browser/*.c)
+OBJ := $(patsubst wave_browser/%.c, build/%.o, $(SRC))
+TARGET := wave_browser.elf
+WUHB := wave_browser.wuhb
+
 #---------------------------------------
 # Default target
 #---------------------------------------
-all: $(TARGET)
+all: $(TARGET) $(WUHB)
 
 #---------------------------------------
-# Build object
+# Build object files
 #---------------------------------------
-$(OBJ): $(SRC) | $(BUILD_DIR)
-	$(DEVKITPPC)/bin/powerpc-eabi-gcc $(CFLAGS) -c $< -o $@
+build/%.o: wave_browser/%.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) -c $< -o $@
 
 #---------------------------------------
-# Link
+# Link ELF
 #---------------------------------------
 $(TARGET): $(OBJ)
-	$(DEVKITPPC)/bin/powerpc-eabi-gcc $(OBJ) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(OBJ) $(LDFLAGS) $(LIBS) -o $@
 
 #---------------------------------------
-# Create build directory
+# Make WUHB package
 #---------------------------------------
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+$(WUHB): $(TARGET)
+	$(WUT_ROOT)/bin/make_wuhb $(TARGET) $(WUHB)
 
 #---------------------------------------
 # Clean
 #---------------------------------------
 clean:
-	rm -rf $(BUILD_DIR) *.elf *.rpx *.wuhb
+	rm -rf build *.elf *.rpx *.wuhb
 
-#---------------------------------------
-# Phony
-#---------------------------------------
 .PHONY: all clean
