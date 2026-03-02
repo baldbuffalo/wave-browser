@@ -4,61 +4,22 @@
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
 
-#include <network.h>            // from /opt/devkitpro/libogc/include/network.h
-#include <nsysnet/socket.h>     // from /opt/devkitpro/wut/include/nsysnet/socket.h
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include <sys/socket.h>
 #include <netdb.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <string.h>
 
-#define GITHUB_API_HOST "api.github.com"
-#define GITHUB_API_PATH "/repos/baldbuffalo/wave-browser/releases/latest"
+#define HOST "api.github.com"
+#define PATH "/repos/baldbuffalo/wave-browser/releases/latest"
 
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
-// -------------------- Read version from meta.xml --------------------
-int read_local_version(char *out_version, size_t size)
-{
-    FILE *file = fopen("meta.xml", "r");
-    if (!file) return 1;
-
-    char buffer[2048];
-    size_t len = fread(buffer, 1, sizeof(buffer) - 1, file);
-    buffer[len] = 0;
-    fclose(file);
-
-    char *ver_ptr = strstr(buffer, "<version>");
-    if (!ver_ptr) return 1;
-
-    ver_ptr += 9;
-    char *end = strstr(ver_ptr, "</version>");
-    if (!end) return 1;
-
-    size_t ver_len = end - ver_ptr;
-    if (ver_len >= size) ver_len = size - 1;
-
-    strncpy(out_version, ver_ptr, ver_len);
-    out_version[ver_len] = 0;
-    return 0;
-}
-
-// -------------------- Normalize Version --------------------
-void normalize_version(char *version)
-{
-    if (version[0] == 'v' || version[0] == 'V')
-        memmove(version, version + 1, strlen(version));
-}
-
-// -------------------- Fetch latest GitHub release --------------------
-int fetch_latest_release_simple(char *out_tag, size_t tag_size)
-{
-    if (netInitialize() != 0) return 1;
-
-    struct hostent *he = gethostbyname(GITHUB_API_HOST);
+// -------------------- Fetch latest release --------------------
+int fetch_latest_release(char *out_tag, size_t tag_size) {
+    struct hostent *he = gethostbyname(HOST);
     if (!he) return 1;
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -70,13 +31,13 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size)
     memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
 
     if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        closesocket(sock);
+        close(sock);
         return 1;
     }
 
-    const char *req =
-        "GET " GITHUB_API_PATH " HTTP/1.0\r\n"
-        "Host: " GITHUB_API_HOST "\r\n"
+    const char *req = 
+        "GET " PATH " HTTP/1.0\r\n"
+        "Host: " HOST "\r\n"
         "User-Agent: wave-browser\r\n"
         "\r\n";
 
@@ -97,51 +58,33 @@ int fetch_latest_release_simple(char *out_tag, size_t tag_size)
                 if (len >= tag_size) len = tag_size - 1;
                 strncpy(out_tag, tag_ptr, len);
                 out_tag[len] = 0;
-                ret = 0; // success
+                ret = 0;
             }
         }
     }
 
-    closesocket(sock);
+    close(sock);
     return ret;
 }
 
 // -------------------- MAIN --------------------
-int main(void)
-{
+int main(void) {
     ProcUIInit(NULL);
     VPADInit();
 
     OSReport("Wave Browser starting...\n");
 
-    char local_version[64] = {0};
-    char latest_version[64] = {0};
-
-    if (read_local_version(local_version, sizeof(local_version)) != 0)
-        OSReport("Failed to read local version.\n");
-    else {
-        normalize_version(local_version);
-        OSReport("Local version: %s\n", local_version);
-    }
-
-    if (fetch_latest_release_simple(latest_version, sizeof(latest_version)) == 0) {
-        normalize_version(latest_version);
-        OSReport("Latest version: %s\n", latest_version);
-
-        if (strcmp(local_version, latest_version) != 0)
-            OSReport("Update available!\n");
-        else
-            OSReport("App is up to date.\n");
-    } else {
-        OSReport("Failed to check GitHub release.\n");
-    }
+    char latest[64] = {0};
+    if (fetch_latest_release(latest, sizeof(latest)) == 0)
+        OSReport("Latest release: %s\n", latest);
+    else
+        OSReport("Failed to fetch release\n");
 
     // Basic loop
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-
         ProcUIProcessMessages(TRUE);
         usleep(16000);
     }
