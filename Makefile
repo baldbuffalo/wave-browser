@@ -1,31 +1,66 @@
-# ===== DevkitPro Paths =====
+#---------------------------------------------
+# Wii U WUT Makefile - builds RPX → WUHB
+#---------------------------------------------
+
+# Devkit paths
 DEVKITPRO ?= /opt/devkitpro
-DEVKITPPC := $(DEVKITPRO)/devkitPPC
-WUT_ROOT  := $(DEVKITPRO)/wut
+DEVKITPPC ?= $(DEVKITPRO)/devkitPPC
+PREFIX := $(DEVKITPPC)/bin/powerpc-eabi-
+CC := $(PREFIX)gcc
+OBJCOPY := $(PREFIX)objcopy
 
-# ===== Project Files =====
-SRC     := $(wildcard wave_browser/*.c)
-OBJ     := $(SRC:wave_browser/%.c=build/%.o)
-TARGET  := build/wave_browser.rpx
+# Project
+TARGET := wave_browser
+BUILD := build
+SRC_DIR := wave_browser
 
-# ===== Default Target =====
-all: $(TARGET)
+# WUT + portlibs
+WUT_ROOT := $(DEVKITPRO)/wut
+PORTLIBS := $(DEVKITPRO)/portlibs/wiiu
 
-# ===== Link RPX =====
-# IMPORTANT: libwut.a is inside $(WUT_ROOT)/lib
-$(TARGET): $(OBJ)
-	$(DEVKITPPC)/bin/powerpc-eabi-gcc $^ -o $@ \
-		-specs=$(WUT_ROOT)/share/wut.specs \
-		-L$(WUT_ROOT)/lib -lwut
+#---------------------------------------------
+# Compiler Flags
+#---------------------------------------------
+CFLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float
+CFLAGS += -ffunction-sections -fdata-sections
+CFLAGS += -I$(WUT_ROOT)/include
+CFLAGS += -I$(PORTLIBS)/include
 
-# ===== Compile C Files =====
-build/%.o: wave_browser/%.c
-	mkdir -p build
-	$(DEVKITPPC)/bin/powerpc-eabi-gcc -O2 -Wall \
-		-I$(WUT_ROOT)/include \
-		-c $< -o $@
+#---------------------------------------------
+# Linker Flags
+#---------------------------------------------
+LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs
+LDFLAGS += -Wl,--gc-sections
+LDFLAGS += -L$(WUT_ROOT)/lib
+LDFLAGS += -L$(PORTLIBS)/lib
 
-# ===== Clean =====
-.PHONY: clean
+LIBS := -lwut -lcurl -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer -lSDL2_net -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm
+
+#---------------------------------------------
+# Files
+#---------------------------------------------
+CFILES := $(wildcard $(SRC_DIR)/*.c)
+OFILES := $(patsubst $(SRC_DIR)/%.c,$(BUILD)/%.o,$(CFILES))
+
+#---------------------------------------------
+# Build Rules
+#---------------------------------------------
+all: $(BUILD) $(TARGET).wuhb
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET).elf: $(OFILES)
+	$(CC) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
+
+$(TARGET).rpx: $(TARGET).elf
+	$(OBJCOPY) -O binary $< $@
+
+$(TARGET).wuhb: $(TARGET).rpx
+	wuhbtool $(TARGET).rpx $(TARGET).wuhb --meta meta.xml
+
 clean:
-	rm -rf build
+	rm -rf $(BUILD) *.elf *.rpx *.wuhb
