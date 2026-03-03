@@ -12,6 +12,7 @@ RELEASE_DIR := release/$(TARGET)
 DEVKITPRO   ?= /opt/devkitpro
 DEVKITPPC   := $(DEVKITPRO)/devkitPPC
 WUT_ROOT    := $(DEVKITPRO)/wut
+PORTLIBS    := $(DEVKITPRO)/portlibs/wiiu
 
 #---------------------------------------------------------------------------------
 # Tools
@@ -25,7 +26,7 @@ LD          := $(CC)
 CFLAGS  := -O2 -Wall -mcpu=750 -meabi -mhard-float \
            -ffunction-sections -fdata-sections \
            -I$(WUT_ROOT)/include \
-           -I$(DEVKITPRO)/portlibs/wiiu/include \
+           -I$(PORTLIBS)/include \
            -I$(DEVKITPRO)/libogc/include
 
 #---------------------------------------------------------------------------------
@@ -35,9 +36,9 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -Wl,--gc-sections \
            -Wl,--defsym=__end__=0x10000000 \
            -L$(WUT_ROOT)/lib \
-           -L$(DEVKITPRO)/portlibs/wiiu/lib
+           -L$(PORTLIBS)/lib
 
-LIBS    := -lwut -lsocket -lm
+LIBS    := -lwut -lnsysnet -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
@@ -73,10 +74,10 @@ $(TARGET).wuhb: $(TARGET).rpx
 # Create Release Folder + Zip (CI Safe)
 #---------------------------------------------------------------------------------
 release: $(TARGET).wuhb
-	mkdir -p $(RELEASE_DIR)
-	cp $(TARGET).wuhb $(RELEASE_DIR)/
-	cp meta.xml $(RELEASE_DIR)/
-	zip -r release/$(TARGET).zip $(RELEASE_DIR)
+	@mkdir -p $(RELEASE_DIR)
+	@cp $(TARGET).wuhb $(RELEASE_DIR)/
+	@cp meta.xml $(RELEASE_DIR)/
+	@zip -r release/$(TARGET).zip $(RELEASE_DIR)
 
 #---------------------------------------------------------------------------------
 # Clean
