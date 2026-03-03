@@ -4,7 +4,6 @@
 TARGET      := WaveBrowser
 BUILD       := build
 SOURCES     := wave_browser
-RELEASE_DIR := release/$(TARGET)
 
 #---------------------------------------------------------------------------------
 # Devkit Paths
@@ -25,19 +24,17 @@ LD          := $(CC)
 CFLAGS  := -O2 -Wall -mcpu=750 -meabi -mhard-float \
            -ffunction-sections -fdata-sections \
            -I$(WUT_ROOT)/include \
-           -I$(DEVKITPRO)/portlibs/wiiu/include \
-           -I$(DEVKITPRO)/libogc/include
+           -I$(DEVKITPRO)/portlibs/wiiu/include
 
 #---------------------------------------------------------------------------------
 # Linker Flags
 #---------------------------------------------------------------------------------
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -Wl,--gc-sections \
-           -Wl,--defsym=__end__=0x10000000 \
            -L$(WUT_ROOT)/lib \
            -L$(DEVKITPRO)/portlibs/wiiu/lib
 
-LIBS    := -lwut -lm
+LIBS    := -lwut -lsocket -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
@@ -70,18 +67,9 @@ $(TARGET).wuhb: $(TARGET).rpx
 	wuhbtool $(TARGET).rpx $(TARGET).wuhb
 
 #---------------------------------------------------------------------------------
-# Create Release Folder + Zip (CI Safe)
-#---------------------------------------------------------------------------------
-release: $(TARGET).wuhb
-	mkdir -p $(RELEASE_DIR)
-	cp $(TARGET).wuhb $(RELEASE_DIR)/
-	cp meta.xml $(RELEASE_DIR)/
-	zip -r release/$(TARGET).zip $(RELEASE_DIR)
-
-#---------------------------------------------------------------------------------
 # Clean
 #---------------------------------------------------------------------------------
 clean:
-	rm -rf $(BUILD) *.rpx *.wuhb release
+	rm -rf $(BUILD) *.rpx *.wuhb WaveBrowser WaveBrowser.zip
 
-.PHONY: all clean release
+.PHONY: all clean
