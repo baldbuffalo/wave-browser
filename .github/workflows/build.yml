@@ -27,7 +27,7 @@ jobs:
           apt-get update
           apt-get install -y zip libxml2-utils
 
-      - name: Add devkitPPC to PATH
+      - name: Add devkitPro tools to PATH
         run: |
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
@@ -44,15 +44,15 @@ jobs:
           fi
           xmllint --noout meta.xml
 
-      - name: Prepare release
+      - name: Prepare release folder
         run: |
-          mkdir -p release/WaveBrowser
-          cp WaveBrowser.wuhb release/WaveBrowser/
-          cp meta.xml release/WaveBrowser/
-          zip -r release/WaveBrowser.zip release/WaveBrowser
+          mkdir -p WaveBrowser
+          cp WaveBrowser.wuhb WaveBrowser/
+          cp meta.xml WaveBrowser/
+          zip -r WaveBrowser.zip WaveBrowser
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: WaveBrowser
-          path: release/WaveBrowser.zip
+          path: WaveBrowser.zip
