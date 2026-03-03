@@ -16,8 +16,7 @@ WUT_ROOT    := $(DEVKITPRO)/wut
 # Tools
 #---------------------------------------------------------------------------------
 CC          := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CXX         := $(DEVKITPPC)/bin/powerpc-eabi-g++
-LD          := $(CXX)
+LD          := $(CC)
 
 #---------------------------------------------------------------------------------
 # Compiler Flags
@@ -36,7 +35,6 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(WUT_ROOT)/lib \
            -L$(DEVKITPRO)/portlibs/wiiu/lib
 
-# IMPORTANT: only these libraries
 LIBS    := -lwut -lm
 
 #---------------------------------------------------------------------------------
