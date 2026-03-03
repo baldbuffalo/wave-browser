@@ -16,10 +16,11 @@ jobs:
       DEVKITPRO: /opt/devkitpro
       DEVKITPPC: /opt/devkitpro/devkitPPC
       WUT_ROOT: /opt/devkitpro/wut
+      PORTLIBS: /opt/devkitpro/portlibs/wiiu
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
@@ -31,7 +32,7 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
-      - name: Build
+      - name: Build Wave Browser
         run: |
           make clean
           make -j$(nproc)
@@ -43,7 +44,7 @@ jobs:
           fi
           xmllint --noout meta.xml
 
-      - name: Prepare WaveBrowser folder
+      - name: Prepare release folder
         run: |
           mkdir -p WaveBrowser
           cp WaveBrowser.wuhb WaveBrowser/
@@ -51,7 +52,7 @@ jobs:
           zip -r WaveBrowser.zip WaveBrowser
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: WaveBrowser
           path: WaveBrowser.zip
