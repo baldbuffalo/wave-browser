@@ -1,13 +1,12 @@
 #---------------------------------------------------------------------------------
-# Project name
+# Project
 #---------------------------------------------------------------------------------
 TARGET      := WaveBrowser
 BUILD       := build
 SOURCES     := wave_browser
-INCLUDES    :=
 
 #---------------------------------------------------------------------------------
-# Devkit paths
+# Devkit Paths
 #---------------------------------------------------------------------------------
 DEVKITPRO   ?= /opt/devkitpro
 DEVKITPPC   := $(DEVKITPRO)/devkitPPC
@@ -21,7 +20,7 @@ CXX         := $(DEVKITPPC)/bin/powerpc-eabi-g++
 LD          := $(CXX)
 
 #---------------------------------------------------------------------------------
-# Flags
+# Compiler Flags
 #---------------------------------------------------------------------------------
 CFLAGS  := -O2 -Wall -mcpu=750 -meabi -mhard-float \
            -ffunction-sections -fdata-sections \
@@ -29,22 +28,25 @@ CFLAGS  := -O2 -Wall -mcpu=750 -meabi -mhard-float \
            -I$(DEVKITPRO)/portlibs/wiiu/include \
            -I$(DEVKITPRO)/libogc/include
 
+#---------------------------------------------------------------------------------
+# Linker Flags
+#---------------------------------------------------------------------------------
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -Wl,--gc-sections \
            -L$(WUT_ROOT)/lib \
            -L$(DEVKITPRO)/portlibs/wiiu/lib
 
-# IMPORTANT: these fix your missing symbols
-LIBS    := -lwut -lnsysnet -lm
+# IMPORTANT: only these libraries
+LIBS    := -lwut -lm
 
 #---------------------------------------------------------------------------------
-# Source listing
+# Source Files
 #---------------------------------------------------------------------------------
-CFILES      := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
-OFILES      := $(patsubst %.c,$(BUILD)/%.o,$(CFILES))
+CFILES  := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
+OFILES  := $(patsubst %.c,$(BUILD)/%.o,$(CFILES))
 
 #---------------------------------------------------------------------------------
-# Rules
+# Build Rules
 #---------------------------------------------------------------------------------
 all: $(TARGET).wuhb
 
