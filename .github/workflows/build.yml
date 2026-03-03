@@ -12,28 +12,27 @@ jobs:
     container:
       image: devkitpro/devkitppc:latest
 
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+      WUT_ROOT: /opt/devkitpro/wut
+      PORTLIBS: /opt/devkitpro/portlibs/wiiu
+      PATH: /opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:${{ env.PATH }}
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y zip libxml2-utils
-
-      - name: Set environment variables
-        run: |
-          export DEVKITPRO=/opt/devkitpro
-          export DEVKITPPC=$DEVKITPRO/devkitPPC
-          export WUT_ROOT=$DEVKITPRO/wut
-          export PORTLIBS=$DEVKITPRO/portlibs/wiiu
-          export PATH=$DEVKITPPC/bin:$DEVKITPRO/tools/bin:$PATH
+          apt-get update
+          apt-get install -y zip libxml2-utils
 
       - name: Build Wave Browser
         run: |
           make clean
           make -j$(nproc)
-          
+
       - name: Validate meta.xml
         run: |
           if [ ! -f meta.xml ]; then
@@ -46,12 +45,10 @@ jobs:
           mkdir -p release/WaveBrowser
           cp WaveBrowser.wuhb release/WaveBrowser/
           cp meta.xml release/WaveBrowser/
-          pushd release
-          zip -r WaveBrowser.zip WaveBrowser
-          popd
+          zip -r release/WaveBrowser.zip release/WaveBrowser
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: WaveBrowser
           path: release/WaveBrowser.zip
