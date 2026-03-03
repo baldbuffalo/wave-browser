@@ -37,7 +37,7 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(WUT_ROOT)/lib \
            -L$(DEVKITPRO)/portlibs/wiiu/lib
 
-LIBS    := -lwut -lnsysnet -lm
+LIBS    := -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
@@ -70,7 +70,7 @@ $(TARGET).wuhb: $(TARGET).rpx
 	wuhbtool $(TARGET).rpx $(TARGET).wuhb
 
 #---------------------------------------------------------------------------------
-# Create Release Folder + Zip
+# Create Release Folder + Zip (CI Safe)
 #---------------------------------------------------------------------------------
 release: $(TARGET).wuhb
 	mkdir -p $(RELEASE_DIR)
@@ -82,6 +82,6 @@ release: $(TARGET).wuhb
 # Clean
 #---------------------------------------------------------------------------------
 clean:
-	rm -rf $(BUILD) *.rpx *.wuhb release
+	rm -rf $(BUILD) *.rpx *.wuhb release WaveBrowser WaveBrowser.zip
 
 .PHONY: all clean release
