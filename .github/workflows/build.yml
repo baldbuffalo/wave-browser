@@ -17,7 +17,6 @@ jobs:
       DEVKITPPC: /opt/devkitpro/devkitPPC
       WUT_ROOT: /opt/devkitpro/wut
       PORTLIBS: /opt/devkitpro/portlibs/wiiu
-      PATH: /opt/devkitpro/devkitPPC/bin:/opt/devkitpro/tools/bin:${{ env.PATH }}
 
     steps:
       - name: Checkout code
@@ -27,6 +26,11 @@ jobs:
         run: |
           apt-get update
           apt-get install -y zip libxml2-utils
+
+      - name: Add devkitPPC to PATH
+        run: |
+          echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
+          echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
       - name: Build Wave Browser
         run: |
