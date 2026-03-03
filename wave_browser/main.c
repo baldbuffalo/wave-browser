@@ -14,7 +14,6 @@
 #define HOST "api.github.com"
 #define PATH "/repos/baldbuffalo/wave-browser/releases/latest"
 
-// Entry point for RPX
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
@@ -70,25 +69,22 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
 
 // -------------------- MAIN --------------------
 int main(void) {
-    // Initialize UI & input
     ProcUIInit(NULL);
     VPADInit();
 
     OSReport("Wave Browser starting...\n");
 
-    // Fetch latest release
     char latest[64] = {0};
     if (fetch_latest_release(latest, sizeof(latest)) == 0)
         OSReport("Latest release: %s\n", latest);
     else
         OSReport("Failed to fetch release\n");
 
-    // Main loop
+    // Basic loop
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-
         ProcUIProcessMessages(TRUE);
         usleep(16000);
     }
