@@ -3,12 +3,12 @@
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
+#include <nsysnet/socket.h>  // <-- required for networking
 
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <stdio.h>
 #include <string.h>
 
 #define HOST "api.github.com"
@@ -71,14 +71,12 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
 int main(void) {
     ProcUIInit(NULL);
     VPADInit();
-
-    OSReport("Wave Browser starting...\n");
+    
+    // Initialize networking
+    socket_lib_init();
 
     char latest[64] = {0};
-    if (fetch_latest_release(latest, sizeof(latest)) == 0)
-        OSReport("Latest release: %s\n", latest);
-    else
-        OSReport("Failed to fetch release\n");
+    fetch_latest_release(latest, sizeof(latest));  // ignore errors, no logging
 
     // Basic loop
     while (ProcUIIsRunning()) {
@@ -86,9 +84,11 @@ int main(void) {
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
         ProcUIProcessMessages(TRUE);
-        usleep(16000);
+        usleep(16000); // ~60 FPS
     }
 
+    // Shutdown networking cleanly
+    socket_lib_finish();
     ProcUIShutdown();
     return 0;
 }
