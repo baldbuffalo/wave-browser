@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define HOST "api.github.com"
 #define PATH "/repos/baldbuffalo/wave-browser/releases/latest"
@@ -16,8 +17,10 @@
 __asm__(".global __rpx_start\n\t"
         "__rpx_start: b main");
 
-// -------------------- Fetch latest release --------------------
+// -------------------- Fetch latest release safely --------------------
 int fetch_latest_release(char *out_tag, size_t tag_size) {
+    if (!out_tag || tag_size == 0) return 1;
+
     struct hostent *he = gethostbyname(HOST);
     if (!he) return 1;
 
@@ -25,6 +28,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
     if (sock < 0) return 1;
 
     struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(80);
     memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
@@ -34,35 +38,60 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
         return 1;
     }
 
-    const char *req = 
-        "GET " PATH " HTTP/1.0\r\n"
+    const char *req =
+        "GET " PATH " HTTP/1.1\r\n"
         "Host: " HOST "\r\n"
         "User-Agent: wave-browser\r\n"
+        "Connection: close\r\n"
         "\r\n";
 
-    send(sock, req, strlen(req), 0);
+    if (send(sock, req, strlen(req), 0) < 0) {
+        close(sock);
+        return 1;
+    }
 
-    char buffer[8192];
-    int bytes = recv(sock, buffer, sizeof(buffer)-1, 0);
-    int ret = 1;
+    // Allocate buffer dynamically for chunked reading
+    size_t buffer_size = 16384; // start with 16 KB
+    size_t offset = 0;
+    char *buffer = malloc(buffer_size);
+    if (!buffer) {
+        close(sock);
+        return 1;
+    }
 
-    if (bytes > 0) {
-        buffer[bytes] = 0;
-        char *tag_ptr = strstr(buffer, "\"tag_name\":\"");
-        if (tag_ptr) {
-            tag_ptr += 12;
-            char *end = strchr(tag_ptr, '"');
-            if (end) {
-                size_t len = end - tag_ptr;
-                if (len >= tag_size) len = tag_size - 1;
-                strncpy(out_tag, tag_ptr, len);
-                out_tag[len] = 0;
-                ret = 0;
+    ssize_t bytes;
+    while ((bytes = recv(sock, buffer + offset, buffer_size - offset - 1, 0)) > 0) {
+        offset += bytes;
+        // Expand buffer if needed
+        if (offset >= buffer_size - 1) {
+            buffer_size *= 2;
+            char *new_buf = realloc(buffer, buffer_size);
+            if (!new_buf) {
+                free(buffer);
+                close(sock);
+                return 1;
             }
+            buffer = new_buf;
+        }
+    }
+    buffer[offset] = '\0'; // null terminate
+    close(sock);
+
+    int ret = 1;
+    char *tag_ptr = strstr(buffer, "\"tag_name\":\"");
+    if (tag_ptr) {
+        tag_ptr += strlen("\"tag_name\":\"");
+        char *end = strchr(tag_ptr, '"');
+        if (end) {
+            size_t len = end - tag_ptr;
+            if (len >= tag_size) len = tag_size - 1;
+            strncpy(out_tag, tag_ptr, len);
+            out_tag[len] = '\0';
+            ret = 0;
         }
     }
 
-    close(sock);
+    free(buffer);
     return ret;
 }
 
@@ -72,13 +101,18 @@ int main(void) {
     VPADInit();
 
     char latest[64] = {0};
-    fetch_latest_release(latest, sizeof(latest));  // ignore errors, no logging
+    if (fetch_latest_release(latest, sizeof(latest)) == 0) {
+        OSReport("Latest release: %s\n", latest);
+    } else {
+        OSReport("Failed to fetch latest release\n");
+    }
 
-    // Basic loop
+    // Main loop
     while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+
         ProcUIProcessMessages(TRUE);
         usleep(16000); // ~60 FPS
     }
