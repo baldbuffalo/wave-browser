@@ -1,5 +1,4 @@
 #include <coreinit/core.h>
-#include <coreinit/debug.h>
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
@@ -50,8 +49,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
         return 1;
     }
 
-    // Allocate buffer dynamically for chunked reading
-    size_t buffer_size = 16384; // start with 16 KB
+    size_t buffer_size = 16384; // 16 KB
     size_t offset = 0;
     char *buffer = malloc(buffer_size);
     if (!buffer) {
@@ -62,7 +60,6 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
     ssize_t bytes;
     while ((bytes = recv(sock, buffer + offset, buffer_size - offset - 1, 0)) > 0) {
         offset += bytes;
-        // Expand buffer if needed
         if (offset >= buffer_size - 1) {
             buffer_size *= 2;
             char *new_buf = realloc(buffer, buffer_size);
@@ -74,7 +71,7 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
             buffer = new_buf;
         }
     }
-    buffer[offset] = '\0'; // null terminate
+    buffer[offset] = '\0';
     close(sock);
 
     int ret = 1;
@@ -101,11 +98,8 @@ int main(void) {
     VPADInit();
 
     char latest[64] = {0};
-    if (fetch_latest_release(latest, sizeof(latest)) == 0) {
-        OSReport("Latest release: %s\n", latest);
-    } else {
-        OSReport("Failed to fetch latest release\n");
-    }
+    fetch_latest_release(latest, sizeof(latest));
+    // latest[] now contains the version tag if fetch was successful
 
     // Main loop
     while (ProcUIIsRunning()) {
