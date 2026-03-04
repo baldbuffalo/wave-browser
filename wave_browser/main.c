@@ -3,7 +3,6 @@
 #include <coreinit/filesystem.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
-#include <nsysnet/socket.h>  // <-- required for networking
 
 #include <sys/socket.h>
 #include <netdb.h>
@@ -71,9 +70,6 @@ int fetch_latest_release(char *out_tag, size_t tag_size) {
 int main(void) {
     ProcUIInit(NULL);
     VPADInit();
-    
-    // Initialize networking
-    socket_lib_init();
 
     char latest[64] = {0};
     fetch_latest_release(latest, sizeof(latest));  // ignore errors, no logging
@@ -87,8 +83,6 @@ int main(void) {
         usleep(16000); // ~60 FPS
     }
 
-    // Shutdown networking cleanly
-    socket_lib_finish();
     ProcUIShutdown();
     return 0;
 }
