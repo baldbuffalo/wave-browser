@@ -39,7 +39,7 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(DEVKITPPC)/powerpc-eabi/lib
 
 # brotli stubs are compiled in to satisfy missing brotli symbols in libcurl
-LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
+LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
