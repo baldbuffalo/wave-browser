@@ -68,7 +68,7 @@ $(TARGET).rpx: $(OFILES)
 # Pack WUHB
 #---------------------------------------------------------------------------------
 $(TARGET).wuhb: $(TARGET).rpx
-	wuhbtool $(TARGET).rpx $(TARGET).wuhb --name="Wave Browser" --short_description="Wii U Browser" --author="GameBuster" --meta=meta.xml
+	wuhbtool $(TARGET).rpx $(TARGET).wuhb --name="Wave Browser" --short-name="WaveBrowser" --author="GameBuster"
 
 #---------------------------------------------------------------------------------
 # Create Release Folder + Zip (CI Safe)
