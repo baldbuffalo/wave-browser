@@ -34,9 +34,9 @@ jobs:
 
       - name: Show wut example
         run: |
-          find /opt/devkitpro/wut -name "Makefile" | head -5
-          find /opt/devkitpro/wut -name "*.c" | head -5
           cat /opt/devkitpro/wut/share/wut.specs
+          echo "---"
+          head -50 /opt/devkitpro/wut/share/wut.ld
 
       - name: Build Wave Browser
         run: |
