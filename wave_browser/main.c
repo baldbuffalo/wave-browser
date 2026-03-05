@@ -5,7 +5,6 @@
 #include <coreinit/memdefaultheap.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
-#include <nn/ac.h>
 #include <curl/curl.h>
 #include <string.h>
 #include <stdlib.h>
@@ -186,8 +185,6 @@ static void run_splash(void) {
     screen_print(2, "Loading...");
     screen_flip();
 
-    ACInitialize();
-    ACConnect();
     curl_global_init(CURL_GLOBAL_ALL);
 
     // Step 2: Checking for updates
@@ -259,7 +256,6 @@ int main(void) {
     }
 
     curl_global_cleanup();
-    ACFinalize();
     screen_deinit();
     ProcUIShutdown();
     return 0;
