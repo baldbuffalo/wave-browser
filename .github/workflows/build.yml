@@ -38,6 +38,11 @@ jobs:
           echo "---"
           head -50 /opt/devkitpro/wut/share/wut.ld
 
+      - name: Check freetype
+        run: |
+          find /opt/devkitpro -name "libfreetype*"
+          find /opt/devkitpro -name "freetype2" -type d
+
       - name: Build Wave Browser
         run: |
           make clean
