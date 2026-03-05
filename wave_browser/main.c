@@ -3,7 +3,9 @@
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
 #include <coreinit/memdefaultheap.h>
-#include <whb/proc.h>
+#include <coreinit/memheap.h>
+#include <coreinit/memexpheap.h>
+#include <proc_ui/procui.h>
 #include <vpad/input.h>
 #include <curl/curl.h>
 #include <string.h>
@@ -247,24 +249,35 @@ static void run_splash(void) {
 // MAIN
 // ----------------------------------------------------------------
 int main(void) {
-    WHBProcInit();
+    // Init ProcUI first so Aroma's environment is ready
+    ProcUIInit(NULL);
     VPADInit();
+
+    // Explicitly set up the default heap before any memory allocation
+    // This is required under Aroma before calling OSScreenInit
+    MEMHeapHandle heap = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM2);
+    uint32_t size = MEMGetAllocatableSizeForExpHeapEx(heap, 4);
+    void *base = MEMAllocFromExpHeapEx(heap, size, 4);
+    MEMHeapHandle defaultHeap = MEMCreateExpHeapEx(base, size, 0);
+    MEMSetBaseHeapHandle(MEM_BASE_HEAP_MEM2, defaultHeap);
+
     if (screen_init() != 0) {
-        WHBProcShutdown();
+        ProcUIShutdown();
         return 1;
     }
 
     run_splash();
 
-    while (WHBProcIsRunning()) {
+    while (ProcUIIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+        ProcUIProcessMessages(TRUE);
         usleep(16000);
     }
 
     curl_global_cleanup();
     screen_deinit();
-    WHBProcShutdown();
+    ProcUIShutdown();
     return 0;
 }
