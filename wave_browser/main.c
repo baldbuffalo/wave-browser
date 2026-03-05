@@ -3,7 +3,7 @@
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
 #include <coreinit/memdefaultheap.h>
-#include <proc_ui/procui.h>
+#include <whb/proc.h>
 #include <vpad/input.h>
 #include <curl/curl.h>
 #include <string.h>
@@ -24,16 +24,22 @@
 static void *s_tv_buf  = NULL;
 static void *s_drc_buf = NULL;
 
-static void screen_init(void) {
+static int screen_init(void) {
     OSScreenInit();
     size_t tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     size_t drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
     s_tv_buf  = MEMAllocFromDefaultHeapEx(tv_size,  0x100);
     s_drc_buf = MEMAllocFromDefaultHeapEx(drc_size, 0x100);
+    if (!s_tv_buf || !s_drc_buf) {
+        if (s_tv_buf)  { MEMFreeToDefaultHeap(s_tv_buf);  s_tv_buf  = NULL; }
+        if (s_drc_buf) { MEMFreeToDefaultHeap(s_drc_buf); s_drc_buf = NULL; }
+        return 1; // allocation failed
+    }
     OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
     OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
     OSScreenEnableEx(SCREEN_TV,  1);
     OSScreenEnableEx(SCREEN_DRC, 1);
+    return 0;
 }
 
 static void screen_deinit(void) {
@@ -241,22 +247,24 @@ static void run_splash(void) {
 // MAIN
 // ----------------------------------------------------------------
 int main(void) {
-    ProcUIInit(NULL);
+    WHBProcInit();
     VPADInit();
-    screen_init();
+    if (screen_init() != 0) {
+        WHBProcShutdown();
+        return 1;
+    }
 
     run_splash();
 
-    while (ProcUIIsRunning()) {
+    while (WHBProcIsRunning()) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-        ProcUIProcessMessages(TRUE);
         usleep(16000);
     }
 
     curl_global_cleanup();
     screen_deinit();
-    ProcUIShutdown();
+    WHBProcShutdown();
     return 0;
 }
