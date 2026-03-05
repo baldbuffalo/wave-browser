@@ -1,22 +1,19 @@
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
-#include <coreinit/memdefaultheap.h>
-#include <coreinit/memheap.h>
-#include <coreinit/memfrmheap.h>
-#include <proc_ui/procui.h>
 #include <vpad/input.h>
 #include <curl/curl.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <malloc.h>
 
 #define CURRENT_VERSION "v1.0.0"
 #define GITHUB_API_URL  "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
 #define DOWNLOAD_PATH   "fs:/vol/external01/wave-browser-update.rpx"
 
 // ----------------------------------------------------------------
-// OSScreen — buffers allocated from MEM1 foreground heap
+// OSScreen — buffers allocated via memalign (wut default heap)
 // ----------------------------------------------------------------
 static void *s_tv_buf  = NULL;
 static void *s_drc_buf = NULL;
@@ -27,12 +24,18 @@ static int screen_init(void) {
     size_t tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     size_t drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
 
-    // OSScreen buffers MUST come from MEM1 foreground heap
-    MEMHeapHandle mem1 = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1);
-    s_tv_buf  = MEMAllocFromFrmHeapEx(mem1, tv_size,  4);
-    s_drc_buf = MEMAllocFromFrmHeapEx(mem1, drc_size, 4);
+    s_tv_buf  = memalign(0x100, tv_size);
+    s_drc_buf = memalign(0x100, drc_size);
 
-    if (!s_tv_buf || !s_drc_buf) return 1;
+    if (!s_tv_buf || !s_drc_buf) {
+        free(s_tv_buf);
+        free(s_drc_buf);
+        s_tv_buf = s_drc_buf = NULL;
+        return 1;
+    }
+
+    memset(s_tv_buf,  0, tv_size);
+    memset(s_drc_buf, 0, drc_size);
 
     OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
     OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
@@ -44,11 +47,9 @@ static int screen_init(void) {
 static void screen_deinit(void) {
     OSScreenEnableEx(SCREEN_TV,  0);
     OSScreenEnableEx(SCREEN_DRC, 0);
-    // Free entire MEM1 foreground heap at once
-    MEMHeapHandle mem1 = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1);
-    MEMFreeByStateToFrmHeap(mem1, MEM_FRM_HEAP_FREE_HEAD);
-    s_tv_buf  = NULL;
-    s_drc_buf = NULL;
+    free(s_tv_buf);
+    free(s_drc_buf);
+    s_tv_buf = s_drc_buf = NULL;
 }
 
 static void screen_clear(void) {
@@ -85,9 +86,9 @@ static void screen_progress(uint32_t row, double pct) {
 typedef struct { char *data; size_t size; } Buffer;
 
 static size_t write_cb(void *contents, size_t size, size_t nmemb, void *userp) {
-    size_t total   = size * nmemb;
-    Buffer *buf    = (Buffer *)userp;
-    char *p        = realloc(buf->data, buf->size + total + 1);
+    size_t total = size * nmemb;
+    Buffer *buf  = (Buffer *)userp;
+    char *p      = realloc(buf->data, buf->size + total + 1);
     if (!p) return 0;
     buf->data = p;
     memcpy(buf->data + buf->size, contents, total);
@@ -228,30 +229,31 @@ static void run_splash(void) {
     for (int i = 0; i < 180; i++) usleep(16000);
 }
 
-// ----------------------------------------------------------------
-// MAIN
-// ----------------------------------------------------------------
 int main(void) {
-    ProcUIInit(NULL);
     VPADInit();
 
     if (screen_init() != 0) {
-        ProcUIShutdown();
         return 1;
     }
 
     run_splash();
 
-    while (ProcUIIsRunning()) {
+    // Main loop — Aroma handles exit via HOME button
+    int running = 1;
+    while (running) {
         VPADStatus vpad;
         VPADReadError error;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-        ProcUIProcessMessages(TRUE);
+
+        // HOME button exits
+        if (vpad.trigger & VPAD_BUTTON_HOME) {
+            running = 0;
+        }
+
         usleep(16000);
     }
 
     curl_global_cleanup();
     screen_deinit();
-    ProcUIShutdown();
     return 0;
 }
