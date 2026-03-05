@@ -35,10 +35,11 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -Wl,--gc-sections \
            -Wl,--defsym=__end__=0x02000000 \
            -L$(WUT_ROOT)/lib \
-           -L$(DEVKITPRO)/portlibs/wiiu/lib
+           -L$(DEVKITPRO)/portlibs/wiiu/lib \
+           -L$(DEVKITPPC)/powerpc-eabi/lib
 
-# Added: curl (for HTTP/HTTPS fetching) and nn_ac (for WiFi init)
-LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -lz -lwut -lm
+# brotli stubs are compiled in to satisfy missing brotli symbols in libcurl
+LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lz -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
