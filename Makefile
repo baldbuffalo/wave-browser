@@ -38,7 +38,7 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(DEVKITPRO)/portlibs/wiiu/lib \
            -L$(DEVKITPRO)/portlibs/ppc/lib
 
-LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -lz -lwhb -lwut -lm
+LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -lz -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
