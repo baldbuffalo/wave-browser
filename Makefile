@@ -37,7 +37,8 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(WUT_ROOT)/lib \
            -L$(DEVKITPRO)/portlibs/wiiu/lib
 
-LIBS    := -lwut -lm
+# Added: curl (for HTTP/HTTPS fetching) and nn_ac (for WiFi init)
+LIBS    := -lcurl -lnn_ac -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
