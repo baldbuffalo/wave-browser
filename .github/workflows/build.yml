@@ -32,6 +32,12 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
+      - name: Show wut example
+        run: |
+          find /opt/devkitpro/wut -name "Makefile" | head -5
+          find /opt/devkitpro/wut -name "*.c" | head -5
+          cat /opt/devkitpro/wut/share/wut.specs
+
       - name: Build Wave Browser
         run: |
           make clean
