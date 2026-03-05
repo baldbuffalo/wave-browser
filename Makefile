@@ -33,7 +33,6 @@ CFLAGS  := -O2 -Wall -mcpu=750 -meabi -mhard-float \
 #---------------------------------------------------------------------------------
 LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -Wl,--gc-sections \
-           -Wl,--defsym=__end__=0x02000000 \
            -L$(WUT_ROOT)/lib \
            -L$(DEVKITPRO)/portlibs/wiiu/lib \
            -L$(DEVKITPRO)/portlibs/ppc/lib
