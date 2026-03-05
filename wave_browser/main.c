@@ -1,10 +1,8 @@
-#include <coreinit/core.h>
-#include <coreinit/filesystem.h>
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
 #include <coreinit/memdefaultheap.h>
 #include <coreinit/memheap.h>
-#include <coreinit/memexpheap.h>
+#include <coreinit/memfrmheap.h>
 #include <proc_ui/procui.h>
 #include <vpad/input.h>
 #include <curl/curl.h>
@@ -13,30 +11,29 @@
 #include <stdio.h>
 #include <unistd.h>
 
-// ----------------------------------------------------------------
-// Bump this every release to match your GitHub tag
-// ----------------------------------------------------------------
 #define CURRENT_VERSION "v1.0.0"
 #define GITHUB_API_URL  "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
 #define DOWNLOAD_PATH   "fs:/vol/external01/wave-browser-update.rpx"
 
 // ----------------------------------------------------------------
-// OSScreen helpers
+// OSScreen — buffers allocated from MEM1 foreground heap
 // ----------------------------------------------------------------
 static void *s_tv_buf  = NULL;
 static void *s_drc_buf = NULL;
 
 static int screen_init(void) {
     OSScreenInit();
+
     size_t tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     size_t drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
-    s_tv_buf  = MEMAllocFromDefaultHeapEx(tv_size,  0x100);
-    s_drc_buf = MEMAllocFromDefaultHeapEx(drc_size, 0x100);
-    if (!s_tv_buf || !s_drc_buf) {
-        if (s_tv_buf)  { MEMFreeToDefaultHeap(s_tv_buf);  s_tv_buf  = NULL; }
-        if (s_drc_buf) { MEMFreeToDefaultHeap(s_drc_buf); s_drc_buf = NULL; }
-        return 1; // allocation failed
-    }
+
+    // OSScreen buffers MUST come from MEM1 foreground heap
+    MEMHeapHandle mem1 = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1);
+    s_tv_buf  = MEMAllocFromFrmHeapEx(mem1, tv_size,  4);
+    s_drc_buf = MEMAllocFromFrmHeapEx(mem1, drc_size, 4);
+
+    if (!s_tv_buf || !s_drc_buf) return 1;
+
     OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
     OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
     OSScreenEnableEx(SCREEN_TV,  1);
@@ -47,8 +44,11 @@ static int screen_init(void) {
 static void screen_deinit(void) {
     OSScreenEnableEx(SCREEN_TV,  0);
     OSScreenEnableEx(SCREEN_DRC, 0);
-    if (s_tv_buf)  { MEMFreeToDefaultHeap(s_tv_buf);  s_tv_buf  = NULL; }
-    if (s_drc_buf) { MEMFreeToDefaultHeap(s_drc_buf); s_drc_buf = NULL; }
+    // Free entire MEM1 foreground heap at once
+    MEMHeapHandle mem1 = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM1);
+    MEMFreeByStateToFrmHeap(mem1, MEM_FRM_HEAP_FREE_HEAD);
+    s_tv_buf  = NULL;
+    s_drc_buf = NULL;
 }
 
 static void screen_clear(void) {
@@ -70,7 +70,7 @@ static void screen_flip(void) {
 
 static void screen_progress(uint32_t row, double pct) {
     char bar[64];
-    int filled = (int)(pct / 5.0); // 20 chars = 100%
+    int filled = (int)(pct / 5.0);
     if (filled > 20) filled = 20;
     char inner[21];
     for (int i = 0; i < 20; i++) inner[i] = (i < filled) ? '#' : '.';
@@ -113,10 +113,6 @@ static int progress_cb(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
     return 0;
 }
 
-// ----------------------------------------------------------------
-// Check GitHub for a newer version
-// Returns 1 if update available, fills out_tag
-// ----------------------------------------------------------------
 static int check_for_update(char *out_tag, size_t tag_size) {
     CURL *curl = curl_easy_init();
     if (!curl) return 0;
@@ -156,9 +152,6 @@ static int check_for_update(char *out_tag, size_t tag_size) {
     return update_available;
 }
 
-// ----------------------------------------------------------------
-// Download update RPX to SD card with live progress bar
-// ----------------------------------------------------------------
 static int download_update(const char *url) {
     FILE *f = fopen(DOWNLOAD_PATH, "wb");
     if (!f) return 1;
@@ -181,13 +174,7 @@ static int download_update(const char *url) {
     return (res == CURLE_OK) ? 0 : 1;
 }
 
-// ----------------------------------------------------------------
-// Splash sequence:
-//   "Loading..." -> "Checking for updates..." ->
-//   "Up to date!" OR download with progress bar
-// ----------------------------------------------------------------
 static void run_splash(void) {
-    // Step 1: Loading
     screen_clear();
     screen_print(0, "Wave Browser");
     screen_print(2, "Loading...");
@@ -195,7 +182,6 @@ static void run_splash(void) {
 
     curl_global_init(CURL_GLOBAL_ALL);
 
-    // Step 2: Checking for updates
     screen_clear();
     screen_print(0, "Wave Browser");
     screen_print(2, "Checking for updates...");
@@ -209,11 +195,10 @@ static void run_splash(void) {
         screen_print(0, "Wave Browser");
         screen_print(2, "Up to date!");
         screen_flip();
-        for (int i = 0; i < 90; i++) usleep(16000); // ~1.5 sec
+        for (int i = 0; i < 90; i++) usleep(16000);
         return;
     }
 
-    // Step 3: Show what version was found
     char msg[128];
     snprintf(msg, sizeof(msg), "Update found: %s  (current: %s)", latest_tag, CURRENT_VERSION);
     screen_clear();
@@ -221,9 +206,8 @@ static void run_splash(void) {
     screen_print(2, msg);
     screen_print(4, "Starting download...");
     screen_flip();
-    usleep(1000000); // 1 sec
+    usleep(1000000);
 
-    // Build download URL — expects asset named wave-browser.rpx on the release
     char download_url[256];
     snprintf(download_url, sizeof(download_url),
         "https://github.com/baldbuffalo/wave-browser/releases/download/%s/wave-browser.rpx",
@@ -231,7 +215,6 @@ static void run_splash(void) {
 
     int ok = download_update(download_url);
 
-    // Step 4: Result
     screen_clear();
     screen_print(0, "Wave Browser");
     if (ok == 0) {
@@ -242,24 +225,15 @@ static void run_splash(void) {
         screen_print(4, "Starting current version...");
     }
     screen_flip();
-    for (int i = 0; i < 180; i++) usleep(16000); // ~3 sec
+    for (int i = 0; i < 180; i++) usleep(16000);
 }
 
 // ----------------------------------------------------------------
 // MAIN
 // ----------------------------------------------------------------
 int main(void) {
-    // Init ProcUI first so Aroma's environment is ready
     ProcUIInit(NULL);
     VPADInit();
-
-    // Explicitly set up the default heap before any memory allocation
-    // This is required under Aroma before calling OSScreenInit
-    MEMHeapHandle heap = MEMGetBaseHeapHandle(MEM_BASE_HEAP_MEM2);
-    uint32_t size = MEMGetAllocatableSizeForExpHeapEx(heap, 4);
-    void *base = MEMAllocFromExpHeapEx(heap, size, 4);
-    MEMHeapHandle defaultHeap = MEMCreateExpHeapEx(base, size, 0);
-    MEMSetBaseHeapHandle(MEM_BASE_HEAP_MEM2, defaultHeap);
 
     if (screen_init() != 0) {
         ProcUIShutdown();
