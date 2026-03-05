@@ -32,12 +32,6 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
-      - name: Show wut example
-        run: |
-          cat /opt/devkitpro/wut/share/wut.specs
-          echo "---"
-          head -50 /opt/devkitpro/wut/share/wut.ld
-
       - name: Check freetype
         run: |
           find /opt/devkitpro -name "libfreetype*"
