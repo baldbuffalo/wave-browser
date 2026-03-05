@@ -13,6 +13,7 @@ static void SaveCallback(void) {
 
 static void *tvBuffer  = NULL;
 static void *drcBuffer = NULL;
+static int inForeground = 0;
 
 static void acquireForeground(void) {
     OSScreenInit();
@@ -26,14 +27,7 @@ static void acquireForeground(void) {
     OSScreenSetBufferEx(SCREEN_DRC, drcBuffer);
     OSScreenEnableEx(SCREEN_TV,  1);
     OSScreenEnableEx(SCREEN_DRC, 1);
-    OSScreenClearBufferEx(SCREEN_TV,  0x00000000);
-    OSScreenClearBufferEx(SCREEN_DRC, 0x00000000);
-    OSScreenPutFontEx(SCREEN_TV,  0, 0, "Wave Browser running!");
-    OSScreenPutFontEx(SCREEN_DRC, 0, 0, "Wave Browser running!");
-    DCFlushRange(tvBuffer,  tvSize);
-    DCFlushRange(drcBuffer, drcSize);
-    OSScreenFlipBuffersEx(SCREEN_TV);
-    OSScreenFlipBuffersEx(SCREEN_DRC);
+    inForeground = 1;
 }
 
 static void releaseForeground(void) {
@@ -42,6 +36,21 @@ static void releaseForeground(void) {
     free(tvBuffer);
     free(drcBuffer);
     tvBuffer = drcBuffer = NULL;
+    inForeground = 0;
+    ProcUIDrawDoneRelease();
+}
+
+static void drawFrame(const char *msg) {
+    size_t tvSize  = OSScreenGetBufferSizeEx(SCREEN_TV);
+    size_t drcSize = OSScreenGetBufferSizeEx(SCREEN_DRC);
+    OSScreenClearBufferEx(SCREEN_TV,  0x00000000);
+    OSScreenClearBufferEx(SCREEN_DRC, 0x00000000);
+    OSScreenPutFontEx(SCREEN_TV,  0, 0, msg);
+    OSScreenPutFontEx(SCREEN_DRC, 0, 0, msg);
+    DCFlushRange(tvBuffer,  tvSize);
+    DCFlushRange(drcBuffer, drcSize);
+    OSScreenFlipBuffersEx(SCREEN_TV);
+    OSScreenFlipBuffersEx(SCREEN_DRC);
 }
 
 int main(void) {
@@ -54,10 +63,10 @@ int main(void) {
         if (status == PROCUI_STATUS_EXITING) {
             break;
         } else if (status == PROCUI_STATUS_RELEASE_FOREGROUND) {
-            releaseForeground();
-            ProcUIDrawDoneRelease();
+            if (inForeground) releaseForeground();
         } else if (status == PROCUI_STATUS_IN_FOREGROUND) {
-            acquireForeground();
+            if (!inForeground) acquireForeground();
+            drawFrame("Wave Browser running! Press HOME to exit.");
             VPADStatus vpad;
             VPADReadError error;
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
@@ -65,6 +74,12 @@ int main(void) {
         }
     }
 
+    if (inForeground) {
+        OSScreenEnableEx(SCREEN_TV,  0);
+        OSScreenEnableEx(SCREEN_DRC, 0);
+        free(tvBuffer);
+        free(drcBuffer);
+    }
     ProcUIShutdown();
     return 0;
 }
