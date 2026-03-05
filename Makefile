@@ -36,10 +36,9 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -Wl,--defsym=__end__=0x02000000 \
            -L$(WUT_ROOT)/lib \
            -L$(DEVKITPRO)/portlibs/wiiu/lib \
-           -L$(DEVKITPPC)/powerpc-eabi/lib
+           -L$(DEVKITPRO)/portlibs/ppc/lib
 
-# brotli stubs are compiled in to satisfy missing brotli symbols in libcurl
-LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lwut -lm
+LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -lz -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
