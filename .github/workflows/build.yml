@@ -49,10 +49,9 @@ jobs:
           mkdir -p WaveBrowser
           cp WaveBrowser.wuhb WaveBrowser/
           cp meta.xml WaveBrowser/
-          zip -r WaveBrowser.zip WaveBrowser
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: WaveBrowser
-          path: WaveBrowser.zip
+          path: WaveBrowser/
