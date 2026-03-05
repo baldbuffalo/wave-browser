@@ -25,8 +25,7 @@ LD          := $(CC)
 CFLAGS  := -O2 -Wall -mcpu=750 -meabi -mhard-float \
            -ffunction-sections -fdata-sections \
            -I$(WUT_ROOT)/include \
-           -I$(DEVKITPRO)/portlibs/wiiu/include \
-           -I$(DEVKITPRO)/libogc/include
+           -I$(DEVKITPRO)/portlibs/wiiu/include
 
 #---------------------------------------------------------------------------------
 # Linker Flags
@@ -37,7 +36,7 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(DEVKITPRO)/portlibs/wiiu/lib \
            -L$(DEVKITPRO)/portlibs/ppc/lib
 
-LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -lz -lwut -lm
+LIBS    := -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
