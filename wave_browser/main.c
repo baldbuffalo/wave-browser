@@ -3,7 +3,6 @@
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
 #include <vpad/input.h>
-#include <swkbd/keyboard.h>
 #include <curl/curl.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -379,22 +378,10 @@ static void draw_browser_ui(void) {
 // SWKBD URL input
 // ----------------------------------------------------------------
 static void open_url_keyboard(void) {
-    SwkbdConfig kbd;
-    swkbdCreate(&kbd, 0);
-    swkbdConfigSetType(&kbd, SWKBD_TYPE_QWERTY);
-    swkbdConfigSetStringLenMax(&kbd, MAX_URL - 1);
-    swkbdConfigSetInitialText(&kbd, s_tabs[s_active_tab].url);
-    swkbdConfigSetGuideText(&kbd, "Enter a URL");
-    swkbdConfigSetOkButtonLabel(&kbd, "Go");
-
-    char out[MAX_URL] = {0};
-    SwkbdFSStatus rc = swkbdShow(&kbd, out, sizeof(out));
-    swkbdDelete(&kbd);
-
-    if (rc == SWKBD_RESULT_OK && out[0]) {
-        strncpy(s_tabs[s_active_tab].url, out, MAX_URL - 1);
-        strncpy(s_tabs[s_active_tab].title, out, 63);
-    }
+    // TODO: implement once swkbd header path is confirmed
+    // For now just clear the URL
+    memset(s_tabs[s_active_tab].url, 0, MAX_URL);
+    strncpy(s_tabs[s_active_tab].url, "https://", MAX_URL - 1);
 }
 
 // ----------------------------------------------------------------
