@@ -33,12 +33,6 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
-      - name: Check freetype
-        run: |
-          find /opt/devkitpro -name "libfreetype*"
-          find /opt/devkitpro -name "freetype2" -type d
-          find /opt/devkitpro -name "*swkbd*" -o -name "*keyboard*" 2>/dev/null | grep -v ".ttf"
-
       - name: Download font
         run: |
           FONT_URL=$(curl -s -A "Mozilla/4.0" "https://fonts.googleapis.com/css?family=Roboto:700" | grep -o 'https://[^)]*' | head -1)
