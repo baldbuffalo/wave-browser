@@ -42,13 +42,7 @@ jobs:
         run: |
           FONT_URL=$(curl -s -A "Mozilla/4.0" "https://fonts.googleapis.com/css?family=Roboto:700" | grep -o 'https://[^)]*' | head -1)
           wget -q "$FONT_URL" -O wave_browser/font.ttf
-          python3 -c "
-data = open('wave_browser/font.ttf','rb').read()
-out = 'static const unsigned char font_data[] = {'
-out += ','.join(str(b) for b in data)
-out += '};\nstatic const unsigned int font_data_len = ' + str(len(data)) + ';\n'
-open('wave_browser/font_data.h','w').write(out)
-"
+          python3 -c "data=open('wave_browser/font.ttf','rb').read(); open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\nstatic const unsigned int font_data_len='+str(len(data))+';\n')"
 
       - name: Build Wave Browser
         run: |
