@@ -37,6 +37,7 @@ jobs:
         run: |
           find /opt/devkitpro -name "libfreetype*"
           find /opt/devkitpro -name "freetype2" -type d
+          find /opt/devkitpro -name "*swkbd*" -o -name "*keyboard*" 2>/dev/null | grep -v ".ttf"
 
       - name: Download font
         run: |
