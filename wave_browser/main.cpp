@@ -264,8 +264,8 @@ static void draw_tab(void *buf, int fb_w, int fb_h, int idx, int active) {
     char truncated[24];
     strncpy(truncated, title, 20);
     truncated[20] = '\0';
-    ft_draw(buf, fb_w, fb_h, truncated,  tx+28,      ty+22, 13, COL_TAB_TEXT,  0);
-    ft_draw(buf, fb_w, fb_h, "x",        tx+TAB_W-18, ty+22, 13, COL_CLOSE_BTN, 0);
+    ft_draw(buf, fb_w, fb_h, truncated,   tx+28,       ty+22, 13, COL_TAB_TEXT,  0);
+    ft_draw(buf, fb_w, fb_h, "x",         tx+TAB_W-18, ty+22, 13, COL_CLOSE_BTN, 0);
     if (active)
         fb_fill(buf, fb_w, fb_h, tx, ty+TAB_H, TAB_W-2, 2, COL_TAB_ACTIVE);
 }
@@ -313,20 +313,11 @@ static void draw_browser_ui(void) {
     screen_flip();
 }
 
-// ----------------------------------------------------------------
-// SWKBD URL input — real WUT nn::swkbd API
-//
-//  Lifecycle:
-//    Create() → AppearInputForm() → loop { Calc / DrawTV / DrawDRC
-//    / IsDecideOkButton | IsDecideCancelButton } →
-//    DisappearInputForm() → Destroy()
-// ----------------------------------------------------------------
 static void open_url_keyboard(void) {
     void *workMem = MEMAllocFromDefaultHeapEx(SWKBD_WORK_SIZE, 0x1000);
     if (!workMem) return;
 
-    nn::swkbd::CreateArg createArg;
-    memset(&createArg, 0, sizeof(createArg));
+    nn::swkbd::CreateArg createArg = {};
     createArg.workMemory = workMem;
     createArg.regionType = nn::swkbd::RegionType::Europe;
     createArg.fsClient   = nullptr;
@@ -336,11 +327,7 @@ static void open_url_keyboard(void) {
         return;
     }
 
-    static const char16_t hint[] = u"Enter URL";
-
-    nn::swkbd::AppearArg appearArg;
-    memset(&appearArg, 0, sizeof(appearArg));
-    appearArg.hintText = hint;
+    nn::swkbd::AppearArg appearArg = {};
 
     if (!nn::swkbd::AppearInputForm(appearArg)) {
         nn::swkbd::Destroy();
@@ -356,10 +343,8 @@ static void open_url_keyboard(void) {
         VPADReadError vpadErr;
         VPADRead(VPAD_CHAN_0, &vpad, 1, &vpadErr);
 
-        nn::swkbd::ControllerInfo ctrlInfo;
-        memset(&ctrlInfo, 0, sizeof(ctrlInfo));
+        nn::swkbd::ControllerInfo ctrlInfo = {};
         ctrlInfo.vpad = &vpad;
-        // kpad[0..3] remain nullptr — no Wii Remotes required
 
         nn::swkbd::Calc(ctrlInfo);
 
@@ -367,7 +352,6 @@ static void open_url_keyboard(void) {
         if (nn::swkbd::IsDecideOkButton(&isFirst)) {
             const char16_t *str = nn::swkbd::GetInputFormString();
             if (str) {
-                // URL characters are ASCII — simple narrow conversion
                 int i = 0;
                 while (str[i] && i < MAX_URL - 1) {
                     result[i] = (char)(str[i] & 0x7F);
@@ -399,9 +383,6 @@ static void open_url_keyboard(void) {
     }
 }
 
-// ----------------------------------------------------------------
-// curl helpers
-// ----------------------------------------------------------------
 typedef struct { char *data; size_t size; } Buffer;
 
 static size_t write_cb(void *contents, size_t size, size_t nmemb, void *userp) {
