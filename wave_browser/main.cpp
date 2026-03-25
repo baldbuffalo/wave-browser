@@ -401,7 +401,7 @@ typedef struct { char *data; size_t size; } Buffer;
 static size_t write_cb(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t total = size * nmemb;
     Buffer *buf  = (Buffer *)userp;
-    char *p      = realloc(buf->data, buf->size + total + 1);
+    char *p      = (char *)realloc(buf->data, buf->size + total + 1);
     if (!p) return 0;
     buf->data = p;
     memcpy(buf->data + buf->size, contents, total);
@@ -425,7 +425,7 @@ static int progress_cb(void *clientp, curl_off_t dltotal, curl_off_t dlnow,
 static int check_for_update(char *out_tag, size_t tag_size) {
     CURL *curl = curl_easy_init();
     if (!curl) return 0;
-    Buffer buf = { malloc(1), 0 };
+    Buffer buf = { (char *)malloc(1), 0 };
     if (!buf.data) { curl_easy_cleanup(curl); return 0; }
     buf.data[0] = '\0';
     curl_easy_setopt(curl, CURLOPT_URL,            GITHUB_API_URL);
