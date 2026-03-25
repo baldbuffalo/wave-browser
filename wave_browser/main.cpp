@@ -4,7 +4,7 @@
 #include <coreinit/cache.h>
 #include <coreinit/memdefaultheap.h>
 #include <vpad/input.h>
-#include <kpad/input.h>
+#include <padscore/kpad.h>
 #include <nn/swkbd.h>
 #include <curl/curl.h>
 #include <ft2build.h>
