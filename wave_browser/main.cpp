@@ -2,7 +2,9 @@
 #include <coreinit/foreground.h>
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
+#include <coreinit/memdefaultheap.h>
 #include <vpad/input.h>
+#include <kpad/input.h>
 #include <nn/swkbd.h>
 #include <curl/curl.h>
 #include <ft2build.h>
@@ -20,60 +22,49 @@
 #define MAX_TABS        8
 #define MAX_URL         512
 
-// ----------------------------------------------------------------
-// Screen dimensions
-// ----------------------------------------------------------------
 #define TV_W  1280
 #define TV_H   720
 #define DRC_W  854
 #define DRC_H  480
 
-// ----------------------------------------------------------------
-// Chrome-style layout constants (TV)
-// ----------------------------------------------------------------
-#define TOOLBAR_H       48   // top toolbar height
-#define TAB_BAR_H       36   // tab strip height
-#define TAB_W          180   // width of each tab
+#define TOOLBAR_H       48
+#define TAB_BAR_H       36
+#define TAB_W          180
 #define TAB_H           34
-#define ADDR_BAR_X     120   // address bar start x
-#define ADDR_BAR_W     900   // address bar width
-#define ADDR_BAR_H      32   // address bar height
-#define ADDR_BAR_Y       8   // address bar y within toolbar
-#define BTN_SIZE        36   // nav button size
+#define ADDR_BAR_X     120
+#define ADDR_BAR_W     900
+#define ADDR_BAR_H      32
+#define ADDR_BAR_Y       8
+#define BTN_SIZE        36
 #define BTN_BACK_X       8
 #define BTN_FWD_X       52
 #define BTN_RELOAD_X    96
 #define CONTENT_Y      (TOOLBAR_H + TAB_BAR_H)
 #define CONTENT_H      (TV_H - CONTENT_Y)
 
-// Chrome colors
-#define COL_CHROME_BG    0xF2F2F2FF  // toolbar background
-#define COL_TAB_ACTIVE   0xFFFFFFFF  // active tab white
-#define COL_TAB_INACTIVE 0xDEDEDEFF  // inactive tab gray
-#define COL_TAB_TEXT     0x3C3C3CFF  // tab text
-#define COL_ADDR_BG      0xFFFFFFFF  // address bar white
-#define COL_ADDR_TEXT    0x1A1A1AFF  // address text dark
-#define COL_ADDR_BORDER  0xCECECEFF  // address bar border
-#define COL_CONTENT_BG   0xFFFFFFFF  // page background white
-#define COL_TOOLBAR_LINE 0xCECECEFF  // bottom border of toolbar
-#define COL_BTN_HOVER    0xE0E0E0FF  // button hover
-#define COL_NEW_TAB_BTN  0x9E9E9EFF  // + button
-#define COL_CLOSE_BTN    0x757575FF  // x button on tab
-#define COL_FAVICON_BG   0x4285F4FF  // Google blue for favicon placeholder
-#define COL_BLACK        0x000000FF
+#define COL_CHROME_BG    0xF2F2F2FF
+#define COL_TAB_ACTIVE   0xFFFFFFFF
+#define COL_TAB_INACTIVE 0xDEDEDEFF
+#define COL_TAB_TEXT     0x3C3C3CFF
+#define COL_ADDR_BG      0xFFFFFFFF
+#define COL_ADDR_TEXT    0x1A1A1AFF
+#define COL_ADDR_BORDER  0xCECECEFF
+#define COL_CONTENT_BG   0xFFFFFFFF
+#define COL_TOOLBAR_LINE 0xCECECEFF
+#define COL_NEW_TAB_BTN  0x9E9E9EFF
+#define COL_CLOSE_BTN    0x757575FF
+#define COL_FAVICON_BG   0x4285F4FF
 #define COL_WHITE        0xFFFFFFFF
 #define COL_GRAY         0x9E9E9EFF
+#define COL_BG_TOP       0x0096C7FF
+#define COL_BG_BOT       0x023E8AFF
+#define COL_WHITE_DIM    0xCCCCCCFF
+#define COL_GREEN        0x00E676FF
+#define COL_GREEN_DRK    0x00B248FF
 
-// Splash colors
-#define COL_BG_TOP    0x0096C7FF
-#define COL_BG_BOT    0x023E8AFF
-#define COL_WHITE_DIM 0xCCCCCCFF
-#define COL_GREEN     0x00E676FF
-#define COL_GREEN_DRK 0x00B248FF
+// swkbd work memory — 128 KB
+#define SWKBD_WORK_SIZE  0x20000
 
-// ----------------------------------------------------------------
-// Tab state
-// ----------------------------------------------------------------
 typedef struct {
     char url[MAX_URL];
     char title[64];
@@ -81,17 +72,11 @@ typedef struct {
 } Tab;
 
 static Tab  s_tabs[MAX_TABS];
-static int  s_tab_count   = 1;
-static int  s_active_tab  = 0;
+static int  s_tab_count  = 1;
+static int  s_active_tab = 0;
 
-// ----------------------------------------------------------------
-// ProcUI
-// ----------------------------------------------------------------
 static void SaveCallback(void) { OSSavesDone_ReadyToRelease(); }
 
-// ----------------------------------------------------------------
-// Framebuffers
-// ----------------------------------------------------------------
 static void *s_tv_buf  = NULL;
 static void *s_drc_buf = NULL;
 static int   s_inFg    = 0;
@@ -126,9 +111,6 @@ static void screen_flip(void) {
     OSScreenFlipBuffersEx(SCREEN_DRC);
 }
 
-// ----------------------------------------------------------------
-// Framebuffer drawing
-// ----------------------------------------------------------------
 static inline uint32_t *fb_pixel(void *buf, int w, int x, int y) {
     return &((uint32_t*)buf)[y * w + x];
 }
@@ -155,9 +137,9 @@ static void fb_gradient(void *buf, int fb_w, int fb_h, uint32_t top, uint32_t bo
     uint8_t tr=(top>>24)&0xFF, tg=(top>>16)&0xFF, tb=(top>>8)&0xFF;
     uint8_t br=(bot>>24)&0xFF, bg=(bot>>16)&0xFF, bb=(bot>>8)&0xFF;
     for (int y = 0; y < fb_h; y++) {
-        uint8_t r = tr + (br-tr)*y/fb_h;
-        uint8_t g = tg + (bg-tg)*y/fb_h;
-        uint8_t b = tb + (bb-tb)*y/fb_h;
+        uint8_t r = tr + (uint8_t)((br-tr)*y/fb_h);
+        uint8_t g = tg + (uint8_t)((bg-tg)*y/fb_h);
+        uint8_t b = tb + (uint8_t)((bb-tb)*y/fb_h);
         uint32_t color = ((uint32_t)r<<24)|((uint32_t)g<<16)|((uint32_t)b<<8)|0xFF;
         for (int x = 0; x < fb_w; x++)
             *fb_pixel(buf, fb_w, x, y) = color;
@@ -172,27 +154,20 @@ static void fb_progress_bar(void *buf, int fb_w, int fb_h,
     fb_rect_outline(buf, fb_w, fb_h, x, y, w, h, COL_WHITE);
 }
 
-// Rounded rect (simple — fill center + 4 edges minus corners)
 static void fb_rounded_rect(void *buf, int fb_w, int fb_h,
                               int x, int y, int w, int h, int r, uint32_t col) {
-    fb_fill(buf, fb_w, fb_h, x+r, y,   w-r*2, h,   col);
+    fb_fill(buf, fb_w, fb_h, x+r, y,   w-r*2, h,     col);
     fb_fill(buf, fb_w, fb_h, x,   y+r, w,     h-r*2, col);
 }
 
-// Draw a triangle (back/forward arrow) pointing left or right
 static void fb_arrow(void *buf, int fb_w, int fb_h,
                       int cx, int cy, int size, int dir, uint32_t col) {
-    // dir: -1 = left, 1 = right
     for (int i = 0; i < size; i++) {
-        int len = i;
         int sx = cx + dir * (size/2 - i);
-        fb_fill(buf, fb_w, fb_h, sx, cy - len/2, 1, len+1, col);
+        fb_fill(buf, fb_w, fb_h, sx, cy - i/2, 1, i+1, col);
     }
 }
 
-// ----------------------------------------------------------------
-// FreeType
-// ----------------------------------------------------------------
 static FT_Library s_ft   = NULL;
 static FT_Face    s_face = NULL;
 
@@ -208,10 +183,10 @@ static void ft_done(void) {
 
 static uint32_t blend_pixel(uint32_t bg, uint32_t fg, uint8_t a) {
     if (!a) return bg;
-    uint8_t r = ((fg>>24&0xFF)*a + (bg>>24&0xFF)*(255-a))/255;
-    uint8_t g = ((fg>>16&0xFF)*a + (bg>>16&0xFF)*(255-a))/255;
-    uint8_t b = ((fg>> 8&0xFF)*a + (bg>> 8&0xFF)*(255-a))/255;
-    return (r<<24)|(g<<16)|(b<<8)|0xFF;
+    uint8_t r = (uint8_t)(((fg>>24&0xFF)*a + (bg>>24&0xFF)*(255-a))/255);
+    uint8_t g = (uint8_t)(((fg>>16&0xFF)*a + (bg>>16&0xFF)*(255-a))/255);
+    uint8_t b = (uint8_t)(((fg>> 8&0xFF)*a + (bg>> 8&0xFF)*(255-a))/255);
+    return ((uint32_t)r<<24)|((uint32_t)g<<16)|((uint32_t)b<<8)|0xFF;
 }
 
 static int ft_text_width(const char *text, int size) {
@@ -224,7 +199,6 @@ static int ft_text_width(const char *text, int size) {
     return w;
 }
 
-// Alignment: 0=left, 1=center, 2=right
 static void ft_draw(void *buf, int fb_w, int fb_h,
                      const char *text, int x, int y, int size,
                      uint32_t color, int align) {
@@ -255,9 +229,6 @@ static void ft_draw(void *buf, int fb_w, int fb_h,
     }
 }
 
-// ----------------------------------------------------------------
-// Splash
-// ----------------------------------------------------------------
 static void draw_splash(const char *status, double pct) {
     fb_gradient(s_tv_buf,  TV_W,  TV_H,  COL_BG_TOP, COL_BG_BOT);
     fb_gradient(s_drc_buf, DRC_W, DRC_H, COL_BG_TOP, COL_BG_BOT);
@@ -283,85 +254,51 @@ static void draw_splash(const char *status, double pct) {
     screen_flip();
 }
 
-// ----------------------------------------------------------------
-// Browser UI drawing
-// ----------------------------------------------------------------
 static void draw_tab(void *buf, int fb_w, int fb_h, int idx, int active) {
     int tx = idx * TAB_W;
     int ty = TOOLBAR_H;
     uint32_t bg = active ? COL_TAB_ACTIVE : COL_TAB_INACTIVE;
-
     fb_rounded_rect(buf, fb_w, fb_h, tx, ty+2, TAB_W-2, TAB_H, 4, bg);
-
-    // Favicon placeholder (small colored square)
     fb_fill(buf, fb_w, fb_h, tx+8, ty+10, 14, 14, COL_FAVICON_BG);
-
-    // Tab title
     const char *title = s_tabs[idx].title[0] ? s_tabs[idx].title : "New Tab";
     char truncated[24];
     strncpy(truncated, title, 20);
     truncated[20] = '\0';
-    ft_draw(buf, fb_w, fb_h, truncated, tx+28, ty+22, 13, COL_TAB_TEXT, 0);
-
-    // Close button x
-    ft_draw(buf, fb_w, fb_h, "x", tx+TAB_W-18, ty+22, 13, COL_CLOSE_BTN, 0);
-
-    // Bottom border for active tab (white to blend with toolbar)
+    ft_draw(buf, fb_w, fb_h, truncated,  tx+28,      ty+22, 13, COL_TAB_TEXT,  0);
+    ft_draw(buf, fb_w, fb_h, "x",        tx+TAB_W-18, ty+22, 13, COL_CLOSE_BTN, 0);
     if (active)
         fb_fill(buf, fb_w, fb_h, tx, ty+TAB_H, TAB_W-2, 2, COL_TAB_ACTIVE);
 }
 
 static void draw_browser_ui(void) {
-    // White content area
     fb_fill(s_tv_buf, TV_W, TV_H, 0, 0, TV_W, TV_H, COL_CONTENT_BG);
-
-    // ---- Toolbar background ----
     fb_fill(s_tv_buf, TV_W, TV_H, 0, 0, TV_W, TOOLBAR_H, COL_CHROME_BG);
 
-    // ---- Nav buttons ----
-    // Back arrow
-    fb_rounded_rect(s_tv_buf, TV_W, TV_H, BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE, 4, COL_CHROME_BG);
+    fb_rounded_rect(s_tv_buf, TV_W, TV_H, BTN_BACK_X,   6, BTN_SIZE, BTN_SIZE, 4, COL_CHROME_BG);
     fb_arrow(s_tv_buf, TV_W, TV_H, BTN_BACK_X+BTN_SIZE/2, TOOLBAR_H/2, 14, -1, COL_GRAY);
-
-    // Forward arrow
-    fb_rounded_rect(s_tv_buf, TV_W, TV_H, BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE, 4, COL_CHROME_BG);
-    fb_arrow(s_tv_buf, TV_W, TV_H, BTN_FWD_X+BTN_SIZE/2, TOOLBAR_H/2, 14, 1, COL_GRAY);
-
-    // Reload button (circle approximation — just an O)
+    fb_rounded_rect(s_tv_buf, TV_W, TV_H, BTN_FWD_X,    6, BTN_SIZE, BTN_SIZE, 4, COL_CHROME_BG);
+    fb_arrow(s_tv_buf, TV_W, TV_H, BTN_FWD_X+BTN_SIZE/2,  TOOLBAR_H/2, 14,  1, COL_GRAY);
     fb_rect_outline(s_tv_buf, TV_W, TV_H, BTN_RELOAD_X+4, 10, BTN_SIZE-8, BTN_SIZE-8, COL_GRAY);
 
-    // ---- Address bar ----
     fb_rounded_rect(s_tv_buf, TV_W, TV_H, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, 16, COL_ADDR_BG);
     fb_rect_outline(s_tv_buf, TV_W, TV_H, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BORDER);
-
-    // Lock icon placeholder
     fb_fill(s_tv_buf, TV_W, TV_H, ADDR_BAR_X+10, ADDR_BAR_Y+8, 10, 14, COL_GRAY);
 
-    // URL text in address bar
     const char *url = s_tabs[s_active_tab].url[0] ?
         s_tabs[s_active_tab].url : "Search or type a URL";
     uint32_t url_col = s_tabs[s_active_tab].url[0] ? COL_ADDR_TEXT : COL_GRAY;
     ft_draw(s_tv_buf, TV_W, TV_H, url, ADDR_BAR_X+28, ADDR_BAR_Y+22, 15, url_col, 0);
-
-    // Toolbar bottom border
     fb_fill(s_tv_buf, TV_W, TV_H, 0, TOOLBAR_H-1, TV_W, 1, COL_TOOLBAR_LINE);
 
-    // ---- Tab bar ----
     fb_fill(s_tv_buf, TV_W, TV_H, 0, TOOLBAR_H, TV_W, TAB_BAR_H, COL_CHROME_BG);
     for (int i = 0; i < s_tab_count; i++)
         draw_tab(s_tv_buf, TV_W, TV_H, i, i == s_active_tab);
-
-    // New tab + button
     int plus_x = s_tab_count * TAB_W + 8;
     ft_draw(s_tv_buf, TV_W, TV_H, "+", plus_x, TOOLBAR_H+24, 20, COL_NEW_TAB_BTN, 0);
-
-    // Tab bar bottom border
     fb_fill(s_tv_buf, TV_W, TV_H, 0, TOOLBAR_H+TAB_BAR_H-1, TV_W, 1, COL_TOOLBAR_LINE);
 
-    // ---- Content area placeholder ----
     ft_draw(s_tv_buf, TV_W, TV_H, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2, 32, COL_GRAY, 1);
 
-    // ---- DRC: simplified address bar + hint ----
     fb_fill(s_drc_buf, DRC_W, DRC_H, 0, 0, DRC_W, DRC_H, COL_CONTENT_BG);
     fb_fill(s_drc_buf, DRC_W, DRC_H, 0, 0, DRC_W, 48, COL_CHROME_BG);
     fb_rounded_rect(s_drc_buf, DRC_W, DRC_H, 60, 8, 734, 32, 16, COL_ADDR_BG);
@@ -370,31 +307,100 @@ static void draw_browser_ui(void) {
         s_tabs[s_active_tab].url : "Search or type a URL";
     ft_draw(s_drc_buf, DRC_W, DRC_H, drc_url, 76, 28, 14, url_col, 0);
     fb_fill(s_drc_buf, DRC_W, DRC_H, 0, 47, DRC_W, 1, COL_TOOLBAR_LINE);
-    ft_draw(s_drc_buf, DRC_W, DRC_H, "Press A to type URL   ZL/ZR to switch tabs", DRC_W/2, DRC_H-20, 13, COL_GRAY, 1);
+    ft_draw(s_drc_buf, DRC_W, DRC_H, "Press A to type URL   ZL/ZR to switch tabs",
+            DRC_W/2, DRC_H-20, 13, COL_GRAY, 1);
 
     screen_flip();
 }
 
 // ----------------------------------------------------------------
-// SWKBD URL input
+// SWKBD URL input — real WUT nn::swkbd API
+//
+//  Lifecycle:
+//    Create() → AppearInputForm() → loop { Calc / DrawTV / DrawDRC
+//    / IsDecideOkButton | IsDecideCancelButton } →
+//    DisappearInputForm() → Destroy()
 // ----------------------------------------------------------------
 static void open_url_keyboard(void) {
-    nn::swkbd::KeyboardConfig config;
-    nn::swkbd::MakeKeyboardConfig(&config);
-    config.keyboardMode = nn::swkbd::KeyboardMode::Utf8;
-    config.maxTextLength = MAX_URL - 1;
+    void *workMem = MEMAllocFromDefaultHeapEx(SWKBD_WORK_SIZE, 0x1000);
+    if (!workMem) return;
 
-    char out[MAX_URL] = {0};
-    nn::swkbd::ShowKeyboard(out, sizeof(out), &config);
+    nn::swkbd::CreateArg createArg;
+    memset(&createArg, 0, sizeof(createArg));
+    createArg.workMemory = workMem;
+    createArg.regionType = nn::swkbd::RegionType::Europe;
+    createArg.fsClient   = nullptr;
 
-    if (out[0]) {
-        strncpy(s_tabs[s_active_tab].url, out, MAX_URL - 1);
-        strncpy(s_tabs[s_active_tab].title, out, 63);
+    if (!nn::swkbd::Create(createArg)) {
+        MEMFreeToDefaultHeap(workMem);
+        return;
+    }
+
+    static const char16_t hint[] = u"Enter URL";
+
+    nn::swkbd::AppearArg appearArg;
+    memset(&appearArg, 0, sizeof(appearArg));
+    appearArg.hintText = hint;
+
+    if (!nn::swkbd::AppearInputForm(appearArg)) {
+        nn::swkbd::Destroy();
+        MEMFreeToDefaultHeap(workMem);
+        return;
+    }
+
+    char result[MAX_URL] = {0};
+    bool done = false;
+
+    while (!done) {
+        VPADStatus vpad;
+        VPADReadError vpadErr;
+        VPADRead(VPAD_CHAN_0, &vpad, 1, &vpadErr);
+
+        nn::swkbd::ControllerInfo ctrlInfo;
+        memset(&ctrlInfo, 0, sizeof(ctrlInfo));
+        ctrlInfo.vpad = &vpad;
+        // kpad[0..3] remain nullptr — no Wii Remotes required
+
+        nn::swkbd::Calc(ctrlInfo);
+
+        bool isFirst = false;
+        if (nn::swkbd::IsDecideOkButton(&isFirst)) {
+            const char16_t *str = nn::swkbd::GetInputFormString();
+            if (str) {
+                // URL characters are ASCII — simple narrow conversion
+                int i = 0;
+                while (str[i] && i < MAX_URL - 1) {
+                    result[i] = (char)(str[i] & 0x7F);
+                    i++;
+                }
+                result[i] = '\0';
+            }
+            done = true;
+        } else if (nn::swkbd::IsDecideCancelButton(&isFirst)) {
+            done = true;
+        }
+
+        if (!done) {
+            nn::swkbd::DrawTV();
+            nn::swkbd::DrawDRC();
+            screen_flip();
+        }
+
+        usleep(16000);
+    }
+
+    nn::swkbd::DisappearInputForm();
+    nn::swkbd::Destroy();
+    MEMFreeToDefaultHeap(workMem);
+
+    if (result[0]) {
+        strncpy(s_tabs[s_active_tab].url,   result, MAX_URL - 1);
+        strncpy(s_tabs[s_active_tab].title, result, 63);
     }
 }
 
 // ----------------------------------------------------------------
-// curl helpers (for update check)
+// curl helpers
 // ----------------------------------------------------------------
 typedef struct { char *data; size_t size; } Buffer;
 
@@ -475,9 +481,6 @@ static int download_update(const char *url) {
     return (res == CURLE_OK) ? 0 : 1;
 }
 
-// ----------------------------------------------------------------
-// Splash sequence
-// ----------------------------------------------------------------
 static void run_splash(void) {
     ft_init();
     draw_splash("Loading...", -1.0);
@@ -500,63 +503,41 @@ static void run_splash(void) {
             "https://github.com/baldbuffalo/wave-browser/releases/download/%s/wave-browser.rpx",
             latest_tag);
         int ok = download_update(dl_url);
-        if (ok == 0)
-            draw_splash("Update downloaded! Restart to apply.", 100.0);
-        else
-            draw_splash("Download failed. Starting...", -1.0);
+        draw_splash(ok == 0 ? "Update downloaded! Restart to apply." : "Download failed. Starting...",
+                    ok == 0 ? 100.0 : -1.0);
         for (int i = 0; i < 180; i++) usleep(16000);
     }
 }
 
-// ----------------------------------------------------------------
-// Input handling
-// ----------------------------------------------------------------
 static void handle_input(VPADStatus *vpad) {
     uint32_t btn = vpad->trigger;
 
-    // A = open keyboard to type URL
-    if (btn & VPAD_BUTTON_A) {
-        open_url_keyboard();
+    if (btn & VPAD_BUTTON_A)  open_url_keyboard();
+
+    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0)
+        s_active_tab--;
+
+    if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1)
+        s_active_tab++;
+
+    if ((btn & VPAD_BUTTON_X) && s_tab_count < MAX_TABS) {
+        s_tab_count++;
+        s_active_tab = s_tab_count - 1;
+        memset(&s_tabs[s_active_tab], 0, sizeof(Tab));
     }
 
-    // ZL = previous tab
-    if (btn & VPAD_BUTTON_ZL) {
-        if (s_active_tab > 0) s_active_tab--;
-    }
-
-    // ZR = next tab
-    if (btn & VPAD_BUTTON_ZR) {
-        if (s_active_tab < s_tab_count - 1) s_active_tab++;
-    }
-
-    // X = new tab
-    if (btn & VPAD_BUTTON_X) {
-        if (s_tab_count < MAX_TABS) {
-            s_tab_count++;
-            s_active_tab = s_tab_count - 1;
-            memset(&s_tabs[s_active_tab], 0, sizeof(Tab));
-        }
-    }
-
-    // Y = close current tab
-    if (btn & VPAD_BUTTON_Y) {
-        if (s_tab_count > 1) {
-            for (int i = s_active_tab; i < s_tab_count - 1; i++)
-                s_tabs[i] = s_tabs[i+1];
-            s_tab_count--;
-            if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
-        }
+    if ((btn & VPAD_BUTTON_Y) && s_tab_count > 1) {
+        for (int i = s_active_tab; i < s_tab_count - 1; i++)
+            s_tabs[i] = s_tabs[i+1];
+        s_tab_count--;
+        if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
     }
 }
 
-// ----------------------------------------------------------------
-// MAIN
-// ----------------------------------------------------------------
 int main(void) {
     ProcUIInit(&SaveCallback);
     VPADInit();
 
-    // Init first tab
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
