@@ -17,17 +17,21 @@ WUT_ROOT    := $(DEVKITPRO)/wut
 # Tools
 #---------------------------------------------------------------------------------
 CC          := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-LD          := $(CC)
+CXX         := $(DEVKITPPC)/bin/powerpc-eabi-g++
+LD          := $(CXX)
 
 #---------------------------------------------------------------------------------
 # Compiler Flags
 #---------------------------------------------------------------------------------
-CFLAGS  := -O2 -Wall -mcpu=750 -meabi -mhard-float \
-           -ffunction-sections -fdata-sections \
-           -I$(WUT_ROOT)/include \
-           -I$(DEVKITPRO)/portlibs/wiiu/include \
-           -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
-           -I$(DEVKITPRO)/portlibs/ppc/include
+COMMON_FLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float \
+                -ffunction-sections -fdata-sections \
+                -I$(WUT_ROOT)/include \
+                -I$(DEVKITPRO)/portlibs/wiiu/include \
+                -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
+                -I$(DEVKITPRO)/portlibs/ppc/include
+
+CFLAGS      := $(COMMON_FLAGS)
+CXXFLAGS    := $(COMMON_FLAGS) -std=c++17 -fno-exceptions -fno-rtti
 
 #---------------------------------------------------------------------------------
 # Linker Flags
@@ -43,8 +47,10 @@ LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -
 #---------------------------------------------------------------------------------
 # Source Files
 #---------------------------------------------------------------------------------
-CFILES  := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
-OFILES  := $(patsubst %.c,$(BUILD)/%.o,$(CFILES))
+CFILES      := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
+CXXFILES    := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.cpp))
+OFILES      := $(patsubst %.c,$(BUILD)/%.o,$(CFILES)) \
+               $(patsubst %.cpp,$(BUILD)/%.o,$(CXXFILES))
 
 #---------------------------------------------------------------------------------
 # Default Target
@@ -52,11 +58,18 @@ OFILES  := $(patsubst %.c,$(BUILD)/%.o,$(CFILES))
 all: $(TARGET).wuhb
 
 #---------------------------------------------------------------------------------
-# Compile
+# Compile C
 #---------------------------------------------------------------------------------
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+#---------------------------------------------------------------------------------
+# Compile C++
+#---------------------------------------------------------------------------------
+$(BUILD)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 #---------------------------------------------------------------------------------
 # Link ELF
