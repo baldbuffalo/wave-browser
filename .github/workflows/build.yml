@@ -27,6 +27,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y zip libxml2-utils
+          dkp-pacman -Sy --noconfirm wiiu-kpad
 
       - name: Add devkitPro tools to PATH
         run: |
