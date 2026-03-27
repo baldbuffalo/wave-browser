@@ -76,12 +76,12 @@ static int  s_active_tab = 0;
 
 static void SaveCallback(void) { OSSavesDone_ReadyToRelease(); }
 
-// s_tv_base / s_drc_base: the original allocated pointer (never changes, used for free())
-// s_tv_buf  / s_drc_buf:  the BACK buffer we currently draw into (swapped after each flip)
-static void *s_tv_base  = NULL;
-static void *s_drc_base = NULL;
-static void *s_tv_buf   = NULL;
-static void *s_drc_buf  = NULL;
+// We always draw into s_tv_buf / s_drc_buf (the base of each allocation).
+// OSScreenSetBufferEx receives the full 2x allocation so OSScreen can manage
+// its own internal front/back swap — we never need to track that ourselves.
+// screen_flip() only flushes the single half we drew into (s_tv_size, not *2).
+static void *s_tv_buf  = NULL;
+static void *s_drc_buf = NULL;
 static size_t s_tv_size  = 0;
 static size_t s_drc_size = 0;
 static int    s_inFg     = 0;
@@ -91,57 +91,43 @@ static void acquireForeground(void) {
     s_tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     s_drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
 
-    s_tv_base  = memalign(0x100, s_tv_size  * 2);
-    s_drc_base = memalign(0x100, s_drc_size * 2);
+    // Allocate 2x so OSScreen has room for its internal double-buffer swap.
+    s_tv_buf  = memalign(0x100, s_tv_size  * 2);
+    s_drc_buf = memalign(0x100, s_drc_size * 2);
 
-    memset(s_tv_base,  0, s_tv_size  * 2);
-    memset(s_drc_base, 0, s_drc_size * 2);
+    memset(s_tv_buf,  0, s_tv_size  * 2);
+    memset(s_drc_buf, 0, s_drc_size * 2);
 
-    // OSScreen owns the full allocation; it alternates internally between
-    // [base + 0] and [base + size] on each flip.
-    OSScreenSetBufferEx(SCREEN_TV,  s_tv_base);
-    OSScreenSetBufferEx(SCREEN_DRC, s_drc_base);
+    // Hand OSScreen the full 2x base — it manages which half is "front".
+    OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
+    OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
     OSScreenEnableEx(SCREEN_TV,  1);
     OSScreenEnableEx(SCREEN_DRC, 1);
-
-    // Start drawing into the first half.
-    s_tv_buf  = s_tv_base;
-    s_drc_buf = s_drc_base;
 
     s_inFg = 1;
 }
 
 static void releaseForeground(void) {
-    if (s_tv_base)  { DCFlushRange(s_tv_base,  s_tv_size  * 2); }
-    if (s_drc_base) { DCFlushRange(s_drc_base, s_drc_size * 2); }
-    free(s_tv_base);
-    free(s_drc_base);
-    s_tv_base  = NULL;
-    s_drc_base = NULL;
-    s_tv_buf   = NULL;
-    s_drc_buf  = NULL;
+    if (s_tv_buf)  { DCFlushRange(s_tv_buf,  s_tv_size  * 2); }
+    if (s_drc_buf) { DCFlushRange(s_drc_buf, s_drc_size * 2); }
+    free(s_tv_buf);
+    free(s_drc_buf);
+    s_tv_buf  = NULL;
+    s_drc_buf = NULL;
     s_tv_size  = 0;
     s_drc_size = 0;
     s_inFg = 0;
     ProcUIDrawDoneRelease();
 }
 
-// Flush only the back buffer we just drew into, flip, then swap our draw
-// pointer to the other half so the next frame writes into whichever half
-// is NOT currently being scanned out by the hardware.
+// Standard WUT pattern: flush only the half we drew (s_tv_size, not *2),
+// then flip. OSScreen handles which half the hardware displays.
+// We always draw to s_tv_buf (base), so there is nothing to toggle.
 static void screen_flip(void) {
     DCFlushRange(s_tv_buf,  s_tv_size);
     DCFlushRange(s_drc_buf, s_drc_size);
     OSScreenFlipBuffersEx(SCREEN_TV);
     OSScreenFlipBuffersEx(SCREEN_DRC);
-
-    // Toggle between base+0 and base+size
-    s_tv_buf  = (s_tv_buf  == s_tv_base)
-                ? (uint8_t*)s_tv_base  + s_tv_size
-                : s_tv_base;
-    s_drc_buf = (s_drc_buf == s_drc_base)
-                ? (uint8_t*)s_drc_base + s_drc_size
-                : s_drc_base;
 }
 
 static inline uint32_t *fb_pixel(void *buf, int w, int x, int y) {
@@ -567,7 +553,6 @@ int main(void) {
 
             if (!splashDone) {
                 run_splash();
-                draw_browser_ui();
                 splashDone = 1;
             }
 
@@ -584,8 +569,8 @@ int main(void) {
     if (s_inFg) {
         OSScreenEnableEx(SCREEN_TV,  0);
         OSScreenEnableEx(SCREEN_DRC, 0);
-        free(s_tv_base);
-        free(s_drc_base);
+        free(s_tv_buf);
+        free(s_drc_buf);
     }
     curl_global_cleanup();
     ProcUIShutdown();
