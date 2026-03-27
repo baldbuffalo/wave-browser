@@ -62,7 +62,6 @@
 #define COL_GREEN        0x00E676FF
 #define COL_GREEN_DRK    0x00B248FF
 
-// swkbd work memory — 128 KB
 #define SWKBD_WORK_SIZE  0x20000
 
 typedef struct {
@@ -77,56 +76,72 @@ static int  s_active_tab = 0;
 
 static void SaveCallback(void) { OSSavesDone_ReadyToRelease(); }
 
-static void *s_tv_buf  = NULL;
-static void *s_drc_buf = NULL;
+// s_tv_base / s_drc_base: the original allocated pointer (never changes, used for free())
+// s_tv_buf  / s_drc_buf:  the BACK buffer we currently draw into (swapped after each flip)
+static void *s_tv_base  = NULL;
+static void *s_drc_base = NULL;
+static void *s_tv_buf   = NULL;
+static void *s_drc_buf  = NULL;
 static size_t s_tv_size  = 0;
 static size_t s_drc_size = 0;
-static int   s_inFg    = 0;
+static int    s_inFg     = 0;
 
 static void acquireForeground(void) {
     OSScreenInit();
     s_tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     s_drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
 
-    // Allocate 2x for double buffering
-    s_tv_buf  = memalign(0x100, s_tv_size  * 2);
-    s_drc_buf = memalign(0x100, s_drc_size * 2);
+    s_tv_base  = memalign(0x100, s_tv_size  * 2);
+    s_drc_base = memalign(0x100, s_drc_size * 2);
 
-    memset(s_tv_buf,  0, s_tv_size  * 2);
-    memset(s_drc_buf, 0, s_drc_size * 2);
+    memset(s_tv_base,  0, s_tv_size  * 2);
+    memset(s_drc_base, 0, s_drc_size * 2);
 
-    OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
-    OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
+    // OSScreen owns the full allocation; it alternates internally between
+    // [base + 0] and [base + size] on each flip.
+    OSScreenSetBufferEx(SCREEN_TV,  s_tv_base);
+    OSScreenSetBufferEx(SCREEN_DRC, s_drc_base);
     OSScreenEnableEx(SCREEN_TV,  1);
     OSScreenEnableEx(SCREEN_DRC, 1);
+
+    // Start drawing into the first half.
+    s_tv_buf  = s_tv_base;
+    s_drc_buf = s_drc_base;
+
     s_inFg = 1;
 }
 
 static void releaseForeground(void) {
-    if (s_tv_buf)  { DCFlushRange(s_tv_buf,  s_tv_size  * 2); }
-    if (s_drc_buf) { DCFlushRange(s_drc_buf, s_drc_size * 2); }
-    free(s_tv_buf);
-    free(s_drc_buf);
-    s_tv_buf  = NULL;
-    s_drc_buf = NULL;
+    if (s_tv_base)  { DCFlushRange(s_tv_base,  s_tv_size  * 2); }
+    if (s_drc_base) { DCFlushRange(s_drc_base, s_drc_size * 2); }
+    free(s_tv_base);
+    free(s_drc_base);
+    s_tv_base  = NULL;
+    s_drc_base = NULL;
+    s_tv_buf   = NULL;
+    s_drc_buf  = NULL;
     s_tv_size  = 0;
     s_drc_size = 0;
     s_inFg = 0;
     ProcUIDrawDoneRelease();
 }
 
-// FIX: Copy the front buffer into the back buffer before flipping.
-// Previously we only ever wrote to s_tv_buf (the fixed base address), so after
-// every OSScreenFlipBuffersEx the hardware started displaying the other half of
-// the allocation — which was never painted — causing the white flicker / blue
-// flash. Copying here guarantees both halves always contain the latest frame.
+// Flush only the back buffer we just drew into, flip, then swap our draw
+// pointer to the other half so the next frame writes into whichever half
+// is NOT currently being scanned out by the hardware.
 static void screen_flip(void) {
-    memcpy((uint8_t*)s_tv_buf  + s_tv_size,  s_tv_buf,  s_tv_size);
-    memcpy((uint8_t*)s_drc_buf + s_drc_size, s_drc_buf, s_drc_size);
-    DCFlushRange(s_tv_buf,  s_tv_size  * 2);
-    DCFlushRange(s_drc_buf, s_drc_size * 2);
+    DCFlushRange(s_tv_buf,  s_tv_size);
+    DCFlushRange(s_drc_buf, s_drc_size);
     OSScreenFlipBuffersEx(SCREEN_TV);
     OSScreenFlipBuffersEx(SCREEN_DRC);
+
+    // Toggle between base+0 and base+size
+    s_tv_buf  = (s_tv_buf  == s_tv_base)
+                ? (uint8_t*)s_tv_base  + s_tv_size
+                : s_tv_base;
+    s_drc_buf = (s_drc_buf == s_drc_base)
+                ? (uint8_t*)s_drc_base + s_drc_size
+                : s_drc_base;
 }
 
 static inline uint32_t *fb_pixel(void *buf, int w, int x, int y) {
@@ -247,9 +262,6 @@ static void ft_draw(void *buf, int fb_w, int fb_h,
     }
 }
 
-// FIX: Removed the entire duplicated second-draw block that previously followed
-// the screen_flip() call. It was an attempt to pre-populate the back buffer but
-// was redundant and error-prone. screen_flip() now handles that via memcpy.
 static void draw_splash(const char *status, double pct) {
     fb_gradient(s_tv_buf,  TV_W,  TV_H,  COL_BG_TOP, COL_BG_BOT);
     fb_gradient(s_drc_buf, DRC_W, DRC_H, COL_BG_TOP, COL_BG_BOT);
@@ -555,9 +567,6 @@ int main(void) {
 
             if (!splashDone) {
                 run_splash();
-                // FIX: One draw_browser_ui() call is sufficient now because
-                // screen_flip() copies the front buffer to the back buffer,
-                // so both halves are populated before entering the main loop.
                 draw_browser_ui();
                 splashDone = 1;
             }
@@ -575,8 +584,8 @@ int main(void) {
     if (s_inFg) {
         OSScreenEnableEx(SCREEN_TV,  0);
         OSScreenEnableEx(SCREEN_DRC, 0);
-        free(s_tv_buf);
-        free(s_drc_buf);
+        free(s_tv_base);
+        free(s_drc_base);
     }
     curl_global_cleanup();
     ProcUIShutdown();
