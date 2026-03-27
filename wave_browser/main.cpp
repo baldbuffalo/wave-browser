@@ -88,7 +88,7 @@ static void acquireForeground(void) {
     s_tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     s_drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
 
-    // Allocate 2x for proper double buffering
+    // Allocate 2x for double buffering
     s_tv_buf  = memalign(0x100, s_tv_size  * 2);
     s_drc_buf = memalign(0x100, s_drc_size * 2);
 
@@ -115,7 +115,14 @@ static void releaseForeground(void) {
     ProcUIDrawDoneRelease();
 }
 
+// FIX: Copy the front buffer into the back buffer before flipping.
+// Previously we only ever wrote to s_tv_buf (the fixed base address), so after
+// every OSScreenFlipBuffersEx the hardware started displaying the other half of
+// the allocation — which was never painted — causing the white flicker / blue
+// flash. Copying here guarantees both halves always contain the latest frame.
 static void screen_flip(void) {
+    memcpy((uint8_t*)s_tv_buf  + s_tv_size,  s_tv_buf,  s_tv_size);
+    memcpy((uint8_t*)s_drc_buf + s_drc_size, s_drc_buf, s_drc_size);
     DCFlushRange(s_tv_buf,  s_tv_size  * 2);
     DCFlushRange(s_drc_buf, s_drc_size * 2);
     OSScreenFlipBuffersEx(SCREEN_TV);
@@ -240,8 +247,10 @@ static void ft_draw(void *buf, int fb_w, int fb_h,
     }
 }
 
+// FIX: Removed the entire duplicated second-draw block that previously followed
+// the screen_flip() call. It was an attempt to pre-populate the back buffer but
+// was redundant and error-prone. screen_flip() now handles that via memcpy.
 static void draw_splash(const char *status, double pct) {
-    // Draw to both buffers to avoid flashing on first flip
     fb_gradient(s_tv_buf,  TV_W,  TV_H,  COL_BG_TOP, COL_BG_BOT);
     fb_gradient(s_drc_buf, DRC_W, DRC_H, COL_BG_TOP, COL_BG_BOT);
 
@@ -264,31 +273,6 @@ static void draw_splash(const char *status, double pct) {
     }
 
     screen_flip();
-
-    // Redraw into the second buffer immediately so both buffers are populated
-    fb_gradient(s_tv_buf,  TV_W,  TV_H,  COL_BG_TOP, COL_BG_BOT);
-    fb_gradient(s_drc_buf, DRC_W, DRC_H, COL_BG_TOP, COL_BG_BOT);
-
-    ft_draw(s_tv_buf,  TV_W,  TV_H,  "Wave Browser", TV_W/2,  TV_H/2-40,  72, COL_WHITE, 1);
-    ft_draw(s_drc_buf, DRC_W, DRC_H, "Wave Browser", DRC_W/2, DRC_H/2-30, 48, COL_WHITE, 1);
-
-    if (status && status[0]) {
-        ft_draw(s_tv_buf,  TV_W,  TV_H,  status, TV_W/2,  TV_H/2+30,  28, COL_WHITE_DIM, 1);
-        ft_draw(s_drc_buf, DRC_W, DRC_H, status, DRC_W/2, DRC_H/2+20, 22, COL_WHITE_DIM, 1);
-    }
-
-    if (pct >= 0.0) {
-        int tv_bw=800, tv_bh=20, tv_bx=(TV_W-800)/2, tv_by=TV_H-110;
-        fb_progress_bar(s_tv_buf,  TV_W,  TV_H,  tv_bx,  tv_by,  tv_bw,  tv_bh,  pct);
-        int drc_bw=600, drc_bh=14, drc_bx=(DRC_W-600)/2, drc_by=DRC_H-80;
-        fb_progress_bar(s_drc_buf, DRC_W, DRC_H, drc_bx, drc_by, drc_bw, drc_bh, pct);
-        char pct_str[16]; snprintf(pct_str, sizeof(pct_str), "%d%%", (int)pct);
-        ft_draw(s_tv_buf,  TV_W,  TV_H,  pct_str, TV_W/2,  TV_H-75,  24, COL_WHITE, 1);
-        ft_draw(s_drc_buf, DRC_W, DRC_H, pct_str, DRC_W/2, DRC_H-55, 18, COL_WHITE, 1);
-    }
-
-    DCFlushRange(s_tv_buf,  s_tv_size  * 2);
-    DCFlushRange(s_drc_buf, s_drc_size * 2);
 }
 
 static void draw_tab(void *buf, int fb_w, int fb_h, int idx, int active) {
@@ -571,9 +555,9 @@ int main(void) {
 
             if (!splashDone) {
                 run_splash();
-                // Draw browser UI into both buffers before entering the main loop
-                // to ensure neither buffer shows stale splash content
-                draw_browser_ui();
+                // FIX: One draw_browser_ui() call is sufficient now because
+                // screen_flip() copies the front buffer to the back buffer,
+                // so both halves are populated before entering the main loop.
                 draw_browser_ui();
                 splashDone = 1;
             }
