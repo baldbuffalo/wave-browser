@@ -79,16 +79,22 @@ static void SaveCallback(void) { OSSavesDone_ReadyToRelease(); }
 
 static void *s_tv_buf  = NULL;
 static void *s_drc_buf = NULL;
+static size_t s_tv_size  = 0;
+static size_t s_drc_size = 0;
 static int   s_inFg    = 0;
 
 static void acquireForeground(void) {
     OSScreenInit();
-    size_t tvSize  = OSScreenGetBufferSizeEx(SCREEN_TV);
-    size_t drcSize = OSScreenGetBufferSizeEx(SCREEN_DRC);
-    s_tv_buf  = memalign(0x100, tvSize);
-    s_drc_buf = memalign(0x100, drcSize);
-    memset(s_tv_buf,  0, tvSize);
-    memset(s_drc_buf, 0, drcSize);
+    s_tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
+    s_drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
+
+    // Allocate 2x for proper double buffering
+    s_tv_buf  = memalign(0x100, s_tv_size  * 2);
+    s_drc_buf = memalign(0x100, s_drc_size * 2);
+
+    memset(s_tv_buf,  0, s_tv_size  * 2);
+    memset(s_drc_buf, 0, s_drc_size * 2);
+
     OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
     OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
     OSScreenEnableEx(SCREEN_TV,  1);
@@ -97,16 +103,21 @@ static void acquireForeground(void) {
 }
 
 static void releaseForeground(void) {
+    if (s_tv_buf)  { DCFlushRange(s_tv_buf,  s_tv_size  * 2); }
+    if (s_drc_buf) { DCFlushRange(s_drc_buf, s_drc_size * 2); }
     free(s_tv_buf);
     free(s_drc_buf);
-    s_tv_buf = s_drc_buf = NULL;
+    s_tv_buf  = NULL;
+    s_drc_buf = NULL;
+    s_tv_size  = 0;
+    s_drc_size = 0;
     s_inFg = 0;
     ProcUIDrawDoneRelease();
 }
 
 static void screen_flip(void) {
-    DCFlushRange(s_tv_buf,  OSScreenGetBufferSizeEx(SCREEN_TV));
-    DCFlushRange(s_drc_buf, OSScreenGetBufferSizeEx(SCREEN_DRC));
+    DCFlushRange(s_tv_buf,  s_tv_size  * 2);
+    DCFlushRange(s_drc_buf, s_drc_size * 2);
     OSScreenFlipBuffersEx(SCREEN_TV);
     OSScreenFlipBuffersEx(SCREEN_DRC);
 }
@@ -230,6 +241,7 @@ static void ft_draw(void *buf, int fb_w, int fb_h,
 }
 
 static void draw_splash(const char *status, double pct) {
+    // Draw to both buffers to avoid flashing on first flip
     fb_gradient(s_tv_buf,  TV_W,  TV_H,  COL_BG_TOP, COL_BG_BOT);
     fb_gradient(s_drc_buf, DRC_W, DRC_H, COL_BG_TOP, COL_BG_BOT);
 
@@ -252,6 +264,31 @@ static void draw_splash(const char *status, double pct) {
     }
 
     screen_flip();
+
+    // Redraw into the second buffer immediately so both buffers are populated
+    fb_gradient(s_tv_buf,  TV_W,  TV_H,  COL_BG_TOP, COL_BG_BOT);
+    fb_gradient(s_drc_buf, DRC_W, DRC_H, COL_BG_TOP, COL_BG_BOT);
+
+    ft_draw(s_tv_buf,  TV_W,  TV_H,  "Wave Browser", TV_W/2,  TV_H/2-40,  72, COL_WHITE, 1);
+    ft_draw(s_drc_buf, DRC_W, DRC_H, "Wave Browser", DRC_W/2, DRC_H/2-30, 48, COL_WHITE, 1);
+
+    if (status && status[0]) {
+        ft_draw(s_tv_buf,  TV_W,  TV_H,  status, TV_W/2,  TV_H/2+30,  28, COL_WHITE_DIM, 1);
+        ft_draw(s_drc_buf, DRC_W, DRC_H, status, DRC_W/2, DRC_H/2+20, 22, COL_WHITE_DIM, 1);
+    }
+
+    if (pct >= 0.0) {
+        int tv_bw=800, tv_bh=20, tv_bx=(TV_W-800)/2, tv_by=TV_H-110;
+        fb_progress_bar(s_tv_buf,  TV_W,  TV_H,  tv_bx,  tv_by,  tv_bw,  tv_bh,  pct);
+        int drc_bw=600, drc_bh=14, drc_bx=(DRC_W-600)/2, drc_by=DRC_H-80;
+        fb_progress_bar(s_drc_buf, DRC_W, DRC_H, drc_bx, drc_by, drc_bw, drc_bh, pct);
+        char pct_str[16]; snprintf(pct_str, sizeof(pct_str), "%d%%", (int)pct);
+        ft_draw(s_tv_buf,  TV_W,  TV_H,  pct_str, TV_W/2,  TV_H-75,  24, COL_WHITE, 1);
+        ft_draw(s_drc_buf, DRC_W, DRC_H, pct_str, DRC_W/2, DRC_H-55, 18, COL_WHITE, 1);
+    }
+
+    DCFlushRange(s_tv_buf,  s_tv_size  * 2);
+    DCFlushRange(s_drc_buf, s_drc_size * 2);
 }
 
 static void draw_tab(void *buf, int fb_w, int fb_h, int idx, int active) {
@@ -534,6 +571,10 @@ int main(void) {
 
             if (!splashDone) {
                 run_splash();
+                // Draw browser UI into both buffers before entering the main loop
+                // to ensure neither buffer shows stale splash content
+                draw_browser_ui();
+                draw_browser_ui();
                 splashDone = 1;
             }
 
