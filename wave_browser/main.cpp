@@ -120,21 +120,19 @@ static void acquireForeground(void) {
 }
 
 static void releaseForeground(void) {
-    // BUG FIX: flush the FULL 2x allocation (both halves) before freeing,
-    // and do it BEFORE calling ProcUIDrawDoneRelease so the hardware is
-    // finished with the memory when we hand it back.
     if (s_tv_buf)  { DCFlushRange(s_tv_buf,  s_tv_size  * 2); }
     if (s_drc_buf) { DCFlushRange(s_drc_buf, s_drc_size * 2); }
 
     free(s_tv_buf);
     free(s_drc_buf);
+
     s_tv_buf  = NULL;
     s_drc_buf = NULL;
     s_tv_size  = 0;
     s_drc_size = 0;
     s_buf_idx  = 0;
     s_inFg = 0;
-}
+}}
 
 // FLICKERING FIX:
 // Flush only the back-buffer half (the one we just drew into), then flip.
