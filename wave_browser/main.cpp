@@ -3,9 +3,7 @@
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
 #include <coreinit/memdefaultheap.h>
-#include <coreinit/memorymap.h>
 #include <vpad/input.h>
-#include <padscore/kpad.h>
 #include <nn/swkbd.h>
 #include <curl/curl.h>
 #include <ft2build.h>
@@ -17,6 +15,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
+
+// FIX: removed unused #include <padscore/kpad.h> and <coreinit/memorymap.h>
 
 #define CURRENT_VERSION "v1.0.0"
 #define GITHUB_API_URL  "https://api.github.com/repos/baldbuffalo/wave-browser/releases/latest"
@@ -76,20 +76,13 @@ static Tab  s_tabs[MAX_TABS];
 static int  s_tab_count  = 1;
 static int  s_active_tab = 0;
 
-// Double-buffer management:
-// s_tv_buf / s_drc_buf point to the base of a 2x allocation.
-// OSScreen uses [base .. base+size) as one half and
-// [base+size .. base+2*size) as the other.
-// s_buf_idx tracks which half is currently the BACK buffer so we
-// always draw into the correct (off-screen) half before flipping.
 static void    *s_tv_buf  = NULL;
 static void    *s_drc_buf = NULL;
 static size_t   s_tv_size  = 0;
 static size_t   s_drc_size = 0;
 static int      s_inFg     = 0;
-static int      s_buf_idx  = 0; // 0 or 1 — index of current back-buffer half
+static int      s_buf_idx  = 0;
 
-// Return a pointer to the current back buffer half.
 static inline void *tv_back(void) {
     return (uint8_t *)s_tv_buf  + (size_t)s_buf_idx * s_tv_size;
 }
@@ -102,21 +95,26 @@ static void acquireForeground(void) {
     s_tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     s_drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
 
-    // Allocate 2x so OSScreen has room for its internal double-buffer swap.
     s_tv_buf  = memalign(0x100, s_tv_size  * 2);
     s_drc_buf = memalign(0x100, s_drc_size * 2);
+
+    // FIX: null-check memalign results before use; crash is guaranteed otherwise
+    if (!s_tv_buf || !s_drc_buf) {
+        free(s_tv_buf);
+        free(s_drc_buf);
+        s_tv_buf  = NULL;
+        s_drc_buf = NULL;
+        return;
+    }
 
     memset(s_tv_buf,  0, s_tv_size  * 2);
     memset(s_drc_buf, 0, s_drc_size * 2);
 
-    // Hand OSScreen the full 2x base — it manages which half is "front".
     OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
     OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
     OSScreenEnableEx(SCREEN_TV,  1);
     OSScreenEnableEx(SCREEN_DRC, 1);
 
-    // BUG FIX: reset the back-buffer index on every foreground acquire so
-    // that our tracking stays in sync with OSScreen's internal state.
     s_buf_idx = 0;
     s_inFg = 1;
 }
@@ -133,10 +131,6 @@ static void releaseForeground(void) {
     s_inFg = 0;
 }
 
-// FLICKERING FIX:
-// Flush only the back-buffer half (the one we just drew into), then flip.
-// After the flip OSScreen promotes our half to "front"; the OTHER half
-// becomes the new back buffer — so we toggle s_buf_idx to follow it.
 static void screen_flip(void) {
     DCFlushRange(tv_back(),  s_tv_size);
     DCFlushRange(drc_back(), s_drc_size);
@@ -171,8 +165,6 @@ static void fb_rect_outline(void *buf, int fb_w, int fb_h, int x, int y, int w, 
     fb_fill(buf, fb_w, fb_h, x+w-1, y,     1,  h, col);
 }
 
-// BUG FIX: use signed int arithmetic to avoid uint8_t subtraction wraparound
-// (e.g. when a bottom colour channel is darker than the top channel).
 static void fb_gradient(void *buf, int fb_w, int fb_h, uint32_t top, uint32_t bot) {
     int tr = (int)((top >> 24) & 0xFF);
     int tg = (int)((top >> 16) & 0xFF);
@@ -218,8 +210,15 @@ static FT_Library s_ft   = NULL;
 static FT_Face    s_face = NULL;
 
 static void ft_init(void) {
-    FT_Init_FreeType(&s_ft);
-    FT_New_Memory_Face(s_ft, (const FT_Byte *)font_data, (FT_Long)font_data_len, 0, &s_face);
+    // FIX: check FT_Init_FreeType return value; FT_New_Memory_Face on a bad
+    // library handle is undefined behaviour and will typically crash.
+    if (FT_Init_FreeType(&s_ft) != 0) {
+        s_ft = NULL;
+        return;
+    }
+    if (FT_New_Memory_Face(s_ft, (const FT_Byte *)font_data, (FT_Long)font_data_len, 0, &s_face) != 0) {
+        s_face = NULL;
+    }
 }
 
 static void ft_done(void) {
@@ -277,9 +276,6 @@ static void ft_draw(void *buf, int fb_w, int fb_h,
 
 // ─── Splash screen ───────────────────────────────────────────────────────────
 
-// BUG FIX: draw_splash now uses tv_back()/drc_back() so it always
-// writes into the correct (off-screen) half, not unconditionally into
-// offset 0 of the allocation.
 static void draw_splash(const char *status, double pct) {
     void *tv  = tv_back();
     void *drc = drc_back();
@@ -327,9 +323,6 @@ static void draw_tab(void *buf, int fb_w, int fb_h, int idx, int active) {
         fb_fill(buf, fb_w, fb_h, tx, ty+TAB_H, TAB_W-2, 2, COL_TAB_ACTIVE);
 }
 
-// BUG FIX: draw_browser_ui uses tv_back()/drc_back() so every draw call
-// targets the current off-screen half — eliminating the tearing/flicker
-// that occurred when we accidentally wrote into the displayed (front) half.
 static void draw_browser_ui(void) {
     void *tv  = tv_back();
     void *drc = drc_back();
@@ -493,6 +486,11 @@ static int check_for_update(char *out_tag, size_t tag_size) {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &buf);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT,        10L);
+    // FIX: WiiU has no system CA certificate store; without these options
+    // every HTTPS request fails with a certificate-verification error.
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
 
@@ -531,7 +529,14 @@ static int download_update(const char *url) {
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,   1L);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS,       0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
+    // FIX: provide the clientp for the progress callback (NULL is fine here
+    // since progress_cb ignores it, but it must be explicitly set)
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA,     NULL);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT,          120L);
+    // FIX: same SSL verification disable required for download
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,   0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,   0L);
+
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
     fclose(f);
@@ -583,31 +588,27 @@ static void handle_input(VPADStatus *vpad) {
         s_active_tab++;
 
     if ((btn & VPAD_BUTTON_X) && s_tab_count < MAX_TABS) {
-    memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
-    strcpy(s_tabs[s_tab_count].title, "New Tab");
-
-    s_tab_count++;
-    s_active_tab = s_tab_count - 1;
-}
+        memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
+        strcpy(s_tabs[s_tab_count].title, "New Tab");
+        s_tab_count++;
+        s_active_tab = s_tab_count - 1;
+    }
 
     if ((btn & VPAD_BUTTON_Y) && s_tab_count > 1) {
         for (int i = s_active_tab; i < s_tab_count - 1; i++)
-            s_tabs[i] = s_tabs[i+1];
+            s_tabs[i] = s_tabs[i + 1];
         s_tab_count--;
-       if (s_tab_count <= 0) {
-    s_tab_count = 1;
-    s_active_tab = 0;
-}
-else if (s_active_tab >= s_tab_count) {
-    s_active_tab = s_tab_count - 1;
-}
+        // FIX: removed the unreachable (s_tab_count <= 0) branch; the outer
+        // guard (s_tab_count > 1) ensures the minimum after decrement is 1.
+        if (s_active_tab >= s_tab_count)
+            s_active_tab = s_tab_count - 1;
     }
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 int main(void) {
-    WHBProcInit();   // ✅ WUHB init
+    WHBProcInit();
     VPADInit();
 
     memset(s_tabs, 0, sizeof(s_tabs));
@@ -615,28 +616,28 @@ int main(void) {
 
     acquireForeground();
     ft_init();
-    
+
     run_splash();
 
-while (WHBProcIsRunning()) {
-    VPADStatus vpad;
-    VPADReadError error;
-    VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+    while (WHBProcIsRunning()) {
+        VPADStatus vpad;
+        VPADReadError error;
+        VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
-    handle_input(&vpad);
-    draw_browser_ui();
+        handle_input(&vpad);
+        draw_browser_ui();
 
-    OSSleepTicks(OSMillisecondsToTicks(16));
-}
+        OSSleepTicks(OSMillisecondsToTicks(16));
+    }
 
     ft_done();
 
-if (s_inFg) {
-    releaseForeground();
-}
+    if (s_inFg) {
+        releaseForeground();
+    }
 
-curl_global_cleanup();
+    curl_global_cleanup();
 
-WHBProcShutdown();
-return 0;
+    WHBProcShutdown();
+    return 0;
 }
