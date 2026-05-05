@@ -83,22 +83,17 @@ static void    *s_drc_buf = NULL;
 static size_t   s_tv_size  = 0;
 static size_t   s_drc_size = 0;
 static int      s_inFg     = 0;
-static int      s_buf_idx  = 0;
 
-static inline void *tv_back(void) {
-    return (uint8_t *)s_tv_buf  + (size_t)s_buf_idx * s_tv_size;
-}
-static inline void *drc_back(void) {
-    return (uint8_t *)s_drc_buf + (size_t)s_buf_idx * s_drc_size;
-}
+static inline void *tv_back(void)  { return s_tv_buf; }
+static inline void *drc_back(void) { return s_drc_buf; }
 
 static void acquireForeground(void) {
     OSScreenInit();
     s_tv_size  = OSScreenGetBufferSizeEx(SCREEN_TV);
     s_drc_size = OSScreenGetBufferSizeEx(SCREEN_DRC);
 
-    s_tv_buf  = memalign(0x100, s_tv_size  * 2);
-    s_drc_buf = memalign(0x100, s_drc_size * 2);
+    s_tv_buf  = memalign(0x100, s_tv_size);
+    s_drc_buf = memalign(0x100, s_drc_size);
 
     // FIX: null-check memalign results before use; crash is guaranteed otherwise
     if (!s_tv_buf || !s_drc_buf) {
@@ -109,15 +104,14 @@ static void acquireForeground(void) {
         return;
     }
 
-    memset(s_tv_buf,  0, s_tv_size  * 2);
-    memset(s_drc_buf, 0, s_drc_size * 2);
+    memset(s_tv_buf,  0, s_tv_size);
+    memset(s_drc_buf, 0, s_drc_size);
 
     OSScreenSetBufferEx(SCREEN_TV,  s_tv_buf);
     OSScreenSetBufferEx(SCREEN_DRC, s_drc_buf);
     OSScreenEnableEx(SCREEN_TV,  1);
     OSScreenEnableEx(SCREEN_DRC, 1);
 
-    s_buf_idx = 0;
     s_inFg = 1;
 }
 
@@ -134,13 +128,10 @@ static void releaseForeground(void) {
 }
 
 static void screen_flip(void) {
-    DCFlushRange(tv_back(),  s_tv_size);
-    DCFlushRange(drc_back(), s_drc_size);
-
+    DCFlushRange(s_tv_buf,  s_tv_size);
+    DCFlushRange(s_drc_buf, s_drc_size);
     OSScreenFlipBuffersEx(SCREEN_TV);
     OSScreenFlipBuffersEx(SCREEN_DRC);
-
-    s_buf_idx ^= 1;
 }
 
 // ─── Pixel helpers ───────────────────────────────────────────────────────────
