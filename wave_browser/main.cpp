@@ -583,10 +583,12 @@ static void handle_input(VPADStatus *vpad) {
         s_active_tab++;
 
     if ((btn & VPAD_BUTTON_X) && s_tab_count < MAX_TABS) {
-        s_tab_count++;
-        s_active_tab = s_tab_count - 1;
-        memset(&s_tabs[s_active_tab], 0, sizeof(Tab));
-    }
+    memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
+    strcpy(s_tabs[s_tab_count].title, "New Tab");
+
+    s_tab_count++;
+    s_active_tab = s_tab_count - 1;
+}
 
     if ((btn & VPAD_BUTTON_Y) && s_tab_count > 1) {
         for (int i = s_active_tab; i < s_tab_count - 1; i++)
