@@ -616,6 +616,10 @@ int main(void) {
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
+    // Give ProcUI enough cycles to grant foreground before touching the screen
+    for (int i = 0; i < 5 && WHBProcIsRunning(); i++)
+        OSSleepTicks(OSMillisecondsToTicks(16));
+
     acquireForeground();
     ft_init();
 
