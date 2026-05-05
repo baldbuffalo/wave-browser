@@ -2,6 +2,7 @@
 #include <coreinit/foreground.h>
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
+#include <coreinit/time.h>
 #include <coreinit/memdefaultheap.h>
 #include <vpad/input.h>
 #include <nn/swkbd.h>
