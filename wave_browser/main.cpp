@@ -617,7 +617,6 @@ int main(void) {
     ft_init();
     
     run_splash();
-int splashDone = 1;
 
 while (WHBProcIsRunning()) {
     VPADStatus vpad;
@@ -629,16 +628,6 @@ while (WHBProcIsRunning()) {
 
     OSSleepTicks(OSMillisecondsToTicks(16));
 }
-
-        VPADStatus vpad;
-        VPADReadError error;
-        VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-
-        handle_input(&vpad);
-        draw_browser_ui();
-
-        usleep(16000);
-    }
 
     ft_done();
 
