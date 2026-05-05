@@ -3,6 +3,7 @@
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
 #include <coreinit/memdefaultheap.h>
+#include <coreinit/memorymap.h>
 #include <vpad/input.h>
 #include <padscore/kpad.h>
 #include <nn/swkbd.h>
