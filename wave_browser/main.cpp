@@ -594,7 +594,13 @@ static void handle_input(VPADStatus *vpad) {
         for (int i = s_active_tab; i < s_tab_count - 1; i++)
             s_tabs[i] = s_tabs[i+1];
         s_tab_count--;
-        if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
+       if (s_tab_count <= 0) {
+    s_tab_count = 1;
+    s_active_tab = 0;
+}
+else if (s_active_tab >= s_tab_count) {
+    s_active_tab = s_tab_count - 1;
+}
     }
 }
 
