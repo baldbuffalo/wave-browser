@@ -603,44 +603,43 @@ static void handle_input(VPADStatus *vpad) {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 int main(void) {
-    ProcUIInit(&SaveCallback);
+    WHBProcInit();   // ✅ WUHB init
     VPADInit();
 
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
+    acquireForeground();
+
     int splashDone = 0;
 
-    while (1) {
-        ProcUIStatus status = ProcUIProcessMessages(TRUE);
-        if (status == PROCUI_STATUS_EXITING) break;
-        else if (status == PROCUI_STATUS_RELEASE_FOREGROUND) {
-            if (s_inFg) releaseForeground();
-        } else if (status == PROCUI_STATUS_IN_FOREGROUND) {
-            if (!s_inFg) acquireForeground();
-
-            if (!splashDone) {
-                run_splash();
-                splashDone = 1;
-            }
-
-            VPADStatus vpad;
-            VPADReadError error;
-            VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-            handle_input(&vpad);
-            draw_browser_ui();
-            usleep(16000);
+    while (WHBProcIsRunning()) {   // ✅ correct loop
+        if (!splashDone) {
+            run_splash();
+            splashDone = 1;
         }
+
+        VPADStatus vpad;
+        VPADReadError error;
+        VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+
+        handle_input(&vpad);
+        draw_browser_ui();
+
+        usleep(16000);
     }
 
     ft_done();
+
     if (s_inFg) {
         OSScreenEnableEx(SCREEN_TV,  0);
         OSScreenEnableEx(SCREEN_DRC, 0);
         free(s_tv_buf);
         free(s_drc_buf);
     }
+
     curl_global_cleanup();
-    ProcUIShutdown();
+
+    WHBProcShutdown();   // ✅ WUHB shutdown
     return 0;
 }
