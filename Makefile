@@ -27,6 +27,7 @@ COMMON_FLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float \
                 -ffunction-sections -fdata-sections \
                 -I$(WUT_ROOT)/include \
                 -I$(DEVKITPRO)/portlibs/wiiu/include \
+                -I$(DEVKITPRO)/portlibs/wiiu/include/SDL2 \
                 -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
                 -I$(DEVKITPRO)/portlibs/ppc/include
 
@@ -42,7 +43,11 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(DEVKITPRO)/portlibs/wiiu/lib \
            -L$(DEVKITPRO)/portlibs/ppc/lib
 
-LIBS    := -lcurl -lmbedtls -lmbedx509 -lmbedcrypto -lbrotlidec -lbrotlicommon -lfreetype -lpng -lbz2 -lz -lwut -lm
+LIBS    := -lSDL2 -lSDL2_ttf \
+           -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
+           -lbrotlidec -lbrotlicommon \
+           -lfreetype -lpng -lbz2 -lz \
+           -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Source Files
@@ -90,7 +95,7 @@ $(TARGET).wuhb: $(TARGET).rpx
 	wuhbtool $(TARGET).rpx $(TARGET).wuhb --name="Wave Browser" --short-name="WaveBrowser" --author="GameBuster"
 
 #---------------------------------------------------------------------------------
-# Create Release Folder + Zip (CI Safe)
+# Release
 #---------------------------------------------------------------------------------
 release: $(TARGET).wuhb
 	mkdir -p $(RELEASE_DIR)
