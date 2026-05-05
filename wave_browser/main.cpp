@@ -541,7 +541,6 @@ static int download_update(const char *url) {
 // ─── Splash / update flow ────────────────────────────────────────────────────
 
 static void run_splash(void) {
-    ft_init();
     draw_splash("Loading...", -1.0);
     curl_global_init(CURL_GLOBAL_ALL);
 
@@ -615,14 +614,21 @@ int main(void) {
     strncpy(s_tabs[0].title, "New Tab", 63);
 
     acquireForeground();
+    ft_init();
+    
+    run_splash();
+int splashDone = 1;
 
-    int splashDone = 0;
+while (WHBProcIsRunning()) {
+    VPADStatus vpad;
+    VPADReadError error;
+    VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
-    while (WHBProcIsRunning()) {   // ✅ correct loop
-        if (!splashDone) {
-            run_splash();
-            splashDone = 1;
-        }
+    handle_input(&vpad);
+    draw_browser_ui();
+
+    OSSleepTicks(OSMillisecondsToTicks(16));
+}
 
         VPADStatus vpad;
         VPADReadError error;
