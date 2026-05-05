@@ -150,7 +150,7 @@ static void screen_flip(void) {
 // ─── Pixel helpers ───────────────────────────────────────────────────────────
 
 static inline uint32_t *fb_pixel(void *buf, int w, int x, int y) {
-    return &((uint32_t *)buf)[y * w + x];
+    return ((uint32_t *)buf) + (y * w + x);
 }
 
 static void fb_fill(void *buf, int fb_w, int fb_h, int x, int y, int w, int h, uint32_t col) {
