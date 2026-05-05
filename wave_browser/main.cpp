@@ -645,3 +645,4 @@ curl_global_cleanup();
 
 WHBProcShutdown();
 return 0;
+}
