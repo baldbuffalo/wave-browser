@@ -1,4 +1,4 @@
-#include <proc_ui/procui.h>
+#include <whb/proc.h>
 #include <coreinit/foreground.h>
 #include <coreinit/screen.h>
 #include <coreinit/cache.h>
@@ -73,8 +73,6 @@ typedef struct {
 static Tab  s_tabs[MAX_TABS];
 static int  s_tab_count  = 1;
 static int  s_active_tab = 0;
-
-static void SaveCallback(void) { OSSavesDone_ReadyToRelease(); }
 
 // Double-buffer management:
 // s_tv_buf / s_drc_buf point to the base of a 2x allocation.
