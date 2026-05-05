@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
 
 #define CURRENT_VERSION "v1.0.0"
