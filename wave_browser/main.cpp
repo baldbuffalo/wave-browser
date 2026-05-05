@@ -122,9 +122,6 @@ static void acquireForeground(void) {
 }
 
 static void releaseForeground(void) {
-    if (s_tv_buf)  { DCFlushRange(s_tv_buf,  s_tv_size  * 2); }
-    if (s_drc_buf) { DCFlushRange(s_drc_buf, s_drc_size * 2); }
-
     free(s_tv_buf);
     free(s_drc_buf);
 
