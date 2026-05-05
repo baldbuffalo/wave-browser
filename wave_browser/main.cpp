@@ -141,9 +141,11 @@ static void releaseForeground(void) {
 static void screen_flip(void) {
     DCFlushRange(tv_back(),  s_tv_size);
     DCFlushRange(drc_back(), s_drc_size);
+
     OSScreenFlipBuffersEx(SCREEN_TV);
     OSScreenFlipBuffersEx(SCREEN_DRC);
-    s_buf_idx ^= 1; // the other half is now the back buffer
+
+    s_buf_idx ^= 1;
 }
 
 // ─── Pixel helpers ───────────────────────────────────────────────────────────
