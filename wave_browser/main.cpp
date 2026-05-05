@@ -123,7 +123,6 @@ static void releaseForeground(void) {
     s_drc_buf = NULL;
     s_tv_size  = 0;
     s_drc_size = 0;
-    s_buf_idx  = 0;
     s_inFg = 0;
 }
 
