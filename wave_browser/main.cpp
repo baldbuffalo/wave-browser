@@ -132,7 +132,7 @@ static void releaseForeground(void) {
     s_drc_size = 0;
     s_buf_idx  = 0;
     s_inFg = 0;
-}}
+}
 
 // FLICKERING FIX:
 // Flush only the back-buffer half (the one we just drew into), then flip.
@@ -637,15 +637,11 @@ int main(void) {
 
     ft_done();
 
-    if (s_inFg) {
-        OSScreenEnableEx(SCREEN_TV,  0);
-        OSScreenEnableEx(SCREEN_DRC, 0);
-        free(s_tv_buf);
-        free(s_drc_buf);
-    }
-
-    curl_global_cleanup();
-
-    WHBProcShutdown();   // ✅ WUHB shutdown
-    return 0;
+if (s_inFg) {
+    releaseForeground();
 }
+
+curl_global_cleanup();
+
+WHBProcShutdown();
+return 0;
