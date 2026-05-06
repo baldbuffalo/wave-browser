@@ -13,6 +13,7 @@
 #include <SDL_ttf.h>
 #include <zlib.h>
 #include "unzip.h"
+#include <sys/stat.h>
 #include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
@@ -23,10 +24,13 @@
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-#define RUN_ID_PATH     "fs:/vol/external01/wave-browser-run-id.txt"
+#define INSTALL_DIR     "fs:/vol/external01/wiiu/apps/WaveBrowser"
+#define INSTALL_WUHB    "fs:/vol/external01/wiiu/apps/WaveBrowser/WaveBrowser.wuhb"
+#define INSTALL_META    "fs:/vol/external01/wiiu/apps/WaveBrowser/meta.xml"
+#define RUN_ID_PATH     "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-run-id.txt"
+#define SESSION_PATH    "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-session.cfg"
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
-#define WUHB_OUT_PATH   "fs:/vol/external01/WaveBrowser-update.wuhb"
-#define SESSION_PATH    "fs:/vol/external01/wave-browser-session.cfg"
+#define ZIP_FOLDER_PFX  "WaveBrowser/"
 
 #define ACTIONS_API_URL \
     "https://api.github.com/repos/baldbuffalo/wave-browser/actions/runs" \
@@ -294,9 +298,7 @@ static void draw_tab_switcher()
         int cx     = start_x + i * (CARD_W + CARD_GAP);
         bool active = (i == s_active_tab);
 
-        // Shadow
         sdl_rect(cx + 3, card_y + 3, CARD_W, CARD_H, {0x00,0x00,0x00,0x60});
-        // Card
         sdl_rect(cx, card_y, CARD_W, CARD_H, COL_WHITE);
 
         if (active)
@@ -306,7 +308,6 @@ static void draw_tab_switcher()
         else
             sdl_outline(cx, card_y, CARD_W, CARD_H, COL_WHITE_DIM);
 
-        // Favicon strip
         sdl_rect(cx, card_y, CARD_W, 28, COL_FAVICON_BG);
         const char* title = s_tabs[i].title[0] ? s_tabs[i].title : "New Tab";
         char short_title[20];
@@ -354,7 +355,6 @@ static void handle_switcher_input(VPADStatus* vpad)
         return;
     }
 
-    // ── Touch: tap a card ─────────────────────────────────────────────────────
     static bool s_tp_prev   = false;
     static int  s_tp_last_x = 0, s_tp_last_y = 0;
 
@@ -389,8 +389,6 @@ static void handle_switcher_input(VPADStatus* vpad)
 }
 
 // ─── Browser UI ──────────────────────────────────────────────────────────────
-//
-// Focus highlight helpers — highlight which toolbar button or tab is active.
 
 static void draw_focus_ring(int x, int y, int w, int h)
 {
@@ -403,7 +401,6 @@ static void draw_tab(int idx, bool active)
     sdl_rect(tx, ty + 2, TAB_W - 2, TAB_H, active ? COL_TAB_ACTIVE : COL_TAB_INACTIVE);
     sdl_rect(tx + 8, ty + 10, 14, 14, COL_FAVICON_BG);
 
-    // Focus ring on tab bar items when row 1 focused and this tab is the focused col
     if (s_focus_row == 1 && s_focus_col == idx)
         sdl_outline(tx + 1, ty + 2, TAB_W - 3, TAB_H, COL_FOCUS_RING, 2);
 
@@ -423,7 +420,6 @@ static void draw_browser_ui(void)
     sdl_rect(0, 0, TV_W, TV_H,      COL_CONTENT_BG);
     sdl_rect(0, 0, TV_W, TOOLBAR_H, COL_CHROME_BG);
 
-    // ── Nav buttons with focus highlights ────────────────────────────────────
     bool f_back   = (s_focus_row == 0 && s_focus_col == 0);
     bool f_fwd    = (s_focus_row == 0 && s_focus_col == 1);
     bool f_reload = (s_focus_row == 0 && s_focus_col == 2);
@@ -441,7 +437,6 @@ static void draw_browser_ui(void)
     sdl_outline(BTN_RELOAD_X + 4, 10, BTN_SIZE - 8, BTN_SIZE - 8, COL_GRAY);
     if (f_reload) draw_focus_ring(BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE);
 
-    // ── Address bar ──────────────────────────────────────────────────────────
     sdl_rect(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BG);
     SDL_Color addr_border = f_addr ? COL_FOCUS_RING : COL_ADDR_BORDER;
     sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, addr_border,
@@ -454,19 +449,16 @@ static void draw_browser_ui(void)
     sdl_text(s_font_md, url, ADDR_BAR_X + 10,
              ADDR_BAR_Y + ADDR_BAR_H - 4, url_col, 0);
 
-    // ── Gear / settings icon ─────────────────────────────────────────────────
     sdl_rect(GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE, COL_CHROME_BG);
     if (f_gear) draw_focus_ring(GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE);
     draw_gear_icon(GEAR_BTN_X + 6, GEAR_BTN_Y + 8, GEAR_BTN_SIZE - 12, COL_GRAY);
 
-    // ── Tab bar ──────────────────────────────────────────────────────────────
     sdl_rect(0, TOOLBAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
     sdl_rect(0, TOOLBAR_H,     TV_W, TAB_BAR_H, COL_CHROME_BG);
 
     for (int i = 0; i < s_tab_count; i++)
         draw_tab(i, i == s_active_tab);
 
-    // New tab (+) button
     int new_tab_x = s_tab_count * TAB_W;
     bool f_newtab = (s_focus_row == 1 && s_focus_col == s_tab_count);
     SDL_Color ntcol = f_newtab ? COL_FOCUS_RING : COL_NEW_TAB_BTN;
@@ -476,11 +468,9 @@ static void draw_browser_ui(void)
 
     sdl_rect(0, TOOLBAR_H + TAB_BAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
 
-    // ── Content area ─────────────────────────────────────────────────────────
     sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2 + 24,
              COL_GRAY, 1);
 
-    // ── Hint bar ─────────────────────────────────────────────────────────────
     const char* hint = g_settings.improved_multitasking
         ? "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  Y: close tab  SELECT: tab view"
         : "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  Y: close tab";
@@ -664,14 +654,67 @@ static void write_run_id(long long id)
     fclose(f);
 }
 
+// ─── File backup / restore helpers ───────────────────────────────────────────
+//
+// Reads a file into a malloc'd buffer so it can survive the folder wipe during
+// an update. Caller must free() the returned pointer.
+// Returns nullptr (and sets *out_len = 0) if the file doesn't exist yet.
+
+static char* file_backup(const char* path, size_t* out_len)
+{
+    *out_len = 0;
+    FILE* f = fopen(path, "rb");
+    if (!f) return nullptr;
+
+    fseek(f, 0, SEEK_END);
+    size_t len = (size_t)ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char* buf = (char*)malloc(len + 1);
+    if (!buf) { fclose(f); return nullptr; }
+
+    fread(buf, 1, len, f);
+    buf[len] = '\0';
+    fclose(f);
+
+    *out_len = len;
+    return buf;
+}
+
+static void file_restore(const char* path, const char* buf, size_t len)
+{
+    if (!buf || len == 0) return;
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    fwrite(buf, 1, len, f);
+    fclose(f);
+}
+
+// ─── Install directory helpers ───────────────────────────────────────────────
+
+// Remove every file we know about inside INSTALL_DIR, then rmdir it.
+static void remove_old_install(void)
+{
+    remove(INSTALL_WUHB);
+    remove(INSTALL_META);
+    remove(RUN_ID_PATH);
+    remove(SESSION_PATH);
+    rmdir(INSTALL_DIR);
+}
+
 // ─── ZIP extraction ──────────────────────────────────────────────────────────
 
-static int extract_wuhb_from_zip(const char* zip_path, const char* out_path)
+// Extract all files from zip_path into out_dir, stripping the leading
+// "WaveBrowser/" folder prefix that the CI build puts in the zip.
+static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
 {
     unzFile zf = unzOpen(zip_path);
     if (!zf) return 1;
 
-    int found = 0;
+    mkdir(out_dir, 0777);
+
+    const size_t pfx_len = strlen(ZIP_FOLDER_PFX);
+    int result = 0;
 
     if (unzGoToFirstFile(zf) == UNZ_OK) {
         do {
@@ -681,29 +724,45 @@ static int extract_wuhb_from_zip(const char* zip_path, const char* out_path)
                                   nullptr, 0, nullptr, 0);
 
             size_t nlen = strlen(fname);
-            bool is_wuhb = nlen > 5 && strcmp(fname + nlen - 5, ".wuhb") == 0;
-            if (!is_wuhb) continue;
 
-            if (unzOpenCurrentFile(zf) != UNZ_OK) break;
+            // Skip directory entries
+            if (nlen > 0 && fname[nlen - 1] == '/') continue;
+
+            // Strip leading "WaveBrowser/" prefix if present
+            const char* rel = fname;
+            if (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
+                rel = fname + pfx_len;
+
+            if (rel[0] == '\0') continue;
+
+            char out_path[512];
+            snprintf(out_path, sizeof(out_path), "%s/%s", out_dir, rel);
+
+            if (unzOpenCurrentFile(zf) != UNZ_OK) { result = 1; break; }
 
             FILE* out = fopen(out_path, "wb");
-            if (!out) { unzCloseCurrentFile(zf); break; }
+            if (!out) { unzCloseCurrentFile(zf); result = 1; break; }
 
             uint8_t buf[8192];
             int bytes_read;
-            while ((bytes_read = unzReadCurrentFile(zf, buf, sizeof(buf))) > 0)
-                fwrite(buf, 1, bytes_read, out);
+            bool file_ok = true;
+            while ((bytes_read = unzReadCurrentFile(zf, buf, sizeof(buf))) > 0) {
+                if (fwrite(buf, 1, (size_t)bytes_read, out) != (size_t)bytes_read) {
+                    file_ok = false;
+                    break;
+                }
+            }
 
             fclose(out);
             unzCloseCurrentFile(zf);
-            found = (bytes_read == 0) ? 1 : 0;
-            break;
+
+            if (!file_ok || bytes_read < 0) { result = 1; break; }
 
         } while (unzGoToNextFile(zf) == UNZ_OK);
     }
 
     unzClose(zf);
-    return found ? 0 : 1;
+    return result;
 }
 
 // ─── Update check ────────────────────────────────────────────────────────────
@@ -750,15 +809,38 @@ static void run_splash_and_update(void)
     draw_splash(msg, 0.0);
     usleep(800000);
 
+    // ── 1. Download zip ───────────────────────────────────────────────────────
     if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
         draw_splash("Download failed. Starting...", -1.0);
         usleep(16000 * 120);
         return;
     }
 
-    draw_splash("Extracting update...", 100.0);
-    int ex_ok = extract_wuhb_from_zip(ZIP_TMP_PATH, WUHB_OUT_PATH);
+    // ── 2. Back up run-id and session from inside the install folder ──────────
+    //       (both live in INSTALL_DIR so they'd be lost when we wipe it)
+    size_t run_id_len  = 0, session_len = 0;
+    char*  run_id_buf  = file_backup(RUN_ID_PATH,  &run_id_len);
+    char*  session_buf = file_backup(SESSION_PATH,  &session_len);
+
+    // ── 3. Wipe old install folder ────────────────────────────────────────────
+    draw_splash("Removing old version...", 100.0);
+    remove_old_install();
+
+    // ── 4. Extract zip into wiiu/apps/WaveBrowser/ ────────────────────────────
+    draw_splash("Installing update...", 100.0);
+    int ex_ok = extract_zip_to_dir(ZIP_TMP_PATH, INSTALL_DIR);
+
+    // ── 5. Always delete the zip ──────────────────────────────────────────────
     remove(ZIP_TMP_PATH);
+
+    // ── 6. Restore files into the freshly-extracted folder ───────────────────
+    if (ex_ok == 0) {
+        write_run_id(latest_run_id);              // always write the new run-id
+        file_restore(SESSION_PATH, session_buf, session_len); // restore saved tabs
+    }
+
+    free(run_id_buf);
+    free(session_buf);
 
     if (ex_ok != 0) {
         draw_splash("Extraction failed. Starting...", -1.0);
@@ -766,9 +848,8 @@ static void run_splash_and_update(void)
         return;
     }
 
-    write_run_id(latest_run_id);
-    draw_splash("Update saved! Copy to /wiiu/apps/ and restart.", 100.0);
-    usleep(16000 * 240);
+    draw_splash("Update installed! Please restart Wave Browser.", 100.0);
+    usleep(16000 * 300);
 }
 
 // ─── Touch hit test ──────────────────────────────────────────────────────────
@@ -780,9 +861,8 @@ static bool touch_hit(int tap_x, int tap_y,
            tap_y >= tv_y && tap_y < tv_y + tv_h;
 }
 
-// ─── Focus navigation helpers ─────────────────────────────────────────────────
+// ─── Focus navigation helpers ────────────────────────────────────────────────
 
-// Clamp focus column to valid range for current row.
 static void focus_clamp()
 {
     if (s_focus_row == 0) {
@@ -790,12 +870,11 @@ static void focus_clamp()
         if (s_focus_col > 4) s_focus_col = 4;
     } else {
         if (s_focus_col < 0) s_focus_col = 0;
-        int max_col = s_tab_count; // s_tab_count = NEW TAB button
+        int max_col = s_tab_count;
         if (s_focus_col > max_col) s_focus_col = max_col;
     }
 }
 
-// Activate whatever element is currently focused (called on A press).
 static void focus_activate()
 {
     if (s_focus_row == 0) {
@@ -803,15 +882,13 @@ static void focus_activate()
             case 0: /* Back   — stub */  break;
             case 1: /* Fwd    — stub */  break;
             case 2: /* Reload — stub */  break;
-            case 3: open_url_keyboard(); break; // Address bar
-            case 4: s_in_settings = true; break; // Gear
+            case 3: open_url_keyboard(); break;
+            case 4: s_in_settings = true; break;
         }
     } else {
-        // Tab bar
         if (s_focus_col < s_tab_count) {
-            s_active_tab = s_focus_col; // switch to tab
+            s_active_tab = s_focus_col;
         } else {
-            // NEW TAB (+) button
             if (s_tab_count < MAX_TABS) {
                 memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
                 strcpy(s_tabs[s_tab_count].title, "New Tab");
@@ -828,23 +905,15 @@ static void handle_input(VPADStatus* vpad)
 {
     uint32_t btn = vpad->trigger;
 
-    // ── D-pad navigation ─────────────────────────────────────────────────────
     if (btn & VPAD_BUTTON_UP) {
-        if (s_focus_row == 1) {
-            s_focus_row = 0;
-            s_focus_col = 3; // jump to address bar
-        }
+        if (s_focus_row == 1) { s_focus_row = 0; s_focus_col = 3; }
     }
     if (btn & VPAD_BUTTON_DOWN) {
-        if (s_focus_row == 0) {
-            s_focus_row = 1;
-            s_focus_col = s_active_tab; // land on current active tab
-        }
+        if (s_focus_row == 0) { s_focus_row = 1; s_focus_col = s_active_tab; }
     }
     if (btn & VPAD_BUTTON_LEFT) {
         s_focus_col--;
         focus_clamp();
-        // Sync tab selection when navigating in tab bar
         if (s_focus_row == 1 && s_focus_col < s_tab_count)
             s_active_tab = s_focus_col;
     }
@@ -855,7 +924,6 @@ static void handle_input(VPADStatus* vpad)
             s_active_tab = s_focus_col;
     }
 
-    // ── Left-stick navigation (with hold-repeat) ──────────────────────────────
     float sx = vpad->leftStick.x;
     float sy = vpad->leftStick.y;
 
@@ -864,7 +932,7 @@ static void handle_input(VPADStatus* vpad)
     if (stick_any) {
         s_stick_held++;
         bool fire = (s_stick_held == 1 || s_stick_held >= STICK_REPEAT);
-        if (s_stick_held >= STICK_REPEAT) s_stick_held = STICK_REPEAT; // cap to repeat rate
+        if (s_stick_held >= STICK_REPEAT) s_stick_held = STICK_REPEAT;
 
         if (fire) {
             if (sy >  STICK_DEAD && s_focus_row == 1) {
@@ -890,7 +958,6 @@ static void handle_input(VPADStatus* vpad)
         s_stick_held = 0;
     }
 
-    // ── ZL / ZR — quick tab switch (also moves focus) ────────────────────────
     if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0) {
         s_active_tab--;
         s_focus_row = 1;
@@ -902,14 +969,8 @@ static void handle_input(VPADStatus* vpad)
         s_focus_col = s_active_tab;
     }
 
-    // ── A — activate focused element ─────────────────────────────────────────
     if (btn & VPAD_BUTTON_A) focus_activate();
 
-    // ── B — browser back (stub) ───────────────────────────────────────────────
-    // In a real browser this would navigate history; kept as a stub.
-    // if (btn & VPAD_BUTTON_B) navigate_back();
-
-    // ── X — new tab ──────────────────────────────────────────────────────────
     if ((btn & VPAD_BUTTON_X) && s_tab_count < MAX_TABS) {
         memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
         strcpy(s_tabs[s_tab_count].title, "New Tab");
@@ -918,10 +979,7 @@ static void handle_input(VPADStatus* vpad)
         s_focus_col  = s_active_tab;
     }
 
-    // ── Y — close highlighted/active tab ────────────────────────────────────
     if ((btn & VPAD_BUTTON_Y) && s_tab_count > 1) {
-        // Close whichever tab is currently highlighted (s_active_tab).
-        // If focus is in tab bar, close the focused column tab if it's a tab.
         int close_idx = s_active_tab;
         if (s_focus_row == 1 && s_focus_col < s_tab_count)
             close_idx = s_focus_col;
@@ -931,65 +989,52 @@ static void handle_input(VPADStatus* vpad)
         s_tab_count--;
 
         if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
-        // Keep focus on the same column (or pull back if at end)
-        if (s_focus_col >= s_tab_count) s_focus_col = s_tab_count - 1;
+        if (s_focus_col >= s_tab_count)  s_focus_col  = s_tab_count - 1;
         s_active_tab = s_focus_col < s_tab_count ? s_focus_col : s_tab_count - 1;
     }
 
-    // ── SELECT — tab switcher (Improved Multi Tasking) ────────────────────────
     if ((btn & VPAD_BUTTON_MINUS) && g_settings.improved_multitasking)
         s_show_tab_switcher = true;
 
-    // ── Touch ─────────────────────────────────────────────────────────────────
-    // Track previous state to detect a clean tap-release.
     static bool s_tp_prev   = false;
     static int  s_tp_last_x = 0, s_tp_last_y = 0;
 
     VPADTouchData tp;
     VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
 
-    // Record position while finger is down
     if (tp.touched) {
         s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
         s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
     }
 
-    bool tapped = s_tp_prev && !tp.touched; // finger just lifted
+    bool tapped = s_tp_prev && !tp.touched;
     s_tp_prev   = (bool)tp.touched;
 
     if (tapped) {
         int tx = s_tp_last_x, ty = s_tp_last_y;
 
-        // ── Gear icon ─────────────────────────────────────────────────────────
         if (touch_hit(tx, ty, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE)) {
             s_in_settings = true;
             return;
         }
-
-        // ── Address bar ───────────────────────────────────────────────────────
         if (touch_hit(tx, ty, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H)) {
             s_focus_row = 0; s_focus_col = 3;
             open_url_keyboard();
             return;
         }
-
-        // ── Toolbar nav buttons ───────────────────────────────────────────────
         if (touch_hit(tx, ty, BTN_BACK_X,   6, BTN_SIZE, BTN_SIZE)) {
-            s_focus_row = 0; s_focus_col = 0; /* back stub */ return;
+            s_focus_row = 0; s_focus_col = 0; return;
         }
         if (touch_hit(tx, ty, BTN_FWD_X,    6, BTN_SIZE, BTN_SIZE)) {
-            s_focus_row = 0; s_focus_col = 1; /* fwd stub  */ return;
+            s_focus_row = 0; s_focus_col = 1; return;
         }
         if (touch_hit(tx, ty, BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE)) {
-            s_focus_row = 0; s_focus_col = 2; /* reload stub */ return;
+            s_focus_row = 0; s_focus_col = 2; return;
         }
 
-        // ── Tab bar ───────────────────────────────────────────────────────────
         for (int i = 0; i < s_tab_count; i++) {
-            // Close button (rightmost ~20 px of tab)
             if (s_tab_count > 1 &&
                 touch_hit(tx, ty, i * TAB_W + TAB_W - 20, TOOLBAR_H, 20, TAB_H)) {
-                // Close this specific tab
                 for (int j = i; j < s_tab_count - 1; j++) s_tabs[j] = s_tabs[j + 1];
                 s_tab_count--;
                 if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
@@ -997,7 +1042,6 @@ static void handle_input(VPADStatus* vpad)
                 s_focus_col = s_active_tab;
                 return;
             }
-            // Tab label (rest of tab) — switch to it
             if (touch_hit(tx, ty, i * TAB_W, TOOLBAR_H, TAB_W - 20, TAB_H)) {
                 s_active_tab = i;
                 s_focus_row  = 1;
@@ -1006,7 +1050,6 @@ static void handle_input(VPADStatus* vpad)
             }
         }
 
-        // ── New tab (+) button ────────────────────────────────────────────────
         if (s_tab_count < MAX_TABS &&
             touch_hit(tx, ty, s_tab_count * TAB_W, TOOLBAR_H, 36, TAB_BAR_H)) {
             memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
@@ -1069,7 +1112,6 @@ int main(int /*argc*/, char** /*argv*/)
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
             if (s_in_settings) {
-                // Settings screen is fully owned by settings.cpp
                 if (!settings_handle_input(&vpad))
                     s_in_settings = false;
                 else
