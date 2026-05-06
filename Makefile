@@ -43,7 +43,7 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(DEVKITPRO)/portlibs/wiiu/lib \
            -L$(DEVKITPRO)/portlibs/ppc/lib
 
-LIBS    := -lSDL2 -lSDL2_ttf \
+LIBS    := -lSDL2 -lSDL2_ttf -lharfbuzz \
            -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
            -lbrotlidec -lbrotlicommon \
            -lfreetype -lpng -lbz2 -lz \
