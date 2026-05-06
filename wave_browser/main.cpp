@@ -29,23 +29,23 @@
 
 // ─── UI layout ───────────────────────────────────────────────────────────────
 
-#define MAX_TABS    8
-#define MAX_URL     512
+#define MAX_TABS        8
+#define MAX_URL         512
 
-#define TOOLBAR_H   48
-#define TAB_BAR_H   36
-#define TAB_W       180
-#define TAB_H       34
-#define ADDR_BAR_X  120
-#define ADDR_BAR_W  900
-#define ADDR_BAR_H  32
-#define ADDR_BAR_Y  8
-#define BTN_SIZE    36
-#define BTN_BACK_X  8
-#define BTN_FWD_X   52
-#define BTN_RELOAD_X 96
-#define CONTENT_Y   (TOOLBAR_H + TAB_BAR_H)
-#define CONTENT_H   (TV_H - CONTENT_Y)
+#define TOOLBAR_H       48
+#define TAB_BAR_H       36
+#define TAB_W           180
+#define TAB_H           34
+#define ADDR_BAR_X      120
+#define ADDR_BAR_W      900
+#define ADDR_BAR_H      32
+#define ADDR_BAR_Y      8
+#define BTN_SIZE        36
+#define BTN_BACK_X      8
+#define BTN_FWD_X       52
+#define BTN_RELOAD_X    96
+#define CONTENT_Y       (TOOLBAR_H + TAB_BAR_H)
+#define CONTENT_H       (TV_H - CONTENT_Y)
 
 #define SWKBD_WORK_SIZE 0x20000
 
@@ -86,10 +86,10 @@ static int  s_active_tab = 0;
 
 static SDL_Window*   s_window   = nullptr;
 static SDL_Renderer* s_renderer = nullptr;
-static TTF_Font*     s_font_sm  = nullptr; // 13px  – tab labels, small UI
-static TTF_Font*     s_font_md  = nullptr; // 15px  – address bar
-static TTF_Font*     s_font_lg  = nullptr; // 28px  – splash status
-static TTF_Font*     s_font_xl  = nullptr; // 48px  – splash title
+static TTF_Font*     s_font_sm  = nullptr; // 13px – tab labels, small UI
+static TTF_Font*     s_font_md  = nullptr; // 15px – address bar
+static TTF_Font*     s_font_lg  = nullptr; // 28px – splash status
+static TTF_Font*     s_font_xl  = nullptr; // 48px – splash title
 
 // ─── ProcUI state ────────────────────────────────────────────────────────────
 
@@ -117,7 +117,6 @@ static void sdl_outline(int x, int y, int w, int h, SDL_Color c)
     SDL_RenderDrawRect(s_renderer, &r);
 }
 
-// Gradient: fills the entire renderer with a vertical gradient top→bot
 static void sdl_gradient(SDL_Color top, SDL_Color bot)
 {
     for (int y = 0; y < TV_H; y++) {
@@ -129,7 +128,6 @@ static void sdl_gradient(SDL_Color top, SDL_Color bot)
     }
 }
 
-// Draw text with the given font; align: 0=left, 1=centre, 2=right
 static void sdl_text(TTF_Font* font, const char* text, int x, int y, SDL_Color c, int align = 0)
 {
     if (!font || !text || !text[0]) return;
@@ -141,7 +139,7 @@ static void sdl_text(TTF_Font* font, const char* text, int x, int y, SDL_Color c
     if (!tex) return;
     if      (align == 1) x -= tw / 2;
     else if (align == 2) x -= tw;
-    SDL_Rect dst = {x, y - th, tw, th}; // y is baseline
+    SDL_Rect dst = {x, y - th, tw, th};
     SDL_RenderCopy(s_renderer, tex, nullptr, &dst);
     SDL_DestroyTexture(tex);
 }
@@ -190,8 +188,8 @@ static void draw_tab(int idx, int active)
     char trunc[24];
     strncpy(trunc, title, 20);
     trunc[20] = '\0';
-    sdl_text(s_font_sm, trunc,  tx + 28,       ty + TAB_H - 4, COL_TAB_TEXT,  0);
-    sdl_text(s_font_sm, "x",    tx + TAB_W - 18, ty + TAB_H - 4, COL_CLOSE_BTN, 0);
+    sdl_text(s_font_sm, trunc,           tx + 28,        ty + TAB_H - 4, COL_TAB_TEXT,  0);
+    sdl_text(s_font_sm, "x",             tx + TAB_W - 18, ty + TAB_H - 4, COL_CLOSE_BTN, 0);
 
     if (active)
         sdl_rect(tx, ty + TAB_H, TAB_W - 2, 2, COL_TAB_ACTIVE);
@@ -205,11 +203,11 @@ static void draw_browser_ui(void)
     // Toolbar
     sdl_rect(0, 0, TV_W, TOOLBAR_H, COL_CHROME_BG);
 
-    // Back / forward / reload buttons (simple shapes)
-    sdl_rect(BTN_BACK_X,    6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
+    // Nav buttons
+    sdl_rect(BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
     sdl_text(s_font_md, "<", BTN_BACK_X + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
-    sdl_rect(BTN_FWD_X,     6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
-    sdl_text(s_font_md, ">", BTN_FWD_X  + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
+    sdl_rect(BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
+    sdl_text(s_font_md, ">", BTN_FWD_X + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
     sdl_outline(BTN_RELOAD_X + 4, 10, BTN_SIZE - 8, BTN_SIZE - 8, COL_GRAY);
 
     // Address bar
@@ -233,7 +231,7 @@ static void draw_browser_ui(void)
     sdl_text(s_font_md, "+", plus_x, TOOLBAR_H + TAB_BAR_H - 6, COL_NEW_TAB_BTN, 0);
     sdl_rect(0, TOOLBAR_H + TAB_BAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
 
-    // Content area placeholder
+    // Content placeholder
     sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2 + 24, COL_GRAY, 1);
 
     SDL_RenderPresent(s_renderer);
@@ -305,8 +303,11 @@ static void open_url_keyboard(void)
     MEMFreeToDefaultHeap(workMem);
 
     if (result[0]) {
-        strncpy(s_tabs[s_active_tab].url,   result, MAX_URL - 1);
-        strncpy(s_tabs[s_active_tab].title, result, 63);
+        // Use memcpy + explicit null terminator to avoid -Wstringop-truncation
+        memcpy(s_tabs[s_active_tab].url,   result, MAX_URL - 1);
+        s_tabs[s_active_tab].url[MAX_URL - 1] = '\0';
+        memcpy(s_tabs[s_active_tab].title, result, 63);
+        s_tabs[s_active_tab].title[63] = '\0';
     }
 }
 
@@ -370,7 +371,7 @@ static int check_for_update(char* out_tag, size_t tag_size)
             if (end) {
                 size_t len = (size_t)(end - tag_ptr);
                 if (len >= tag_size) len = tag_size - 1;
-                strncpy(out_tag, tag_ptr, len);
+                memcpy(out_tag, tag_ptr, len);
                 out_tag[len] = '\0';
                 if (strcmp(out_tag, CURRENT_VERSION) != 0)
                     update_available = 1;
@@ -474,10 +475,10 @@ static void handle_input(VPADStatus* vpad)
 
 int main(int /*argc*/, char** /*argv*/)
 {
-    // ── ProcUI init (Bloopair pattern) ────────────────────────────────────
+    // ProcUI init — Bloopair pattern
     ProcUIInitEx(SaveCallback, nullptr);
 
-    // ── SDL2 init ─────────────────────────────────────────────────────────
+    // SDL2 init
     SDL_Init(SDL_INIT_VIDEO);
     TTF_Init();
 
@@ -488,28 +489,27 @@ int main(int /*argc*/, char** /*argv*/)
     s_renderer = SDL_CreateRenderer(s_window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
-    // Load fonts from the embedded font_data (Roboto Bold)
+    // Load fonts from embedded Roboto Bold TTF
     s_font_sm = TTF_OpenFontRW(SDL_RWFromConstMem(font_data, font_data_len), 0, 13);
     s_font_md = TTF_OpenFontRW(SDL_RWFromConstMem(font_data, font_data_len), 0, 15);
     s_font_lg = TTF_OpenFontRW(SDL_RWFromConstMem(font_data, font_data_len), 0, 28);
     s_font_xl = TTF_OpenFontRW(SDL_RWFromConstMem(font_data, font_data_len), 0, 48);
 
-    // ── App state init ────────────────────────────────────────────────────
+    // App state
     VPADInit();
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
-    // ── Splash / update check ─────────────────────────────────────────────
+    // Splash + update check
     run_splash();
 
-    // ── Main loop (Bloopair ProcUI pattern) ───────────────────────────────
+    // Main loop — Bloopair ProcUI pattern
     while (s_running) {
         ProcUIStatus status = ProcUIProcessMessages(TRUE);
 
         if (status == PROCUI_STATUS_EXITING) {
             s_running = false;
         } else if (status == PROCUI_STATUS_RELEASE_FOREGROUND) {
-            // Yield foreground back to the system (HOME menu etc.)
             ProcUIDrawDoneRelease();
         } else if (status == PROCUI_STATUS_IN_FOREGROUND) {
             VPADStatus vpad;
@@ -520,7 +520,7 @@ int main(int /*argc*/, char** /*argv*/)
         }
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────
+    // Cleanup
     curl_global_cleanup();
 
     TTF_CloseFont(s_font_sm);
