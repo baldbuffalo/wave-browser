@@ -30,7 +30,7 @@ jobs:
 
       - name: Install devkitPro WiiU libraries
         run: |
-          dkp-pacman -Sy --noconfirm wiiu-dev
+          dkp-pacman -Sy --noconfirm wiiu-dev ppc-minizip
 
       - name: Add devkitPro tools to PATH
         run: |
