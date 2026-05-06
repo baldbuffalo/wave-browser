@@ -66,13 +66,6 @@
 
 #define SWKBD_WORK_SIZE 0x20000
 
-// ─── Settings screen ─────────────────────────────────────────────────────────
-
-#define SETTINGS_HEADER_H  56
-#define SETTINGS_ITEM_H    88
-#define CB_SIZE            22
-#define CB_MARGIN          28
-
 // ─── Colours ─────────────────────────────────────────────────────────────────
 
 static constexpr SDL_Color COL_CHROME_BG    = {0xF2,0xF2,0xF2,0xFF};
@@ -95,8 +88,7 @@ static constexpr SDL_Color COL_GREEN_DRK    = {0x00,0xB2,0x48,0xFF};
 static constexpr SDL_Color COL_BG_TOP       = {0x00,0x96,0xC7,0xFF};
 static constexpr SDL_Color COL_BG_BOT       = {0x02,0x3E,0x8A,0xFF};
 static constexpr SDL_Color COL_BLUE         = {0x42,0x85,0xF4,0xFF};
-static constexpr SDL_Color COL_ITEM_BORDER  = {0xE8,0xE8,0xE8,0xFF};
-static constexpr SDL_Color COL_BACK_BTN     = {0x42,0x85,0xF4,0xFF};
+static constexpr SDL_Color COL_FOCUS_RING   = {0x42,0x85,0xF4,0xFF};
 
 // ─── Tab state ───────────────────────────────────────────────────────────────
 
@@ -111,9 +103,24 @@ static int  s_active_tab = 0;
 
 // ─── UI state ────────────────────────────────────────────────────────────────
 
-static bool s_in_settings      = false;
+static bool s_in_settings       = false;
 static bool s_show_tab_switcher = false;
 static bool s_was_backgrounded  = false;
+
+// ─── Focus system ────────────────────────────────────────────────────────────
+//
+//  Row 0 — Toolbar:  col 0=BACK  1=FWD  2=RELOAD  3=ADDR  4=GEAR
+//  Row 1 — Tab bar:  col 0..tab_count-1 = tabs, col tab_count = NEW TAB (+)
+//
+static int s_focus_row = 0; // 0 = toolbar, 1 = tab bar
+static int s_focus_col = 3; // default: address bar
+
+// Stick navigation repeat (frames held before repeating)
+static int  s_stick_held   = 0;
+static bool s_stick_active = false;
+
+#define STICK_DEAD    0.45f
+#define STICK_REPEAT  18   // frames until repeat fires
 
 // ─── SDL globals ─────────────────────────────────────────────────────────────
 
@@ -140,7 +147,7 @@ static void save_session()
 {
     FILE* f = fopen(SESSION_PATH, "w");
     if (!f) return;
-    fprintf(f, "tab_count=%d\n", s_tab_count);
+    fprintf(f, "tab_count=%d\n",  s_tab_count);
     fprintf(f, "active_tab=%d\n", s_active_tab);
     for (int i = 0; i < s_tab_count; i++) {
         fprintf(f, "url_%d=%s\n",   i, s_tabs[i].url);
@@ -156,24 +163,28 @@ static void load_session()
 
     char line[MAX_URL + 32];
     while (fgets(line, sizeof(line), f)) {
-        // Strip trailing newline
         size_t ln = strlen(line);
         if (ln && line[ln - 1] == '\n') line[--ln] = '\0';
 
         int n;
-        if (sscanf(line, "tab_count=%d",  &n) == 1) { s_tab_count  = (n > 0 && n <= MAX_TABS) ? n : 1; }
-        else if (sscanf(line, "active_tab=%d", &n) == 1) { s_active_tab = n; }
+        if      (sscanf(line, "tab_count=%d",  &n) == 1) {
+            s_tab_count  = (n > 0 && n <= MAX_TABS) ? n : 1;
+        }
+        else if (sscanf(line, "active_tab=%d", &n) == 1) {
+            s_active_tab = n;
+        }
         else if (sscanf(line, "url_%d=",   &n) == 1) {
             char* eq = strchr(line, '=');
-            if (eq && n >= 0 && n < MAX_TABS) strncpy(s_tabs[n].url,   eq + 1, MAX_URL - 1);
+            if (eq && n >= 0 && n < MAX_TABS)
+                strncpy(s_tabs[n].url,   eq + 1, MAX_URL - 1);
         }
         else if (sscanf(line, "title_%d=", &n) == 1) {
             char* eq = strchr(line, '=');
-            if (eq && n >= 0 && n < MAX_TABS) strncpy(s_tabs[n].title, eq + 1, 63);
+            if (eq && n >= 0 && n < MAX_TABS)
+                strncpy(s_tabs[n].title, eq + 1, 63);
         }
     }
     fclose(f);
-
     if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
 }
 
@@ -186,11 +197,13 @@ static void sdl_rect(int x, int y, int w, int h, SDL_Color c)
     SDL_RenderFillRect(s_renderer, &r);
 }
 
-static void sdl_outline(int x, int y, int w, int h, SDL_Color c)
+static void sdl_outline(int x, int y, int w, int h, SDL_Color c, int thickness = 1)
 {
     SDL_SetRenderDrawColor(s_renderer, c.r, c.g, c.b, c.a);
-    SDL_Rect r = {x, y, w, h};
-    SDL_RenderDrawRect(s_renderer, &r);
+    for (int d = 0; d < thickness; d++) {
+        SDL_Rect r = {x + d, y + d, w - d * 2, h - d * 2};
+        SDL_RenderDrawRect(s_renderer, &r);
+    }
 }
 
 static void sdl_gradient(SDL_Color top, SDL_Color bot)
@@ -204,8 +217,8 @@ static void sdl_gradient(SDL_Color top, SDL_Color bot)
     }
 }
 
-static void sdl_text(TTF_Font* font, const char* text, int x, int y,
-                     SDL_Color c, int align = 0)
+static void sdl_text(TTF_Font* font, const char* text,
+                     int x, int y, SDL_Color c, int align = 0)
 {
     if (!font || !text || !text[0]) return;
     SDL_Surface* surf = TTF_RenderUTF8_Blended(font, text, c);
@@ -229,35 +242,14 @@ static void sdl_progress_bar(int x, int y, int w, int h, double pct)
     sdl_outline(x, y, w, h, COL_WHITE);
 }
 
-// Draw 3-bar hamburger / settings icon
+// 3-bar hamburger / settings icon
 static void draw_gear_icon(int x, int y, int size, SDL_Color c)
 {
     int bar_h = size / 6;
     if (bar_h < 2) bar_h = 2;
-    int gap   = (size - bar_h * 3) / 2;
+    int gap = (size - bar_h * 3) / 2;
     for (int i = 0; i < 3; i++)
         sdl_rect(x, y + i * (bar_h + gap), size, bar_h, c);
-}
-
-// Draw checkbox at (x,y)
-static void draw_checkbox(int x, int y, bool checked)
-{
-    sdl_rect(x, y, CB_SIZE, CB_SIZE, COL_WHITE);
-    sdl_outline(x, y, CB_SIZE, CB_SIZE, COL_ADDR_BORDER);
-
-    if (checked) {
-        // Blue fill
-        sdl_rect(x + 2, y + 2, CB_SIZE - 4, CB_SIZE - 4, COL_BLUE);
-        // White checkmark lines (two segments)
-        SDL_SetRenderDrawColor(s_renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-        int ax = x + 4,  ay = y + CB_SIZE / 2;
-        int bx = x + CB_SIZE / 2 - 1, by = y + CB_SIZE - 5;
-        int cx2 = x + CB_SIZE - 4,    cy2 = y + 4;
-        for (int t = -1; t <= 1; t++) {
-            SDL_RenderDrawLine(s_renderer, ax, ay + t, bx, by + t);
-            SDL_RenderDrawLine(s_renderer, bx, by + t, cx2, cy2 + t);
-        }
-    }
 }
 
 // ─── Splash ──────────────────────────────────────────────────────────────────
@@ -281,113 +273,10 @@ static void draw_splash(const char* status, double pct)
     SDL_RenderPresent(s_renderer);
 }
 
-// ─── Settings screen ─────────────────────────────────────────────────────────
-
-struct SettingItem {
-    const char* label;
-    const char* desc1;
-    const char* desc2;
-    bool*       value;
-};
-
-static SettingItem s_setting_items[] = {
-    {
-        "Improved Multi Tasking",
-        "Keeps your session when Home is pressed. Resume instantly",
-        "like iPad. Press \xe2\x8a\x9f (SELECT) in browser to view open tabs.",
-        &g_settings.improved_multitasking
-    },
-};
-static const int s_setting_count = (int)(sizeof(s_setting_items) / sizeof(s_setting_items[0]));
-
-static void draw_settings_screen()
-{
-    // Background
-    sdl_rect(0, 0, TV_W, TV_H, {0xF6,0xF6,0xF6,0xFF});
-
-    // Header bar
-    sdl_rect(0, 0, TV_W, SETTINGS_HEADER_H, COL_CHROME_BG);
-    sdl_rect(0, SETTINGS_HEADER_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
-
-    // Back button (< Back)
-    sdl_text(s_font_md, "< Back", 20, SETTINGS_HEADER_H - 14, COL_BACK_BTN, 0);
-
-    // Title centered
-    sdl_text(s_font_lg, "WiiU Settings", TV_W / 2, SETTINGS_HEADER_H - 10, COL_TAB_TEXT, 1);
-
-    // Items
-    int iy = SETTINGS_HEADER_H + 12;
-    for (int i = 0; i < s_setting_count; i++) {
-        const SettingItem& item = s_setting_items[i];
-
-        // Card background
-        sdl_rect(0, iy, TV_W, SETTINGS_ITEM_H, COL_WHITE);
-        sdl_rect(0, iy + SETTINGS_ITEM_H - 1, TV_W, 1, COL_ITEM_BORDER);
-
-        // Checkbox
-        int cb_y = iy + (SETTINGS_ITEM_H - CB_SIZE) / 2;
-        draw_checkbox(CB_MARGIN, cb_y, *item.value);
-
-        // Label + descriptions
-        int tx = CB_MARGIN + CB_SIZE + 20;
-        sdl_text(s_font_md, item.label, tx, iy + 28, COL_TAB_TEXT, 0);
-        sdl_text(s_font_sm, item.desc1, tx, iy + 52, COL_GRAY,     0);
-        sdl_text(s_font_sm, item.desc2, tx, iy + 68, COL_GRAY,     0);
-
-        iy += SETTINGS_ITEM_H + 2;
-    }
-
-    // Hint
-    sdl_text(s_font_sm, "B button or tap Back to return",
-             TV_W / 2, TV_H - 12, COL_GRAY, 1);
-
-    SDL_RenderPresent(s_renderer);
-}
-
-static void handle_settings_input(VPADStatus* vpad)
-{
-    uint32_t btn = vpad->trigger;
-
-    // B or HOME closes settings
-    if (btn & VPAD_BUTTON_B) {
-        s_in_settings = false;
-        return;
-    }
-
-    // Touch handling
-    VPADTouchData tp;
-    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
-
-    if (tp.touched && !(vpad->tpNormal.touched)) {
-        int tx = (int)((float)tp.x / DRC_W * TV_W);
-        int ty = (int)((float)tp.y / DRC_H * TV_H);
-
-        // Back button area
-        if (tx >= 0 && tx < 160 && ty >= 0 && ty < SETTINGS_HEADER_H) {
-            s_in_settings = false;
-            return;
-        }
-
-        // Item rows
-        int iy = SETTINGS_HEADER_H + 12;
-        for (int i = 0; i < s_setting_count; i++) {
-            if (ty >= iy && ty < iy + SETTINGS_ITEM_H) {
-                *s_setting_items[i].value = !(*s_setting_items[i].value);
-                settings_save();
-                break;
-            }
-            iy += SETTINGS_ITEM_H + 2;
-        }
-    }
-}
-
 // ─── Tab switcher overlay ────────────────────────────────────────────────────
-// Activated by SELECT (-) when improved multitasking is on.
-// This is Wave Browser's equivalent of the iOS app switcher.
 
 static void draw_tab_switcher()
 {
-    // Dim overlay
     SDL_SetRenderDrawBlendMode(s_renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(s_renderer, 0x10, 0x10, 0x20, 200);
     SDL_Rect full = {0, 0, TV_W, TV_H};
@@ -396,60 +285,55 @@ static void draw_tab_switcher()
 
     sdl_text(s_font_lg, "Open Tabs", TV_W / 2, 54, COL_WHITE, 1);
 
-    // Card dimensions
     const int CARD_W = 210, CARD_H = 130, CARD_GAP = 24;
     int total_w = s_tab_count * CARD_W + (s_tab_count - 1) * CARD_GAP;
     int start_x = (TV_W - total_w) / 2;
     int card_y  = TV_H / 2 - CARD_H / 2;
 
     for (int i = 0; i < s_tab_count; i++) {
-        int cx = start_x + i * (CARD_W + CARD_GAP);
+        int cx     = start_x + i * (CARD_W + CARD_GAP);
         bool active = (i == s_active_tab);
 
-        // Card shadow suggestion
+        // Shadow
         sdl_rect(cx + 3, card_y + 3, CARD_W, CARD_H, {0x00,0x00,0x00,0x60});
-
-        // Card face
+        // Card
         sdl_rect(cx, card_y, CARD_W, CARD_H, COL_WHITE);
 
-        if (active) {
-            // Blue border for active tab
+        if (active)
             for (int d = 0; d < 3; d++)
-                sdl_outline(cx - d, card_y - d, CARD_W + d*2, CARD_H + d*2, COL_BLUE);
-        } else {
+                sdl_outline(cx - d, card_y - d, CARD_W + d*2, CARD_H + d*2,
+                            COL_BLUE);
+        else
             sdl_outline(cx, card_y, CARD_W, CARD_H, COL_WHITE_DIM);
-        }
 
         // Favicon strip
         sdl_rect(cx, card_y, CARD_W, 28, COL_FAVICON_BG);
         const char* title = s_tabs[i].title[0] ? s_tabs[i].title : "New Tab";
-
-        // Truncate title for favicon bar
         char short_title[20];
         strncpy(short_title, title, 18);
         short_title[18] = '\0';
+        sdl_text(s_font_sm, short_title, cx + CARD_W / 2, card_y + 20,
+                 COL_WHITE, 1);
 
-        sdl_text(s_font_sm, short_title, cx + CARD_W / 2, card_y + 20, COL_WHITE, 1);
-
-        // URL preview
         if (s_tabs[i].url[0]) {
             char short_url[28];
             strncpy(short_url, s_tabs[i].url, 26);
             short_url[26] = '\0';
             sdl_text(s_font_sm, short_url, cx + 8, card_y + 58, COL_GRAY, 0);
         } else {
-            sdl_text(s_font_sm, "New Tab", cx + CARD_W/2, card_y + CARD_H/2 + 10, COL_GRAY, 1);
+            sdl_text(s_font_sm, "New Tab", cx + CARD_W/2, card_y + CARD_H/2 + 10,
+                     COL_GRAY, 1);
         }
 
-        // Tab number badge
         char num[4];
         snprintf(num, sizeof(num), "%d", i + 1);
-        sdl_rect(cx + CARD_W - 22, card_y + 32, 18, 18, active ? COL_BLUE : COL_GRAY);
+        sdl_rect(cx + CARD_W - 22, card_y + 32, 18, 18,
+                 active ? COL_BLUE : COL_GRAY);
         sdl_text(s_font_sm, num, cx + CARD_W - 13, card_y + 48, COL_WHITE, 1);
     }
 
     sdl_text(s_font_sm,
-        "ZL/ZR: switch tab  |  A: open  |  B or SELECT: close switcher",
+        "ZL/ZR: switch  |  A: open  |  B or SELECT: close",
         TV_W / 2, TV_H - 16, COL_WHITE_DIM, 1);
 
     SDL_RenderPresent(s_renderer);
@@ -467,21 +351,31 @@ static void handle_switcher_input(VPADStatus* vpad)
     if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) s_active_tab++;
     if (btn & VPAD_BUTTON_A) {
         s_show_tab_switcher = false;
+        return;
     }
 
-    // Touch: tap a card to switch to it
+    // ── Touch: tap a card ─────────────────────────────────────────────────────
+    static bool s_tp_prev   = false;
+    static int  s_tp_last_x = 0, s_tp_last_y = 0;
+
     VPADTouchData tp;
     VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
 
-    if (tp.touched && !(vpad->tpNormal.touched)) {
+    if (tp.touched) {
+        s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
+        s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
+    }
+
+    bool tapped = s_tp_prev && !tp.touched;
+    s_tp_prev   = (bool)tp.touched;
+
+    if (tapped) {
         const int CARD_W = 210, CARD_H = 130, CARD_GAP = 24;
         int total_w = s_tab_count * CARD_W + (s_tab_count - 1) * CARD_GAP;
         int start_x = (TV_W - total_w) / 2;
         int card_y  = TV_H / 2 - CARD_H / 2;
 
-        int tx = (int)((float)tp.x / DRC_W * TV_W);
-        int ty = (int)((float)tp.y / DRC_H * TV_H);
-
+        int tx = s_tp_last_x, ty = s_tp_last_y;
         for (int i = 0; i < s_tab_count; i++) {
             int cx = start_x + i * (CARD_W + CARD_GAP);
             if (tx >= cx && tx < cx + CARD_W &&
@@ -495,12 +389,23 @@ static void handle_switcher_input(VPADStatus* vpad)
 }
 
 // ─── Browser UI ──────────────────────────────────────────────────────────────
+//
+// Focus highlight helpers — highlight which toolbar button or tab is active.
 
-static void draw_tab(int idx, int active)
+static void draw_focus_ring(int x, int y, int w, int h)
+{
+    sdl_outline(x - 2, y - 2, w + 4, h + 4, COL_FOCUS_RING, 2);
+}
+
+static void draw_tab(int idx, bool active)
 {
     int tx = idx * TAB_W, ty = TOOLBAR_H;
     sdl_rect(tx, ty + 2, TAB_W - 2, TAB_H, active ? COL_TAB_ACTIVE : COL_TAB_INACTIVE);
     sdl_rect(tx + 8, ty + 10, 14, 14, COL_FAVICON_BG);
+
+    // Focus ring on tab bar items when row 1 focused and this tab is the focused col
+    if (s_focus_row == 1 && s_focus_col == idx)
+        sdl_outline(tx + 1, ty + 2, TAB_W - 3, TAB_H, COL_FOCUS_RING, 2);
 
     const char* title = s_tabs[idx].title[0] ? s_tabs[idx].title : "New Tab";
     char trunc[24];
@@ -518,45 +423,67 @@ static void draw_browser_ui(void)
     sdl_rect(0, 0, TV_W, TV_H,      COL_CONTENT_BG);
     sdl_rect(0, 0, TV_W, TOOLBAR_H, COL_CHROME_BG);
 
-    // Nav buttons
+    // ── Nav buttons with focus highlights ────────────────────────────────────
+    bool f_back   = (s_focus_row == 0 && s_focus_col == 0);
+    bool f_fwd    = (s_focus_row == 0 && s_focus_col == 1);
+    bool f_reload = (s_focus_row == 0 && s_focus_col == 2);
+    bool f_addr   = (s_focus_row == 0 && s_focus_col == 3);
+    bool f_gear   = (s_focus_row == 0 && s_focus_col == 4);
+
     sdl_rect(BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
+    if (f_back) draw_focus_ring(BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE);
     sdl_text(s_font_md, "<", BTN_BACK_X + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
-    sdl_rect(BTN_FWD_X,  6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
-    sdl_text(s_font_md, ">", BTN_FWD_X  + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
+
+    sdl_rect(BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
+    if (f_fwd) draw_focus_ring(BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE);
+    sdl_text(s_font_md, ">", BTN_FWD_X + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
+
     sdl_outline(BTN_RELOAD_X + 4, 10, BTN_SIZE - 8, BTN_SIZE - 8, COL_GRAY);
+    if (f_reload) draw_focus_ring(BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE);
 
-    // Address bar (narrowed to leave room for gear icon)
+    // ── Address bar ──────────────────────────────────────────────────────────
     sdl_rect(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BG);
-    sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BORDER);
+    SDL_Color addr_border = f_addr ? COL_FOCUS_RING : COL_ADDR_BORDER;
+    sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, addr_border,
+                f_addr ? 2 : 1);
 
-    const char* url = s_tabs[s_active_tab].url[0] ?
-        s_tabs[s_active_tab].url : "Search or type a URL";
+    const char* url = s_tabs[s_active_tab].url[0]
+        ? s_tabs[s_active_tab].url
+        : "Select me and press A to enter URL";
     SDL_Color url_col = s_tabs[s_active_tab].url[0] ? COL_ADDR_TEXT : COL_GRAY;
-    sdl_text(s_font_md, url, ADDR_BAR_X + 10, ADDR_BAR_Y + ADDR_BAR_H - 4, url_col, 0);
+    sdl_text(s_font_md, url, ADDR_BAR_X + 10,
+             ADDR_BAR_Y + ADDR_BAR_H - 4, url_col, 0);
 
-    // ── Settings gear icon (top-right) ────────────────────────────────────
+    // ── Gear / settings icon ─────────────────────────────────────────────────
     sdl_rect(GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE, COL_CHROME_BG);
-    // Draw 3-bar icon centred inside the button area
+    if (f_gear) draw_focus_ring(GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE);
     draw_gear_icon(GEAR_BTN_X + 6, GEAR_BTN_Y + 8, GEAR_BTN_SIZE - 12, COL_GRAY);
 
-    // Tab bar
+    // ── Tab bar ──────────────────────────────────────────────────────────────
     sdl_rect(0, TOOLBAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
     sdl_rect(0, TOOLBAR_H,     TV_W, TAB_BAR_H, COL_CHROME_BG);
 
     for (int i = 0; i < s_tab_count; i++)
         draw_tab(i, i == s_active_tab);
 
-    sdl_text(s_font_md, "+", s_tab_count * TAB_W + 8,
-             TOOLBAR_H + TAB_BAR_H - 6, COL_NEW_TAB_BTN, 0);
+    // New tab (+) button
+    int new_tab_x = s_tab_count * TAB_W;
+    bool f_newtab = (s_focus_row == 1 && s_focus_col == s_tab_count);
+    SDL_Color ntcol = f_newtab ? COL_FOCUS_RING : COL_NEW_TAB_BTN;
+    sdl_text(s_font_md, "+", new_tab_x + 8, TOOLBAR_H + TAB_BAR_H - 6, ntcol, 0);
+    if (f_newtab)
+        sdl_outline(new_tab_x + 2, TOOLBAR_H + 2, 28, TAB_H, COL_FOCUS_RING, 2);
+
     sdl_rect(0, TOOLBAR_H + TAB_BAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
 
-    // Content area
-    sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2 + 24, COL_GRAY, 1);
+    // ── Content area ─────────────────────────────────────────────────────────
+    sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2 + 24,
+             COL_GRAY, 1);
 
-    // Hint bar
+    // ── Hint bar ─────────────────────────────────────────────────────────────
     const char* hint = g_settings.improved_multitasking
-        ? "A: type URL  |  ZL/ZR: tabs  |  X: new  |  Y: close  |  SELECT: tab switcher"
-        : "Tap address bar or press A to type  |  ZL/ZR: tabs  |  X: new  |  Y: close";
+        ? "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  Y: close tab  SELECT: tab view"
+        : "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  Y: close tab";
     sdl_text(s_font_sm, hint, TV_W/2, TV_H - 8, COL_GRAY, 1);
 
     SDL_RenderPresent(s_renderer);
@@ -574,7 +501,10 @@ static void open_url_keyboard(void)
     createArg.regionType = nn::swkbd::RegionType::Europe;
     createArg.fsClient   = nullptr;
 
-    if (!nn::swkbd::Create(createArg)) { MEMFreeToDefaultHeap(workMem); return; }
+    if (!nn::swkbd::Create(createArg)) {
+        MEMFreeToDefaultHeap(workMem);
+        return;
+    }
 
     nn::swkbd::AppearArg appearArg = {};
     if (!nn::swkbd::AppearInputForm(appearArg)) {
@@ -808,7 +738,6 @@ static void run_splash_and_update(void)
     }
 
     long long stored_run_id = read_stored_run_id();
-
     if (latest_run_id == stored_run_id) {
         draw_splash("You're up to date!", -1.0);
         usleep(16000 * 60);
@@ -816,7 +745,8 @@ static void run_splash_and_update(void)
     }
 
     char msg[80];
-    snprintf(msg, sizeof(msg), "New build found (run #%lld). Downloading...", latest_run_id);
+    snprintf(msg, sizeof(msg), "New build found (run #%lld). Downloading...",
+             latest_run_id);
     draw_splash(msg, 0.0);
     usleep(800000);
 
@@ -843,13 +773,53 @@ static void run_splash_and_update(void)
 
 // ─── Touch hit test ──────────────────────────────────────────────────────────
 
-static bool touch_hit(VPADTouchData* tp, int tv_x, int tv_y, int tv_w, int tv_h)
+static bool touch_hit(int tap_x, int tap_y,
+                      int tv_x, int tv_y, int tv_w, int tv_h)
 {
-    if (!tp->touched) return false;
-    int tx = (int)((float)tp->x / DRC_W * TV_W);
-    int ty = (int)((float)tp->y / DRC_H * TV_H);
-    return tx >= tv_x && tx < tv_x + tv_w &&
-           ty >= tv_y && ty < tv_y + tv_h;
+    return tap_x >= tv_x && tap_x < tv_x + tv_w &&
+           tap_y >= tv_y && tap_y < tv_y + tv_h;
+}
+
+// ─── Focus navigation helpers ─────────────────────────────────────────────────
+
+// Clamp focus column to valid range for current row.
+static void focus_clamp()
+{
+    if (s_focus_row == 0) {
+        if (s_focus_col < 0) s_focus_col = 0;
+        if (s_focus_col > 4) s_focus_col = 4;
+    } else {
+        if (s_focus_col < 0) s_focus_col = 0;
+        int max_col = s_tab_count; // s_tab_count = NEW TAB button
+        if (s_focus_col > max_col) s_focus_col = max_col;
+    }
+}
+
+// Activate whatever element is currently focused (called on A press).
+static void focus_activate()
+{
+    if (s_focus_row == 0) {
+        switch (s_focus_col) {
+            case 0: /* Back   — stub */  break;
+            case 1: /* Fwd    — stub */  break;
+            case 2: /* Reload — stub */  break;
+            case 3: open_url_keyboard(); break; // Address bar
+            case 4: s_in_settings = true; break; // Gear
+        }
+    } else {
+        // Tab bar
+        if (s_focus_col < s_tab_count) {
+            s_active_tab = s_focus_col; // switch to tab
+        } else {
+            // NEW TAB (+) button
+            if (s_tab_count < MAX_TABS) {
+                memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
+                strcpy(s_tabs[s_tab_count].title, "New Tab");
+                s_active_tab = s_tab_count++;
+                s_focus_col  = s_active_tab;
+            }
+        }
+    }
 }
 
 // ─── Browser input ───────────────────────────────────────────────────────────
@@ -858,67 +828,192 @@ static void handle_input(VPADStatus* vpad)
 {
     uint32_t btn = vpad->trigger;
 
-    if (btn & VPAD_BUTTON_A) open_url_keyboard();
+    // ── D-pad navigation ─────────────────────────────────────────────────────
+    if (btn & VPAD_BUTTON_UP) {
+        if (s_focus_row == 1) {
+            s_focus_row = 0;
+            s_focus_col = 3; // jump to address bar
+        }
+    }
+    if (btn & VPAD_BUTTON_DOWN) {
+        if (s_focus_row == 0) {
+            s_focus_row = 1;
+            s_focus_col = s_active_tab; // land on current active tab
+        }
+    }
+    if (btn & VPAD_BUTTON_LEFT) {
+        s_focus_col--;
+        focus_clamp();
+        // Sync tab selection when navigating in tab bar
+        if (s_focus_row == 1 && s_focus_col < s_tab_count)
+            s_active_tab = s_focus_col;
+    }
+    if (btn & VPAD_BUTTON_RIGHT) {
+        s_focus_col++;
+        focus_clamp();
+        if (s_focus_row == 1 && s_focus_col < s_tab_count)
+            s_active_tab = s_focus_col;
+    }
 
-    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0)               s_active_tab--;
-    if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) s_active_tab++;
+    // ── Left-stick navigation (with hold-repeat) ──────────────────────────────
+    float sx = vpad->leftStick.x;
+    float sy = vpad->leftStick.y;
 
+    bool stick_any = (sx < -STICK_DEAD || sx > STICK_DEAD ||
+                      sy >  STICK_DEAD || sy < -STICK_DEAD);
+    if (stick_any) {
+        s_stick_held++;
+        bool fire = (s_stick_held == 1 || s_stick_held >= STICK_REPEAT);
+        if (s_stick_held >= STICK_REPEAT) s_stick_held = STICK_REPEAT; // cap to repeat rate
+
+        if (fire) {
+            if (sy >  STICK_DEAD && s_focus_row == 1) {
+                s_focus_row = 0; s_focus_col = 3;
+            }
+            if (sy < -STICK_DEAD && s_focus_row == 0) {
+                s_focus_row = 1; s_focus_col = s_active_tab;
+            }
+            if (sx < -STICK_DEAD) {
+                s_focus_col--;
+                focus_clamp();
+                if (s_focus_row == 1 && s_focus_col < s_tab_count)
+                    s_active_tab = s_focus_col;
+            }
+            if (sx >  STICK_DEAD) {
+                s_focus_col++;
+                focus_clamp();
+                if (s_focus_row == 1 && s_focus_col < s_tab_count)
+                    s_active_tab = s_focus_col;
+            }
+        }
+    } else {
+        s_stick_held = 0;
+    }
+
+    // ── ZL / ZR — quick tab switch (also moves focus) ────────────────────────
+    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0) {
+        s_active_tab--;
+        s_focus_row = 1;
+        s_focus_col = s_active_tab;
+    }
+    if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) {
+        s_active_tab++;
+        s_focus_row = 1;
+        s_focus_col = s_active_tab;
+    }
+
+    // ── A — activate focused element ─────────────────────────────────────────
+    if (btn & VPAD_BUTTON_A) focus_activate();
+
+    // ── B — browser back (stub) ───────────────────────────────────────────────
+    // In a real browser this would navigate history; kept as a stub.
+    // if (btn & VPAD_BUTTON_B) navigate_back();
+
+    // ── X — new tab ──────────────────────────────────────────────────────────
     if ((btn & VPAD_BUTTON_X) && s_tab_count < MAX_TABS) {
         memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
         strcpy(s_tabs[s_tab_count].title, "New Tab");
         s_active_tab = s_tab_count++;
+        s_focus_row  = 1;
+        s_focus_col  = s_active_tab;
     }
 
+    // ── Y — close highlighted/active tab ────────────────────────────────────
     if ((btn & VPAD_BUTTON_Y) && s_tab_count > 1) {
-        for (int i = s_active_tab; i < s_tab_count - 1; i++)
+        // Close whichever tab is currently highlighted (s_active_tab).
+        // If focus is in tab bar, close the focused column tab if it's a tab.
+        int close_idx = s_active_tab;
+        if (s_focus_row == 1 && s_focus_col < s_tab_count)
+            close_idx = s_focus_col;
+
+        for (int i = close_idx; i < s_tab_count - 1; i++)
             s_tabs[i] = s_tabs[i + 1];
         s_tab_count--;
+
         if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
+        // Keep focus on the same column (or pull back if at end)
+        if (s_focus_col >= s_tab_count) s_focus_col = s_tab_count - 1;
+        s_active_tab = s_focus_col < s_tab_count ? s_focus_col : s_tab_count - 1;
     }
 
-    // SELECT opens tab switcher (Improved Multi Tasking feature)
+    // ── SELECT — tab switcher (Improved Multi Tasking) ────────────────────────
     if ((btn & VPAD_BUTTON_MINUS) && g_settings.improved_multitasking)
         s_show_tab_switcher = true;
 
-    // Touch
+    // ── Touch ─────────────────────────────────────────────────────────────────
+    // Track previous state to detect a clean tap-release.
+    static bool s_tp_prev   = false;
+    static int  s_tp_last_x = 0, s_tp_last_y = 0;
+
     VPADTouchData tp;
     VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
 
-    if (tp.touched && !(vpad->tpNormal.touched)) {
+    // Record position while finger is down
+    if (tp.touched) {
+        s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
+        s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
+    }
 
-        // Gear / settings icon
-        if (touch_hit(&tp, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE)) {
+    bool tapped = s_tp_prev && !tp.touched; // finger just lifted
+    s_tp_prev   = (bool)tp.touched;
+
+    if (tapped) {
+        int tx = s_tp_last_x, ty = s_tp_last_y;
+
+        // ── Gear icon ─────────────────────────────────────────────────────────
+        if (touch_hit(tx, ty, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE)) {
             s_in_settings = true;
             return;
         }
 
-        // Address bar
-        if (touch_hit(&tp, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H)) {
+        // ── Address bar ───────────────────────────────────────────────────────
+        if (touch_hit(tx, ty, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H)) {
+            s_focus_row = 0; s_focus_col = 3;
             open_url_keyboard();
             return;
         }
 
-        // Tab bar
+        // ── Toolbar nav buttons ───────────────────────────────────────────────
+        if (touch_hit(tx, ty, BTN_BACK_X,   6, BTN_SIZE, BTN_SIZE)) {
+            s_focus_row = 0; s_focus_col = 0; /* back stub */ return;
+        }
+        if (touch_hit(tx, ty, BTN_FWD_X,    6, BTN_SIZE, BTN_SIZE)) {
+            s_focus_row = 0; s_focus_col = 1; /* fwd stub  */ return;
+        }
+        if (touch_hit(tx, ty, BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE)) {
+            s_focus_row = 0; s_focus_col = 2; /* reload stub */ return;
+        }
+
+        // ── Tab bar ───────────────────────────────────────────────────────────
         for (int i = 0; i < s_tab_count; i++) {
-            if (touch_hit(&tp, i * TAB_W, TOOLBAR_H, TAB_W - 20, TAB_H)) {
-                s_active_tab = i;
-                break;
-            }
+            // Close button (rightmost ~20 px of tab)
             if (s_tab_count > 1 &&
-                touch_hit(&tp, i * TAB_W + TAB_W - 20, TOOLBAR_H, 20, TAB_H)) {
+                touch_hit(tx, ty, i * TAB_W + TAB_W - 20, TOOLBAR_H, 20, TAB_H)) {
+                // Close this specific tab
                 for (int j = i; j < s_tab_count - 1; j++) s_tabs[j] = s_tabs[j + 1];
                 s_tab_count--;
                 if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
-                break;
+                s_focus_row = 1;
+                s_focus_col = s_active_tab;
+                return;
+            }
+            // Tab label (rest of tab) — switch to it
+            if (touch_hit(tx, ty, i * TAB_W, TOOLBAR_H, TAB_W - 20, TAB_H)) {
+                s_active_tab = i;
+                s_focus_row  = 1;
+                s_focus_col  = i;
+                return;
             }
         }
 
-        // New tab (+) button
+        // ── New tab (+) button ────────────────────────────────────────────────
         if (s_tab_count < MAX_TABS &&
-            touch_hit(&tp, s_tab_count * TAB_W + 8, TOOLBAR_H, 30, TAB_BAR_H)) {
+            touch_hit(tx, ty, s_tab_count * TAB_W, TOOLBAR_H, 36, TAB_BAR_H)) {
             memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
             strcpy(s_tabs[s_tab_count].title, "New Tab");
             s_active_tab = s_tab_count++;
+            s_focus_row  = 1;
+            s_focus_col  = s_active_tab;
         }
     }
 }
@@ -947,7 +1042,6 @@ int main(int /*argc*/, char** /*argv*/)
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
-    // Load persisted settings and session
     settings_load();
     if (g_settings.improved_multitasking)
         load_session();
@@ -961,7 +1055,6 @@ int main(int /*argc*/, char** /*argv*/)
             s_running = false;
 
         } else if (status == PROCUI_STATUS_RELEASE_FOREGROUND) {
-            // Save session when going to background (Home button pressed)
             if (g_settings.improved_multitasking) {
                 save_session();
                 s_was_backgrounded = true;
@@ -969,7 +1062,6 @@ int main(int /*argc*/, char** /*argv*/)
             ProcUIDrawDoneRelease();
 
         } else if (status == PROCUI_STATUS_IN_FOREGROUND) {
-            // Returned from background — session already in memory via ProcUI
             s_was_backgrounded = false;
 
             VPADStatus vpad;
@@ -977,11 +1069,16 @@ int main(int /*argc*/, char** /*argv*/)
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
             if (s_in_settings) {
-                handle_settings_input(&vpad);
-                draw_settings_screen();
+                // Settings screen is fully owned by settings.cpp
+                if (!settings_handle_input(&vpad))
+                    s_in_settings = false;
+                else
+                    settings_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
+
             } else if (s_show_tab_switcher) {
                 handle_switcher_input(&vpad);
                 draw_tab_switcher();
+
             } else {
                 handle_input(&vpad);
                 draw_browser_ui();
@@ -989,7 +1086,6 @@ int main(int /*argc*/, char** /*argv*/)
         }
     }
 
-    // Save session on clean exit
     if (g_settings.improved_multitasking)
         save_session();
 
