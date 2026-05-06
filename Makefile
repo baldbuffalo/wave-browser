@@ -32,7 +32,7 @@ COMMON_FLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float \
                 -I$(DEVKITPRO)/portlibs/ppc/include \
                 -Ivendor/minizip
 
-CFLAGS      := $(COMMON_FLAGS)
+CFLAGS      := $(COMMON_FLAGS) -DUSE_FILE32API
 CXXFLAGS    := $(COMMON_FLAGS) -std=c++17 -fno-exceptions -fno-rtti
 
 #---------------------------------------------------------------------------------
