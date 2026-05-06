@@ -44,9 +44,10 @@ LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
            -L$(DEVKITPRO)/portlibs/ppc/lib
 
 LIBS    := -lSDL2 -lSDL2_ttf -lharfbuzz \
+           -lsndcore2 \
            -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
            -lbrotlidec -lbrotlicommon \
-           -lfreetype -lpng -lbz2 -lz \
+           -lfreetype -lpng -lbz2 -lz -lminizip \
            -lwut -lm
 
 #---------------------------------------------------------------------------------
