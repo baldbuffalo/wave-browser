@@ -8,6 +8,7 @@
 #include <curl/curl.h>
 #include <sndcore2/core.h>
 #include "font_data.h"
+#include "settings.h"
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <zlib.h>
@@ -18,12 +19,14 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <math.h>
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 #define RUN_ID_PATH     "fs:/vol/external01/wave-browser-run-id.txt"
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
 #define WUHB_OUT_PATH   "fs:/vol/external01/WaveBrowser-update.wuhb"
+#define SESSION_PATH    "fs:/vol/external01/wave-browser-session.cfg"
 
 #define ACTIONS_API_URL \
     "https://api.github.com/repos/baldbuffalo/wave-browser/actions/runs" \
@@ -47,7 +50,7 @@
 #define TAB_W        180
 #define TAB_H         34
 #define ADDR_BAR_X   120
-#define ADDR_BAR_W   900
+#define ADDR_BAR_W   860
 #define ADDR_BAR_H    32
 #define ADDR_BAR_Y     8
 #define BTN_SIZE      36
@@ -57,7 +60,18 @@
 #define CONTENT_Y    (TOOLBAR_H + TAB_BAR_H)
 #define CONTENT_H    (TV_H - CONTENT_Y)
 
+#define GEAR_BTN_X   (TV_W - 44)
+#define GEAR_BTN_Y    6
+#define GEAR_BTN_SIZE 36
+
 #define SWKBD_WORK_SIZE 0x20000
+
+// ─── Settings screen ─────────────────────────────────────────────────────────
+
+#define SETTINGS_HEADER_H  56
+#define SETTINGS_ITEM_H    88
+#define CB_SIZE            22
+#define CB_MARGIN          28
 
 // ─── Colours ─────────────────────────────────────────────────────────────────
 
@@ -80,6 +94,9 @@ static constexpr SDL_Color COL_GREEN        = {0x00,0xE6,0x76,0xFF};
 static constexpr SDL_Color COL_GREEN_DRK    = {0x00,0xB2,0x48,0xFF};
 static constexpr SDL_Color COL_BG_TOP       = {0x00,0x96,0xC7,0xFF};
 static constexpr SDL_Color COL_BG_BOT       = {0x02,0x3E,0x8A,0xFF};
+static constexpr SDL_Color COL_BLUE         = {0x42,0x85,0xF4,0xFF};
+static constexpr SDL_Color COL_ITEM_BORDER  = {0xE8,0xE8,0xE8,0xFF};
+static constexpr SDL_Color COL_BACK_BTN     = {0x42,0x85,0xF4,0xFF};
 
 // ─── Tab state ───────────────────────────────────────────────────────────────
 
@@ -91,6 +108,12 @@ typedef struct {
 static Tab  s_tabs[MAX_TABS];
 static int  s_tab_count  = 1;
 static int  s_active_tab = 0;
+
+// ─── UI state ────────────────────────────────────────────────────────────────
+
+static bool s_in_settings      = false;
+static bool s_show_tab_switcher = false;
+static bool s_was_backgrounded  = false;
 
 // ─── SDL globals ─────────────────────────────────────────────────────────────
 
@@ -109,6 +132,49 @@ static uint32_t SaveCallback(void* /*context*/)
 {
     OSSavesDone_ReadyToRelease();
     return 0;
+}
+
+// ─── Session persistence ─────────────────────────────────────────────────────
+
+static void save_session()
+{
+    FILE* f = fopen(SESSION_PATH, "w");
+    if (!f) return;
+    fprintf(f, "tab_count=%d\n", s_tab_count);
+    fprintf(f, "active_tab=%d\n", s_active_tab);
+    for (int i = 0; i < s_tab_count; i++) {
+        fprintf(f, "url_%d=%s\n",   i, s_tabs[i].url);
+        fprintf(f, "title_%d=%s\n", i, s_tabs[i].title);
+    }
+    fclose(f);
+}
+
+static void load_session()
+{
+    FILE* f = fopen(SESSION_PATH, "r");
+    if (!f) return;
+
+    char line[MAX_URL + 32];
+    while (fgets(line, sizeof(line), f)) {
+        // Strip trailing newline
+        size_t ln = strlen(line);
+        if (ln && line[ln - 1] == '\n') line[--ln] = '\0';
+
+        int n;
+        if (sscanf(line, "tab_count=%d",  &n) == 1) { s_tab_count  = (n > 0 && n <= MAX_TABS) ? n : 1; }
+        else if (sscanf(line, "active_tab=%d", &n) == 1) { s_active_tab = n; }
+        else if (sscanf(line, "url_%d=",   &n) == 1) {
+            char* eq = strchr(line, '=');
+            if (eq && n >= 0 && n < MAX_TABS) strncpy(s_tabs[n].url,   eq + 1, MAX_URL - 1);
+        }
+        else if (sscanf(line, "title_%d=", &n) == 1) {
+            char* eq = strchr(line, '=');
+            if (eq && n >= 0 && n < MAX_TABS) strncpy(s_tabs[n].title, eq + 1, 63);
+        }
+    }
+    fclose(f);
+
+    if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
 }
 
 // ─── Drawing helpers ─────────────────────────────────────────────────────────
@@ -163,6 +229,37 @@ static void sdl_progress_bar(int x, int y, int w, int h, double pct)
     sdl_outline(x, y, w, h, COL_WHITE);
 }
 
+// Draw 3-bar hamburger / settings icon
+static void draw_gear_icon(int x, int y, int size, SDL_Color c)
+{
+    int bar_h = size / 6;
+    if (bar_h < 2) bar_h = 2;
+    int gap   = (size - bar_h * 3) / 2;
+    for (int i = 0; i < 3; i++)
+        sdl_rect(x, y + i * (bar_h + gap), size, bar_h, c);
+}
+
+// Draw checkbox at (x,y)
+static void draw_checkbox(int x, int y, bool checked)
+{
+    sdl_rect(x, y, CB_SIZE, CB_SIZE, COL_WHITE);
+    sdl_outline(x, y, CB_SIZE, CB_SIZE, COL_ADDR_BORDER);
+
+    if (checked) {
+        // Blue fill
+        sdl_rect(x + 2, y + 2, CB_SIZE - 4, CB_SIZE - 4, COL_BLUE);
+        // White checkmark lines (two segments)
+        SDL_SetRenderDrawColor(s_renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+        int ax = x + 4,  ay = y + CB_SIZE / 2;
+        int bx = x + CB_SIZE / 2 - 1, by = y + CB_SIZE - 5;
+        int cx2 = x + CB_SIZE - 4,    cy2 = y + 4;
+        for (int t = -1; t <= 1; t++) {
+            SDL_RenderDrawLine(s_renderer, ax, ay + t, bx, by + t);
+            SDL_RenderDrawLine(s_renderer, bx, by + t, cx2, cy2 + t);
+        }
+    }
+}
+
 // ─── Splash ──────────────────────────────────────────────────────────────────
 
 static void draw_splash(const char* status, double pct)
@@ -182,6 +279,219 @@ static void draw_splash(const char* status, double pct)
     }
 
     SDL_RenderPresent(s_renderer);
+}
+
+// ─── Settings screen ─────────────────────────────────────────────────────────
+
+struct SettingItem {
+    const char* label;
+    const char* desc1;
+    const char* desc2;
+    bool*       value;
+};
+
+static SettingItem s_setting_items[] = {
+    {
+        "Improved Multi Tasking",
+        "Keeps your session when Home is pressed. Resume instantly",
+        "like iPad. Press \xe2\x8a\x9f (SELECT) in browser to view open tabs.",
+        &g_settings.improved_multitasking
+    },
+};
+static const int s_setting_count = (int)(sizeof(s_setting_items) / sizeof(s_setting_items[0]));
+
+static void draw_settings_screen()
+{
+    // Background
+    sdl_rect(0, 0, TV_W, TV_H, {0xF6,0xF6,0xF6,0xFF});
+
+    // Header bar
+    sdl_rect(0, 0, TV_W, SETTINGS_HEADER_H, COL_CHROME_BG);
+    sdl_rect(0, SETTINGS_HEADER_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
+
+    // Back button (< Back)
+    sdl_text(s_font_md, "< Back", 20, SETTINGS_HEADER_H - 14, COL_BACK_BTN, 0);
+
+    // Title centered
+    sdl_text(s_font_lg, "WiiU Settings", TV_W / 2, SETTINGS_HEADER_H - 10, COL_TAB_TEXT, 1);
+
+    // Items
+    int iy = SETTINGS_HEADER_H + 12;
+    for (int i = 0; i < s_setting_count; i++) {
+        const SettingItem& item = s_setting_items[i];
+
+        // Card background
+        sdl_rect(0, iy, TV_W, SETTINGS_ITEM_H, COL_WHITE);
+        sdl_rect(0, iy + SETTINGS_ITEM_H - 1, TV_W, 1, COL_ITEM_BORDER);
+
+        // Checkbox
+        int cb_y = iy + (SETTINGS_ITEM_H - CB_SIZE) / 2;
+        draw_checkbox(CB_MARGIN, cb_y, *item.value);
+
+        // Label + descriptions
+        int tx = CB_MARGIN + CB_SIZE + 20;
+        sdl_text(s_font_md, item.label, tx, iy + 28, COL_TAB_TEXT, 0);
+        sdl_text(s_font_sm, item.desc1, tx, iy + 52, COL_GRAY,     0);
+        sdl_text(s_font_sm, item.desc2, tx, iy + 68, COL_GRAY,     0);
+
+        iy += SETTINGS_ITEM_H + 2;
+    }
+
+    // Hint
+    sdl_text(s_font_sm, "B button or tap Back to return",
+             TV_W / 2, TV_H - 12, COL_GRAY, 1);
+
+    SDL_RenderPresent(s_renderer);
+}
+
+static void handle_settings_input(VPADStatus* vpad)
+{
+    uint32_t btn = vpad->trigger;
+
+    // B or HOME closes settings
+    if (btn & VPAD_BUTTON_B) {
+        s_in_settings = false;
+        return;
+    }
+
+    // Touch handling
+    VPADTouchData tp;
+    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
+
+    if (tp.touched && !(vpad->tpNormal.touched)) {
+        int tx = (int)((float)tp.x / DRC_W * TV_W);
+        int ty = (int)((float)tp.y / DRC_H * TV_H);
+
+        // Back button area
+        if (tx >= 0 && tx < 160 && ty >= 0 && ty < SETTINGS_HEADER_H) {
+            s_in_settings = false;
+            return;
+        }
+
+        // Item rows
+        int iy = SETTINGS_HEADER_H + 12;
+        for (int i = 0; i < s_setting_count; i++) {
+            if (ty >= iy && ty < iy + SETTINGS_ITEM_H) {
+                *s_setting_items[i].value = !(*s_setting_items[i].value);
+                settings_save();
+                break;
+            }
+            iy += SETTINGS_ITEM_H + 2;
+        }
+    }
+}
+
+// ─── Tab switcher overlay ────────────────────────────────────────────────────
+// Activated by SELECT (-) when improved multitasking is on.
+// This is Wave Browser's equivalent of the iOS app switcher.
+
+static void draw_tab_switcher()
+{
+    // Dim overlay
+    SDL_SetRenderDrawBlendMode(s_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(s_renderer, 0x10, 0x10, 0x20, 200);
+    SDL_Rect full = {0, 0, TV_W, TV_H};
+    SDL_RenderFillRect(s_renderer, &full);
+    SDL_SetRenderDrawBlendMode(s_renderer, SDL_BLENDMODE_NONE);
+
+    sdl_text(s_font_lg, "Open Tabs", TV_W / 2, 54, COL_WHITE, 1);
+
+    // Card dimensions
+    const int CARD_W = 210, CARD_H = 130, CARD_GAP = 24;
+    int total_w = s_tab_count * CARD_W + (s_tab_count - 1) * CARD_GAP;
+    int start_x = (TV_W - total_w) / 2;
+    int card_y  = TV_H / 2 - CARD_H / 2;
+
+    for (int i = 0; i < s_tab_count; i++) {
+        int cx = start_x + i * (CARD_W + CARD_GAP);
+        bool active = (i == s_active_tab);
+
+        // Card shadow suggestion
+        sdl_rect(cx + 3, card_y + 3, CARD_W, CARD_H, {0x00,0x00,0x00,0x60});
+
+        // Card face
+        sdl_rect(cx, card_y, CARD_W, CARD_H, COL_WHITE);
+
+        if (active) {
+            // Blue border for active tab
+            for (int d = 0; d < 3; d++)
+                sdl_outline(cx - d, card_y - d, CARD_W + d*2, CARD_H + d*2, COL_BLUE);
+        } else {
+            sdl_outline(cx, card_y, CARD_W, CARD_H, COL_WHITE_DIM);
+        }
+
+        // Favicon strip
+        sdl_rect(cx, card_y, CARD_W, 28, COL_FAVICON_BG);
+        const char* title = s_tabs[i].title[0] ? s_tabs[i].title : "New Tab";
+
+        // Truncate title for favicon bar
+        char short_title[20];
+        strncpy(short_title, title, 18);
+        short_title[18] = '\0';
+
+        sdl_text(s_font_sm, short_title, cx + CARD_W / 2, card_y + 20, COL_WHITE, 1);
+
+        // URL preview
+        if (s_tabs[i].url[0]) {
+            char short_url[28];
+            strncpy(short_url, s_tabs[i].url, 26);
+            short_url[26] = '\0';
+            sdl_text(s_font_sm, short_url, cx + 8, card_y + 58, COL_GRAY, 0);
+        } else {
+            sdl_text(s_font_sm, "New Tab", cx + CARD_W/2, card_y + CARD_H/2 + 10, COL_GRAY, 1);
+        }
+
+        // Tab number badge
+        char num[4];
+        snprintf(num, sizeof(num), "%d", i + 1);
+        sdl_rect(cx + CARD_W - 22, card_y + 32, 18, 18, active ? COL_BLUE : COL_GRAY);
+        sdl_text(s_font_sm, num, cx + CARD_W - 13, card_y + 48, COL_WHITE, 1);
+    }
+
+    sdl_text(s_font_sm,
+        "ZL/ZR: switch tab  |  A: open  |  B or SELECT: close switcher",
+        TV_W / 2, TV_H - 16, COL_WHITE_DIM, 1);
+
+    SDL_RenderPresent(s_renderer);
+}
+
+static void handle_switcher_input(VPADStatus* vpad)
+{
+    uint32_t btn = vpad->trigger;
+
+    if ((btn & VPAD_BUTTON_MINUS) || (btn & VPAD_BUTTON_B)) {
+        s_show_tab_switcher = false;
+        return;
+    }
+    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0)               s_active_tab--;
+    if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) s_active_tab++;
+    if (btn & VPAD_BUTTON_A) {
+        s_show_tab_switcher = false;
+    }
+
+    // Touch: tap a card to switch to it
+    VPADTouchData tp;
+    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
+
+    if (tp.touched && !(vpad->tpNormal.touched)) {
+        const int CARD_W = 210, CARD_H = 130, CARD_GAP = 24;
+        int total_w = s_tab_count * CARD_W + (s_tab_count - 1) * CARD_GAP;
+        int start_x = (TV_W - total_w) / 2;
+        int card_y  = TV_H / 2 - CARD_H / 2;
+
+        int tx = (int)((float)tp.x / DRC_W * TV_W);
+        int ty = (int)((float)tp.y / DRC_H * TV_H);
+
+        for (int i = 0; i < s_tab_count; i++) {
+            int cx = start_x + i * (CARD_W + CARD_GAP);
+            if (tx >= cx && tx < cx + CARD_W &&
+                ty >= card_y && ty < card_y + CARD_H) {
+                s_active_tab        = i;
+                s_show_tab_switcher = false;
+                break;
+            }
+        }
+    }
 }
 
 // ─── Browser UI ──────────────────────────────────────────────────────────────
@@ -208,12 +518,14 @@ static void draw_browser_ui(void)
     sdl_rect(0, 0, TV_W, TV_H,      COL_CONTENT_BG);
     sdl_rect(0, 0, TV_W, TOOLBAR_H, COL_CHROME_BG);
 
+    // Nav buttons
     sdl_rect(BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
     sdl_text(s_font_md, "<", BTN_BACK_X + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
     sdl_rect(BTN_FWD_X,  6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
     sdl_text(s_font_md, ">", BTN_FWD_X  + BTN_SIZE/2, TOOLBAR_H - 8, COL_GRAY, 1);
     sdl_outline(BTN_RELOAD_X + 4, 10, BTN_SIZE - 8, BTN_SIZE - 8, COL_GRAY);
 
+    // Address bar (narrowed to leave room for gear icon)
     sdl_rect(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BG);
     sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BORDER);
 
@@ -222,6 +534,12 @@ static void draw_browser_ui(void)
     SDL_Color url_col = s_tabs[s_active_tab].url[0] ? COL_ADDR_TEXT : COL_GRAY;
     sdl_text(s_font_md, url, ADDR_BAR_X + 10, ADDR_BAR_Y + ADDR_BAR_H - 4, url_col, 0);
 
+    // ── Settings gear icon (top-right) ────────────────────────────────────
+    sdl_rect(GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE, COL_CHROME_BG);
+    // Draw 3-bar icon centred inside the button area
+    draw_gear_icon(GEAR_BTN_X + 6, GEAR_BTN_Y + 8, GEAR_BTN_SIZE - 12, COL_GRAY);
+
+    // Tab bar
     sdl_rect(0, TOOLBAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
     sdl_rect(0, TOOLBAR_H,     TV_W, TAB_BAR_H, COL_CHROME_BG);
 
@@ -232,11 +550,14 @@ static void draw_browser_ui(void)
              TOOLBAR_H + TAB_BAR_H - 6, COL_NEW_TAB_BTN, 0);
     sdl_rect(0, TOOLBAR_H + TAB_BAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
 
+    // Content area
     sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2 + 24, COL_GRAY, 1);
 
-    sdl_text(s_font_sm,
-        "Tap address bar or press A to type  |  ZL/ZR: tabs  |  X: new  |  Y: close",
-        TV_W/2, TV_H - 8, COL_GRAY, 1);
+    // Hint bar
+    const char* hint = g_settings.improved_multitasking
+        ? "A: type URL  |  ZL/ZR: tabs  |  X: new  |  Y: close  |  SELECT: tab switcher"
+        : "Tap address bar or press A to type  |  ZL/ZR: tabs  |  X: new  |  Y: close";
+    sdl_text(s_font_sm, hint, TV_W/2, TV_H - 8, COL_GRAY, 1);
 
     SDL_RenderPresent(s_renderer);
 }
@@ -413,7 +734,7 @@ static void write_run_id(long long id)
     fclose(f);
 }
 
-// ─── ZIP extraction (via minizip) ────────────────────────────────────────────
+// ─── ZIP extraction ──────────────────────────────────────────────────────────
 
 static int extract_wuhb_from_zip(const char* zip_path, const char* out_path)
 {
@@ -431,16 +752,12 @@ static int extract_wuhb_from_zip(const char* zip_path, const char* out_path)
 
             size_t nlen = strlen(fname);
             bool is_wuhb = nlen > 5 && strcmp(fname + nlen - 5, ".wuhb") == 0;
-
             if (!is_wuhb) continue;
 
             if (unzOpenCurrentFile(zf) != UNZ_OK) break;
 
             FILE* out = fopen(out_path, "wb");
-            if (!out) {
-                unzCloseCurrentFile(zf);
-                break;
-            }
+            if (!out) { unzCloseCurrentFile(zf); break; }
 
             uint8_t buf[8192];
             int bytes_read;
@@ -449,8 +766,6 @@ static int extract_wuhb_from_zip(const char* zip_path, const char* out_path)
 
             fclose(out);
             unzCloseCurrentFile(zf);
-
-            // bytes_read == 0 means clean EOF; negative means error
             found = (bytes_read == 0) ? 1 : 0;
             break;
 
@@ -505,17 +820,14 @@ static void run_splash_and_update(void)
     draw_splash(msg, 0.0);
     usleep(800000);
 
-    int dl_ok = fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH);
-    if (dl_ok != 0) {
+    if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
         draw_splash("Download failed. Starting...", -1.0);
         usleep(16000 * 120);
         return;
     }
 
     draw_splash("Extracting update...", 100.0);
-
     int ex_ok = extract_wuhb_from_zip(ZIP_TMP_PATH, WUHB_OUT_PATH);
-
     remove(ZIP_TMP_PATH);
 
     if (ex_ok != 0) {
@@ -525,12 +837,11 @@ static void run_splash_and_update(void)
     }
 
     write_run_id(latest_run_id);
-
-    draw_splash("Update saved to SD card! Copy to /wiiu/apps/ and restart.", 100.0);
+    draw_splash("Update saved! Copy to /wiiu/apps/ and restart.", 100.0);
     usleep(16000 * 240);
 }
 
-// ─── Touch helpers ───────────────────────────────────────────────────────────
+// ─── Touch hit test ──────────────────────────────────────────────────────────
 
 static bool touch_hit(VPADTouchData* tp, int tv_x, int tv_y, int tv_w, int tv_h)
 {
@@ -541,7 +852,7 @@ static bool touch_hit(VPADTouchData* tp, int tv_x, int tv_y, int tv_w, int tv_h)
            ty >= tv_y && ty < tv_y + tv_h;
 }
 
-// ─── Input ───────────────────────────────────────────────────────────────────
+// ─── Browser input ───────────────────────────────────────────────────────────
 
 static void handle_input(VPADStatus* vpad)
 {
@@ -565,13 +876,29 @@ static void handle_input(VPADStatus* vpad)
         if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
     }
 
+    // SELECT opens tab switcher (Improved Multi Tasking feature)
+    if ((btn & VPAD_BUTTON_MINUS) && g_settings.improved_multitasking)
+        s_show_tab_switcher = true;
+
+    // Touch
     VPADTouchData tp;
     VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
 
     if (tp.touched && !(vpad->tpNormal.touched)) {
-        if (touch_hit(&tp, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H))
-            open_url_keyboard();
 
+        // Gear / settings icon
+        if (touch_hit(&tp, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE)) {
+            s_in_settings = true;
+            return;
+        }
+
+        // Address bar
+        if (touch_hit(&tp, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H)) {
+            open_url_keyboard();
+            return;
+        }
+
+        // Tab bar
         for (int i = 0; i < s_tab_count; i++) {
             if (touch_hit(&tp, i * TAB_W, TOOLBAR_H, TAB_W - 20, TAB_H)) {
                 s_active_tab = i;
@@ -586,6 +913,7 @@ static void handle_input(VPADStatus* vpad)
             }
         }
 
+        // New tab (+) button
         if (s_tab_count < MAX_TABS &&
             touch_hit(&tp, s_tab_count * TAB_W + 8, TOOLBAR_H, 30, TAB_BAR_H)) {
             memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
@@ -600,7 +928,6 @@ static void handle_input(VPADStatus* vpad)
 int main(int /*argc*/, char** /*argv*/)
 {
     ProcUIInitEx(SaveCallback, nullptr);
-
     AXInit();
 
     SDL_Init(SDL_INIT_VIDEO);
@@ -608,7 +935,6 @@ int main(int /*argc*/, char** /*argv*/)
 
     s_window = SDL_CreateWindow("Wave Browser",
         SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, TV_W, TV_H, 0);
-
     s_renderer = SDL_CreateRenderer(s_window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
@@ -621,6 +947,11 @@ int main(int /*argc*/, char** /*argv*/)
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
+    // Load persisted settings and session
+    settings_load();
+    if (g_settings.improved_multitasking)
+        load_session();
+
     run_splash_and_update();
 
     while (s_running) {
@@ -628,16 +959,39 @@ int main(int /*argc*/, char** /*argv*/)
 
         if (status == PROCUI_STATUS_EXITING) {
             s_running = false;
+
         } else if (status == PROCUI_STATUS_RELEASE_FOREGROUND) {
+            // Save session when going to background (Home button pressed)
+            if (g_settings.improved_multitasking) {
+                save_session();
+                s_was_backgrounded = true;
+            }
             ProcUIDrawDoneRelease();
+
         } else if (status == PROCUI_STATUS_IN_FOREGROUND) {
+            // Returned from background — session already in memory via ProcUI
+            s_was_backgrounded = false;
+
             VPADStatus vpad;
             VPADReadError error;
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
-            handle_input(&vpad);
-            draw_browser_ui();
+
+            if (s_in_settings) {
+                handle_settings_input(&vpad);
+                draw_settings_screen();
+            } else if (s_show_tab_switcher) {
+                handle_switcher_input(&vpad);
+                draw_tab_switcher();
+            } else {
+                handle_input(&vpad);
+                draw_browser_ui();
+            }
         }
     }
+
+    // Save session on clean exit
+    if (g_settings.improved_multitasking)
+        save_session();
 
     curl_global_cleanup();
 
