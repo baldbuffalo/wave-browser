@@ -11,6 +11,7 @@
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <zlib.h>
+#include <zip.h>
 #include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
@@ -412,89 +413,51 @@ static void write_run_id(long long id)
     fclose(f);
 }
 
-// ─── ZIP extraction ──────────────────────────────────────────────────────────
+// ─── ZIP extraction (via minizip) ────────────────────────────────────────────
 
 static int extract_wuhb_from_zip(const char* zip_path, const char* out_path)
 {
-    FILE* f = fopen(zip_path, "rb");
-    if (!f) return 1;
+    unzFile zf = unzOpen(zip_path);
+    if (!zf) return 1;
 
     int found = 0;
 
-    while (!found) {
-        // Local file header signature = 0x04034b50
-        uint32_t sig = 0;
-        if (fread(&sig, 4, 1, f) != 1) break;
-        if (sig != 0x04034b50) break;
+    if (unzGoToFirstFile(zf) == UNZ_OK) {
+        do {
+            char fname[256] = {0};
+            unz_file_info fi;
+            unzGetCurrentFileInfo(zf, &fi, fname, sizeof(fname) - 1,
+                                  nullptr, 0, nullptr, 0);
 
-        uint16_t version, flags, method, modtime, moddate;
-        uint32_t crc, comp_size, uncomp_size;
-        uint16_t fname_len, extra_len;
+            size_t nlen = strlen(fname);
+            bool is_wuhb = nlen > 5 && strcmp(fname + nlen - 5, ".wuhb") == 0;
 
-        fread(&version,     2, 1, f);
-        fread(&flags,       2, 1, f);
-        fread(&method,      2, 1, f);
-        fread(&modtime,     2, 1, f);
-        fread(&moddate,     2, 1, f);
-        fread(&crc,         4, 1, f);
-        fread(&comp_size,   4, 1, f);
-        fread(&uncomp_size, 4, 1, f);
-        fread(&fname_len,   2, 1, f);
-        fread(&extra_len,   2, 1, f);
+            if (!is_wuhb) continue;
 
-        char fname[256] = {0};
-        fread(fname, 1, fname_len < 255 ? fname_len : 255, f);
-        fseek(f, extra_len, SEEK_CUR);
+            if (unzOpenCurrentFile(zf) != UNZ_OK) break;
 
-        size_t nlen = strlen(fname);
-        int is_wuhb = nlen > 5 && strcmp(fname + nlen - 5, ".wuhb") == 0;
-
-        if (!is_wuhb) {
-            fseek(f, comp_size, SEEK_CUR);
-            continue;
-        }
-
-        FILE* out = fopen(out_path, "wb");
-        if (!out) break;
-
-        if (method == 0) {
-            // Stored (no compression)
-            char buf[4096];
-            uint32_t remaining = comp_size;
-            while (remaining > 0) {
-                uint32_t chunk = remaining < sizeof(buf) ? remaining : (uint32_t)sizeof(buf);
-                fread(buf, 1, chunk, f);
-                fwrite(buf, 1, chunk, out);
-                remaining -= chunk;
+            FILE* out = fopen(out_path, "wb");
+            if (!out) {
+                unzCloseCurrentFile(zf);
+                break;
             }
-            found = 1;
-        } else if (method == 8) {
-            // Deflate
-            uint8_t* comp_buf = (uint8_t*)malloc(comp_size);
-            uint8_t* out_buf  = (uint8_t*)malloc(uncomp_size);
-            if (comp_buf && out_buf) {
-                fread(comp_buf, 1, comp_size, f);
-                z_stream zs = {};
-                inflateInit2(&zs, -MAX_WBITS);
-                zs.next_in   = comp_buf;
-                zs.avail_in  = comp_size;
-                zs.next_out  = out_buf;
-                zs.avail_out = uncomp_size;
-                if (inflate(&zs, Z_FINISH) == Z_STREAM_END) {
-                    fwrite(out_buf, 1, zs.total_out, out);
-                    found = 1;
-                }
-                inflateEnd(&zs);
-            }
-            free(comp_buf);
-            free(out_buf);
-        }
 
-        fclose(out);
-        break;
+            uint8_t buf[8192];
+            int bytes_read;
+            while ((bytes_read = unzReadCurrentFile(zf, buf, sizeof(buf))) > 0)
+                fwrite(buf, 1, bytes_read, out);
+
+            fclose(out);
+            unzCloseCurrentFile(zf);
+
+            // bytes_read == 0 means clean EOF; negative means error
+            found = (bytes_read == 0) ? 1 : 0;
+            break;
+
+        } while (unzGoToNextFile(zf) == UNZ_OK);
     }
 
-    fclose(f);
+    unzClose(zf);
     return found ? 0 : 1;
 }
 
