@@ -28,19 +28,9 @@ jobs:
           apt-get update
           apt-get install -y zip libxml2-utils
 
-      - name: Vendor minizip from MSYS2 package
+      - name: Install devkitPro WiiU libraries
         run: |
-          # Scrape the latest version number from the MSYS2 package page
-          ZLIB_VER=$(curl -sL "https://packages.msys2.org/packages/mingw-w64-x86_64-minizip" \
-            | grep -oP 'mingw-w64-x86_64-minizip-\K[0-9]+\.[0-9]+\.[0-9]+(?=-[0-9])' \
-            | head -1)
-          echo "Using zlib version: $ZLIB_VER"
-          # Pull all four files from the matching zlib tag on GitHub
-          mkdir -p wave_browser/minizip
-          BASE="https://raw.githubusercontent.com/madler/zlib/v${ZLIB_VER}/contrib/minizip"
-          for f in ioapi.h ioapi.c unzip.h unzip.c; do
-            curl -fsSL "$BASE/$f" -o "wave_browser/minizip/$f"
-          done
+          dkp-pacman -Sy --noconfirm wiiu-sndcore2
 
       - name: Add devkitPro tools to PATH
         run: |
