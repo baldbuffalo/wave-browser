@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------------------
 TARGET      := WaveBrowser
 BUILD       := build
-SOURCES     := wave_browser wave_browser/minizip
+SOURCES     := wave_browser
 RELEASE_DIR := release/$(TARGET)
 
 #---------------------------------------------------------------------------------
@@ -29,8 +29,7 @@ COMMON_FLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float \
                 -I$(DEVKITPRO)/portlibs/wiiu/include \
                 -I$(DEVKITPRO)/portlibs/wiiu/include/SDL2 \
                 -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
-                -I$(DEVKITPRO)/portlibs/ppc/include \
-                -Iwave_browser
+                -I$(DEVKITPRO)/portlibs/ppc/include
 
 CFLAGS      := $(COMMON_FLAGS)
 CXXFLAGS    := $(COMMON_FLAGS) -std=c++17 -fno-exceptions -fno-rtti
