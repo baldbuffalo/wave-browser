@@ -26,31 +26,21 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y zip libxml2-utils zstd
+          apt-get install -y zip libxml2-utils
 
       - name: Vendor minizip from MSYS2 package
         run: |
-          # Resolve the latest package filename from the MSYS2 package page
-          PKG_URL=$(curl -sL "https://packages.msys2.org/packages/mingw-w64-x86_64-minizip" \
-            | grep -o 'https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-minizip-[^"]*\.pkg\.tar\.zst' \
-            | head -1)
-          echo "Downloading: $PKG_URL"
-          curl -sL "$PKG_URL" -o minizip.pkg.tar.zst
-          mkdir -p minizip_pkg
-          tar -I zstd -xf minizip.pkg.tar.zst -C minizip_pkg
-          # Copy headers into the vendored dir
-          mkdir -p wave_browser/minizip
-          cp minizip_pkg/mingw64/include/minizip/ioapi.h wave_browser/minizip/
-          cp minizip_pkg/mingw64/include/minizip/unzip.h wave_browser/minizip/
-          # Fetch matching .c sources from the same upstream zlib version
+          # Scrape the latest version number from the MSYS2 package page
           ZLIB_VER=$(curl -sL "https://packages.msys2.org/packages/mingw-w64-x86_64-minizip" \
-            | grep -o 'mingw-w64-x86_64-minizip-[0-9.]*' | head -1 \
-            | grep -o '[0-9][0-9.]*' | head -1)
-          echo "Upstream zlib version: $ZLIB_VER"
+            | grep -oP 'mingw-w64-x86_64-minizip-\K[0-9]+\.[0-9]+\.[0-9]+(?=-[0-9])' \
+            | head -1)
+          echo "Using zlib version: $ZLIB_VER"
+          # Pull all four files from the matching zlib tag on GitHub
+          mkdir -p wave_browser/minizip
           BASE="https://raw.githubusercontent.com/madler/zlib/v${ZLIB_VER}/contrib/minizip"
-          curl -sL "$BASE/ioapi.c" -o wave_browser/minizip/ioapi.c
-          curl -sL "$BASE/unzip.c" -o wave_browser/minizip/unzip.c
-          rm -rf minizip.pkg.tar.zst minizip_pkg
+          for f in ioapi.h ioapi.c unzip.h unzip.c; do
+            curl -fsSL "$BASE/$f" -o "wave_browser/minizip/$f"
+          done
 
       - name: Add devkitPro tools to PATH
         run: |
