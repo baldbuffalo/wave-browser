@@ -11,7 +11,7 @@
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <zlib.h>
-#include <zip.h>
+#include "unzip.h"
 #include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
