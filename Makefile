@@ -47,6 +47,7 @@ LIBS    := -lSDL2 -lSDL2_ttf -lharfbuzz \
            -lsndcore2 \
            -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
            -lbrotlidec -lbrotlicommon \
+           -lminizip \
            -lfreetype -lpng -lbz2 -lz \
            -lwut -lm
 
