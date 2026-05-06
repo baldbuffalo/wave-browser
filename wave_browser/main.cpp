@@ -10,7 +10,7 @@
 #include "font_data.h"
 #include <SDL.h>
 #include <SDL_ttf.h>
-#include <minizip/unzip.h>
+#include <zlib.h>
 #include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
@@ -20,21 +20,14 @@
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-// File on SD card that stores the last seen Actions run ID
 #define RUN_ID_PATH     "fs:/vol/external01/wave-browser-run-id.txt"
-// Downloaded zip lands here temporarily
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
-// Extracted WUHB goes here (user copies it to /wiiu/apps/ manually, or you can
-// adjust the path to wherever your loader expects it)
 #define WUHB_OUT_PATH   "fs:/vol/external01/WaveBrowser-update.wuhb"
 
-// GitHub API: latest successful run on main branch
 #define ACTIONS_API_URL \
     "https://api.github.com/repos/baldbuffalo/wave-browser/actions/runs" \
     "?branch=main&status=success&per_page=1"
 
-// nightly.link always serves the artifact from the latest successful run
-// without requiring a GitHub token
 #define ARTIFACT_ZIP_URL \
     "https://nightly.link/baldbuffalo/wave-browser/workflows/build.yml/main/WaveBrowser.zip"
 
@@ -202,7 +195,7 @@ static void draw_tab(int idx, int active)
     char trunc[24];
     strncpy(trunc, title, 20);
     trunc[20] = '\0';
-    sdl_text(s_font_sm, trunc, tx + 28,        ty + TAB_H - 4, COL_TAB_TEXT,  0);
+    sdl_text(s_font_sm, trunc, tx + 28,         ty + TAB_H - 4, COL_TAB_TEXT,  0);
     sdl_text(s_font_sm, "x",   tx + TAB_W - 18, ty + TAB_H - 4, COL_CLOSE_BTN, 0);
 
     if (active)
@@ -354,7 +347,6 @@ static void curl_common(CURL* curl)
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 }
 
-// Fetch URL into a memory buffer. Returns allocated buffer (caller frees) or nullptr.
 static char* fetch_string(const char* url)
 {
     CURL* curl = curl_easy_init();
@@ -374,10 +366,9 @@ static char* fetch_string(const char* url)
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) { free(buf.data); return nullptr; }
-    return buf.data; // caller must free
+    return buf.data;
 }
 
-// Download URL to a file on disk. Returns 0 on success.
 static int fetch_file(const char* url, const char* path)
 {
     FILE* f = fopen(path, "wb");
@@ -403,7 +394,6 @@ static int fetch_file(const char* url, const char* path)
 
 // ─── Run-ID persistence ──────────────────────────────────────────────────────
 
-// Read the last stored run ID from SD card. Returns 0 if not found.
 static long long read_stored_run_id(void)
 {
     FILE* f = fopen(RUN_ID_PATH, "r");
@@ -424,42 +414,87 @@ static void write_run_id(long long id)
 
 // ─── ZIP extraction ──────────────────────────────────────────────────────────
 
-// Extract the first .wuhb file found inside a zip to out_path.
-// Returns 0 on success.
 static int extract_wuhb_from_zip(const char* zip_path, const char* out_path)
 {
-    unzFile zf = unzOpen(zip_path);
-    if (!zf) return 1;
+    FILE* f = fopen(zip_path, "rb");
+    if (!f) return 1;
 
-    // Walk entries looking for a .wuhb file
     int found = 0;
-    int err = unzGoToFirstFile(zf);
-    while (err == UNZ_OK) {
-        char name[256];
-        unz_file_info fi;
-        unzGetCurrentFileInfo(zf, &fi, name, sizeof(name), nullptr, 0, nullptr, 0);
 
-        size_t nlen = strlen(name);
-        if (nlen > 5 && strcmp(name + nlen - 5, ".wuhb") == 0) {
-            // Found it — extract
-            if (unzOpenCurrentFile(zf) == UNZ_OK) {
-                FILE* out = fopen(out_path, "wb");
-                if (out) {
-                    char chunk[4096];
-                    int bytes;
-                    while ((bytes = unzReadCurrentFile(zf, chunk, sizeof(chunk))) > 0)
-                        fwrite(chunk, 1, bytes, out);
-                    fclose(out);
+    while (!found) {
+        // Local file header signature = 0x04034b50
+        uint32_t sig = 0;
+        if (fread(&sig, 4, 1, f) != 1) break;
+        if (sig != 0x04034b50) break;
+
+        uint16_t version, flags, method, modtime, moddate;
+        uint32_t crc, comp_size, uncomp_size;
+        uint16_t fname_len, extra_len;
+
+        fread(&version,     2, 1, f);
+        fread(&flags,       2, 1, f);
+        fread(&method,      2, 1, f);
+        fread(&modtime,     2, 1, f);
+        fread(&moddate,     2, 1, f);
+        fread(&crc,         4, 1, f);
+        fread(&comp_size,   4, 1, f);
+        fread(&uncomp_size, 4, 1, f);
+        fread(&fname_len,   2, 1, f);
+        fread(&extra_len,   2, 1, f);
+
+        char fname[256] = {0};
+        fread(fname, 1, fname_len < 255 ? fname_len : 255, f);
+        fseek(f, extra_len, SEEK_CUR);
+
+        size_t nlen = strlen(fname);
+        int is_wuhb = nlen > 5 && strcmp(fname + nlen - 5, ".wuhb") == 0;
+
+        if (!is_wuhb) {
+            fseek(f, comp_size, SEEK_CUR);
+            continue;
+        }
+
+        FILE* out = fopen(out_path, "wb");
+        if (!out) break;
+
+        if (method == 0) {
+            // Stored (no compression)
+            char buf[4096];
+            uint32_t remaining = comp_size;
+            while (remaining > 0) {
+                uint32_t chunk = remaining < sizeof(buf) ? remaining : (uint32_t)sizeof(buf);
+                fread(buf, 1, chunk, f);
+                fwrite(buf, 1, chunk, out);
+                remaining -= chunk;
+            }
+            found = 1;
+        } else if (method == 8) {
+            // Deflate
+            uint8_t* comp_buf = (uint8_t*)malloc(comp_size);
+            uint8_t* out_buf  = (uint8_t*)malloc(uncomp_size);
+            if (comp_buf && out_buf) {
+                fread(comp_buf, 1, comp_size, f);
+                z_stream zs = {};
+                inflateInit2(&zs, -MAX_WBITS);
+                zs.next_in   = comp_buf;
+                zs.avail_in  = comp_size;
+                zs.next_out  = out_buf;
+                zs.avail_out = uncomp_size;
+                if (inflate(&zs, Z_FINISH) == Z_STREAM_END) {
+                    fwrite(out_buf, 1, zs.total_out, out);
                     found = 1;
                 }
-                unzCloseCurrentFile(zf);
+                inflateEnd(&zs);
             }
-            break;
+            free(comp_buf);
+            free(out_buf);
         }
-        err = unzGoToNextFile(zf);
+
+        fclose(out);
+        break;
     }
 
-    unzClose(zf);
+    fclose(f);
     return found ? 0 : 1;
 }
 
@@ -472,7 +507,6 @@ static void run_splash_and_update(void)
 
     draw_splash("Checking for updates...", -1.0);
 
-    // Query the latest successful Actions run on main
     char* json = fetch_string(ACTIONS_API_URL);
     if (!json) {
         draw_splash("No network. Starting...", -1.0);
@@ -480,12 +514,10 @@ static void run_splash_and_update(void)
         return;
     }
 
-    // Parse "id": <number> from workflow_runs[0]
-    // The API returns: {"workflow_runs":[{"id":123456789,...},...]}
     long long latest_run_id = 0;
     const char* id_ptr = strstr(json, "\"id\":");
     if (id_ptr) {
-        id_ptr += 5; // skip "id":
+        id_ptr += 5;
         while (*id_ptr == ' ') id_ptr++;
         latest_run_id = atoll(id_ptr);
     }
@@ -505,13 +537,11 @@ static void run_splash_and_update(void)
         return;
     }
 
-    // New run available — show info and download
     char msg[80];
     snprintf(msg, sizeof(msg), "New build found (run #%lld). Downloading...", latest_run_id);
     draw_splash(msg, 0.0);
     usleep(800000);
 
-    // Download zip from nightly.link
     int dl_ok = fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH);
     if (dl_ok != 0) {
         draw_splash("Download failed. Starting...", -1.0);
@@ -521,10 +551,8 @@ static void run_splash_and_update(void)
 
     draw_splash("Extracting update...", 100.0);
 
-    // Extract .wuhb from the zip
     int ex_ok = extract_wuhb_from_zip(ZIP_TMP_PATH, WUHB_OUT_PATH);
 
-    // Clean up temp zip regardless
     remove(ZIP_TMP_PATH);
 
     if (ex_ok != 0) {
@@ -533,11 +561,10 @@ static void run_splash_and_update(void)
         return;
     }
 
-    // Store the new run ID so we don't re-download next time
     write_run_id(latest_run_id);
 
     draw_splash("Update saved to SD card! Copy to /wiiu/apps/ and restart.", 100.0);
-    usleep(16000 * 240); // ~4 seconds
+    usleep(16000 * 240);
 }
 
 // ─── Touch helpers ───────────────────────────────────────────────────────────
@@ -559,7 +586,7 @@ static void handle_input(VPADStatus* vpad)
 
     if (btn & VPAD_BUTTON_A) open_url_keyboard();
 
-    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0)           s_active_tab--;
+    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0)               s_active_tab--;
     if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) s_active_tab++;
 
     if ((btn & VPAD_BUTTON_X) && s_tab_count < MAX_TABS) {
@@ -575,16 +602,13 @@ static void handle_input(VPADStatus* vpad)
         if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
     }
 
-    // DRC touch
     VPADTouchData tp;
     VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
 
     if (tp.touched && !(vpad->tpNormal.touched)) {
-        // Address bar
         if (touch_hit(&tp, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H))
             open_url_keyboard();
 
-        // Tab switch / close
         for (int i = 0; i < s_tab_count; i++) {
             if (touch_hit(&tp, i * TAB_W, TOOLBAR_H, TAB_W - 20, TAB_H)) {
                 s_active_tab = i;
@@ -599,7 +623,6 @@ static void handle_input(VPADStatus* vpad)
             }
         }
 
-        // New tab +
         if (s_tab_count < MAX_TABS &&
             touch_hit(&tp, s_tab_count * TAB_W + 8, TOOLBAR_H, 30, TAB_BAR_H)) {
             memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
@@ -615,7 +638,6 @@ int main(int /*argc*/, char** /*argv*/)
 {
     ProcUIInitEx(SaveCallback, nullptr);
 
-    // Stop system boot music — Bloopair pattern
     AXInit();
 
     SDL_Init(SDL_INIT_VIDEO);
