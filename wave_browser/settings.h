@@ -8,6 +8,8 @@
 
 struct WaveSettings {
     bool improved_multitasking = false;
+    bool improved_remote       = false;
+    int  tv_brand_index        = 0;
 };
 
 extern WaveSettings g_settings;
