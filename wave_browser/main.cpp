@@ -32,6 +32,8 @@
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
 #define ZIP_FOLDER_PFX  "WaveBrowser/"
 
+#define MAX_UPDATE_ATTEMPTS 3
+
 #define ACTIONS_API_URL \
     "https://api.github.com/repos/baldbuffalo/wave-browser/actions/runs" \
     "?branch=main&status=success&per_page=1"
@@ -116,15 +118,44 @@ static bool s_was_backgrounded  = false;
 //  Row 0 — Toolbar:  col 0=BACK  1=FWD  2=RELOAD  3=ADDR  4=GEAR
 //  Row 1 — Tab bar:  col 0..tab_count-1 = tabs, col tab_count = NEW TAB (+)
 //
-static int s_focus_row = 0; // 0 = toolbar, 1 = tab bar
-static int s_focus_col = 3; // default: address bar
+static int s_focus_row = 0;
+static int s_focus_col = 3;
 
-// Stick navigation repeat (frames held before repeating)
 static int  s_stick_held   = 0;
 static bool s_stick_active = false;
 
 #define STICK_DEAD    0.45f
-#define STICK_REPEAT  18   // frames until repeat fires
+#define STICK_REPEAT  18
+
+// ─── Global touch state ──────────────────────────────────────────────────────
+//
+// Polled once per frame before any input handler.
+// s_tp_tapped is true for exactly one frame when the finger lifts.
+// s_tp_last_x/y are in TV-space pixels (0..1279, 0..719).
+//
+static bool s_tp_prev   = false;
+static int  s_tp_last_x = 0;
+static int  s_tp_last_y = 0;
+static bool s_tp_tapped = false;
+
+static void poll_touch(VPADStatus* vpad)
+{
+    VPADTouchData tp;
+    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
+
+    // Only use the coordinates when the hardware reports them as valid.
+    bool valid_touch = (tp.touched != 0) && (tp.validity == VPAD_VALID);
+
+    if (valid_touch) {
+        // Map DRC touch space (854×480) to TV draw space (1280×720).
+        s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
+        s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
+    }
+
+    // Tap fires for exactly one frame on finger-lift.
+    s_tp_tapped = s_tp_prev && !valid_touch;
+    s_tp_prev   = valid_touch;
+}
 
 // ─── SDL globals ─────────────────────────────────────────────────────────────
 
@@ -246,7 +277,6 @@ static void sdl_progress_bar(int x, int y, int w, int h, double pct)
     sdl_outline(x, y, w, h, COL_WHITE);
 }
 
-// 3-bar hamburger / settings icon
 static void draw_gear_icon(int x, int y, int size, SDL_Color c)
 {
     int bar_h = size / 6;
@@ -295,7 +325,7 @@ static void draw_tab_switcher()
     int card_y  = TV_H / 2 - CARD_H / 2;
 
     for (int i = 0; i < s_tab_count; i++) {
-        int cx     = start_x + i * (CARD_W + CARD_GAP);
+        int cx      = start_x + i * (CARD_W + CARD_GAP);
         bool active = (i == s_active_tab);
 
         sdl_rect(cx + 3, card_y + 3, CARD_W, CARD_H, {0x00,0x00,0x00,0x60});
@@ -303,8 +333,7 @@ static void draw_tab_switcher()
 
         if (active)
             for (int d = 0; d < 3; d++)
-                sdl_outline(cx - d, card_y - d, CARD_W + d*2, CARD_H + d*2,
-                            COL_BLUE);
+                sdl_outline(cx - d, card_y - d, CARD_W + d*2, CARD_H + d*2, COL_BLUE);
         else
             sdl_outline(cx, card_y, CARD_W, CARD_H, COL_WHITE_DIM);
 
@@ -313,8 +342,7 @@ static void draw_tab_switcher()
         char short_title[20];
         strncpy(short_title, title, 18);
         short_title[18] = '\0';
-        sdl_text(s_font_sm, short_title, cx + CARD_W / 2, card_y + 20,
-                 COL_WHITE, 1);
+        sdl_text(s_font_sm, short_title, cx + CARD_W / 2, card_y + 20, COL_WHITE, 1);
 
         if (s_tabs[i].url[0]) {
             char short_url[28];
@@ -328,8 +356,7 @@ static void draw_tab_switcher()
 
         char num[4];
         snprintf(num, sizeof(num), "%d", i + 1);
-        sdl_rect(cx + CARD_W - 22, card_y + 32, 18, 18,
-                 active ? COL_BLUE : COL_GRAY);
+        sdl_rect(cx + CARD_W - 22, card_y + 32, 18, 18, active ? COL_BLUE : COL_GRAY);
         sdl_text(s_font_sm, num, cx + CARD_W - 13, card_y + 48, COL_WHITE, 1);
     }
 
@@ -355,31 +382,16 @@ static void handle_switcher_input(VPADStatus* vpad)
         return;
     }
 
-    static bool s_tp_prev   = false;
-    static int  s_tp_last_x = 0, s_tp_last_y = 0;
-
-    VPADTouchData tp;
-    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
-
-    if (tp.touched) {
-        s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
-        s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
-    }
-
-    bool tapped = s_tp_prev && !tp.touched;
-    s_tp_prev   = (bool)tp.touched;
-
-    if (tapped) {
+    if (s_tp_tapped) {
         const int CARD_W = 210, CARD_H = 130, CARD_GAP = 24;
         int total_w = s_tab_count * CARD_W + (s_tab_count - 1) * CARD_GAP;
         int start_x = (TV_W - total_w) / 2;
         int card_y  = TV_H / 2 - CARD_H / 2;
 
-        int tx = s_tp_last_x, ty = s_tp_last_y;
         for (int i = 0; i < s_tab_count; i++) {
             int cx = start_x + i * (CARD_W + CARD_GAP);
-            if (tx >= cx && tx < cx + CARD_W &&
-                ty >= card_y && ty < card_y + CARD_H) {
+            if (s_tp_last_x >= cx && s_tp_last_x < cx + CARD_W &&
+                s_tp_last_y >= card_y && s_tp_last_y < card_y + CARD_H) {
                 s_active_tab        = i;
                 s_show_tab_switcher = false;
                 break;
@@ -468,8 +480,7 @@ static void draw_browser_ui(void)
 
     sdl_rect(0, TOOLBAR_H + TAB_BAR_H - 1, TV_W, 1, COL_TOOLBAR_LINE);
 
-    sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2 + 24,
-             COL_GRAY, 1);
+    sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y + CONTENT_H/2 + 24, COL_GRAY, 1);
 
     const char* hint = g_settings.improved_multitasking
         ? "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  Y: close tab  SELECT: tab view"
@@ -655,10 +666,6 @@ static void write_run_id(long long id)
 }
 
 // ─── File backup / restore helpers ───────────────────────────────────────────
-//
-// Reads a file into a malloc'd buffer so it can survive the folder wipe during
-// an update. Caller must free() the returned pointer.
-// Returns nullptr (and sets *out_len = 0) if the file doesn't exist yet.
 
 static char* file_backup(const char* path, size_t* out_len)
 {
@@ -692,7 +699,21 @@ static void file_restore(const char* path, const char* buf, size_t len)
 
 // ─── Install directory helpers ───────────────────────────────────────────────
 
-// Remove every file we know about inside INSTALL_DIR, then rmdir it.
+static void mkdir_p(const char* path)
+{
+    char tmp[512];
+    strncpy(tmp, path, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+    for (char* p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            mkdir(tmp, 0777);
+            *p = '/';
+        }
+    }
+    mkdir(tmp, 0777);
+}
+
 static void remove_old_install(void)
 {
     remove(INSTALL_WUHB);
@@ -704,14 +725,12 @@ static void remove_old_install(void)
 
 // ─── ZIP extraction ──────────────────────────────────────────────────────────
 
-// Extract all files from zip_path into out_dir, stripping the leading
-// "WaveBrowser/" folder prefix that the CI build puts in the zip.
 static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
 {
     unzFile zf = unzOpen(zip_path);
     if (!zf) return 1;
 
-    mkdir(out_dir, 0777);
+    mkdir_p(out_dir);
 
     const size_t pfx_len = strlen(ZIP_FOLDER_PFX);
     int result = 0;
@@ -724,11 +743,8 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
                                   nullptr, 0, nullptr, 0);
 
             size_t nlen = strlen(fname);
-
-            // Skip directory entries
             if (nlen > 0 && fname[nlen - 1] == '/') continue;
 
-            // Strip leading "WaveBrowser/" prefix if present
             const char* rel = fname;
             if (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
                 rel = fname + pfx_len;
@@ -809,42 +825,55 @@ static void run_splash_and_update(void)
     draw_splash(msg, 0.0);
     usleep(800000);
 
-    // ── 1. Download zip ───────────────────────────────────────────────────────
-    if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
-        draw_splash("Download failed. Starting...", -1.0);
-        usleep(16000 * 120);
-        return;
+    // Back up session before any destructive work.
+    size_t session_len = 0;
+    char*  session_buf = file_backup(SESSION_PATH, &session_len);
+
+    bool success = false;
+
+    for (int attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS && !success; attempt++) {
+
+        if (attempt > 1) {
+            char retry_msg[64];
+            snprintf(retry_msg, sizeof(retry_msg),
+                     "Retrying... (attempt %d / %d)", attempt, MAX_UPDATE_ATTEMPTS);
+            draw_splash(retry_msg, 0.0);
+            usleep(2000000);
+        }
+
+        remove(ZIP_TMP_PATH);
+
+        if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
+            draw_splash("Download failed.", -1.0);
+            usleep(16000 * 60);
+            continue;
+        }
+
+        draw_splash("Removing old version...", 100.0);
+        remove_old_install();
+
+        draw_splash("Installing update...", 100.0);
+        int ex_ok = extract_zip_to_dir(ZIP_TMP_PATH, INSTALL_DIR);
+
+        remove(ZIP_TMP_PATH);
+
+        if (ex_ok != 0) {
+            draw_splash("Extraction failed. Retrying...", -1.0);
+            usleep(16000 * 60);
+            continue;
+        }
+
+        write_run_id(latest_run_id);
+        file_restore(SESSION_PATH, session_buf, session_len);
+
+        success = true;
     }
 
-    // ── 2. Back up run-id and session from inside the install folder ──────────
-    //       (both live in INSTALL_DIR so they'd be lost when we wipe it)
-    size_t run_id_len  = 0, session_len = 0;
-    char*  run_id_buf  = file_backup(RUN_ID_PATH,  &run_id_len);
-    char*  session_buf = file_backup(SESSION_PATH,  &session_len);
-
-    // ── 3. Wipe old install folder ────────────────────────────────────────────
-    draw_splash("Removing old version...", 100.0);
-    remove_old_install();
-
-    // ── 4. Extract zip into wiiu/apps/WaveBrowser/ ────────────────────────────
-    draw_splash("Installing update...", 100.0);
-    int ex_ok = extract_zip_to_dir(ZIP_TMP_PATH, INSTALL_DIR);
-
-    // ── 5. Always delete the zip ──────────────────────────────────────────────
-    remove(ZIP_TMP_PATH);
-
-    // ── 6. Restore files into the freshly-extracted folder ───────────────────
-    if (ex_ok == 0) {
-        write_run_id(latest_run_id);              // always write the new run-id
-        file_restore(SESSION_PATH, session_buf, session_len); // restore saved tabs
-    }
-
-    free(run_id_buf);
     free(session_buf);
 
-    if (ex_ok != 0) {
-        draw_splash("Extraction failed. Starting...", -1.0);
-        usleep(16000 * 120);
+    if (!success) {
+        draw_splash("Update failed after all attempts. Starting anyway...", -1.0);
+        usleep(16000 * 180);
         return;
     }
 
@@ -996,21 +1025,8 @@ static void handle_input(VPADStatus* vpad)
     if ((btn & VPAD_BUTTON_MINUS) && g_settings.improved_multitasking)
         s_show_tab_switcher = true;
 
-    static bool s_tp_prev   = false;
-    static int  s_tp_last_x = 0, s_tp_last_y = 0;
-
-    VPADTouchData tp;
-    VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
-
-    if (tp.touched) {
-        s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
-        s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
-    }
-
-    bool tapped = s_tp_prev && !tp.touched;
-    s_tp_prev   = (bool)tp.touched;
-
-    if (tapped) {
+    // ── Touch (uses globally-polled s_tp_tapped / s_tp_last_x/y) ─────────────
+    if (s_tp_tapped) {
         int tx = s_tp_last_x, ty = s_tp_last_y;
 
         if (touch_hit(tx, ty, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE)) {
@@ -1110,6 +1126,9 @@ int main(int /*argc*/, char** /*argv*/)
             VPADStatus vpad;
             VPADReadError error;
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+
+            // Poll touch once per frame so all handlers share the same result.
+            poll_touch(&vpad);
 
             if (s_in_settings) {
                 if (!settings_handle_input(&vpad))
