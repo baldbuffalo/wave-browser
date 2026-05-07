@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------------------
 TARGET      := WaveBrowser
 BUILD       := build
-SOURCES     := wave_browser vendor/minizip
+SOURCES     := wave_browser vendor/minizip wave_browser/tv_remotes
 RELEASE_DIR := release/$(TARGET)
 
 #---------------------------------------------------------------------------------
