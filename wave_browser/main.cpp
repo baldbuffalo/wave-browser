@@ -9,6 +9,7 @@
 #include <sndcore2/core.h>
 #include "font_data.h"
 #include "settings.h"
+#include "tv_remote.h"
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <zlib.h>
@@ -114,10 +115,7 @@ static bool s_show_tab_switcher = false;
 static bool s_was_backgrounded  = false;
 
 // ─── Focus system ────────────────────────────────────────────────────────────
-//
-//  Row 0 — Toolbar:  col 0=BACK  1=FWD  2=RELOAD  3=ADDR  4=GEAR
-//  Row 1 — Tab bar:  col 0..tab_count-1 = tabs, col tab_count = NEW TAB (+)
-//
+
 static int s_focus_row = 0;
 static int s_focus_col = 3;
 
@@ -128,11 +126,7 @@ static bool s_stick_active = false;
 #define STICK_REPEAT  18
 
 // ─── Global touch state ──────────────────────────────────────────────────────
-//
-// Polled once per frame before any input handler.
-// s_tp_tapped is true for exactly one frame when the finger lifts.
-// s_tp_last_x/y are in TV-space pixels (0..1279, 0..719).
-//
+
 static bool s_tp_prev   = false;
 static int  s_tp_last_x = 0;
 static int  s_tp_last_y = 0;
@@ -143,16 +137,13 @@ static void poll_touch(VPADStatus* vpad)
     VPADTouchData tp;
     VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
 
-    // Only use the coordinates when the hardware reports them as valid.
     bool valid_touch = (tp.touched != 0) && (tp.validity == VPAD_VALID);
 
     if (valid_touch) {
-        // Map DRC touch space (854×480) to TV draw space (1280×720).
         s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
         s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
     }
 
-    // Tap fires for exactly one frame on finger-lift.
     s_tp_tapped = s_tp_prev && !valid_touch;
     s_tp_prev   = valid_touch;
 }
@@ -829,24 +820,27 @@ static void run_splash_and_update(void)
     size_t session_len = 0;
     char*  session_buf = file_backup(SESSION_PATH, &session_len);
 
+    // ── Download once ─────────────────────────────────────────────────────────
+    remove(ZIP_TMP_PATH);
+    if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
+        draw_splash("Download failed. Starting anyway...", -1.0);
+        usleep(16000 * 120);
+        free(session_buf);
+        return;
+    }
+
+    // ── Retry only the extraction (zip is already on disk) ────────────────────
     bool success = false;
 
     for (int attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS && !success; attempt++) {
 
         if (attempt > 1) {
-            char retry_msg[64];
+            char retry_msg[72];
             snprintf(retry_msg, sizeof(retry_msg),
-                     "Retrying... (attempt %d / %d)", attempt, MAX_UPDATE_ATTEMPTS);
-            draw_splash(retry_msg, 0.0);
+                     "Retrying extraction... (attempt %d / %d)",
+                     attempt, MAX_UPDATE_ATTEMPTS);
+            draw_splash(retry_msg, 100.0);
             usleep(2000000);
-        }
-
-        remove(ZIP_TMP_PATH);
-
-        if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
-            draw_splash("Download failed.", -1.0);
-            usleep(16000 * 60);
-            continue;
         }
 
         draw_splash("Removing old version...", 100.0);
@@ -855,20 +849,19 @@ static void run_splash_and_update(void)
         draw_splash("Installing update...", 100.0);
         int ex_ok = extract_zip_to_dir(ZIP_TMP_PATH, INSTALL_DIR);
 
-        remove(ZIP_TMP_PATH);
-
         if (ex_ok != 0) {
-            draw_splash("Extraction failed. Retrying...", -1.0);
+            draw_splash("Extraction failed.", -1.0);
             usleep(16000 * 60);
             continue;
         }
 
         write_run_id(latest_run_id);
         file_restore(SESSION_PATH, session_buf, session_len);
-
         success = true;
     }
 
+    // Always clean up the zip regardless of outcome.
+    remove(ZIP_TMP_PATH);
     free(session_buf);
 
     if (!success) {
@@ -1025,7 +1018,7 @@ static void handle_input(VPADStatus* vpad)
     if ((btn & VPAD_BUTTON_MINUS) && g_settings.improved_multitasking)
         s_show_tab_switcher = true;
 
-    // ── Touch (uses globally-polled s_tp_tapped / s_tp_last_x/y) ─────────────
+    // ── Touch ─────────────────────────────────────────────────────────────────
     if (s_tp_tapped) {
         int tx = s_tp_last_x, ty = s_tp_last_y;
 
@@ -1130,7 +1123,26 @@ int main(int /*argc*/, char** /*argv*/)
             // Poll touch once per frame so all handlers share the same result.
             poll_touch(&vpad);
 
-            if (s_in_settings) {
+            // ── TV button interception ──────────────────────────────────────
+            // When "Improved Remote Control" is enabled, catch the GamePad's
+            // TV button (VPAD_BUTTON_TV) before the system sees it and show
+            // our custom remote overlay instead.
+            if (g_settings.improved_remote &&
+                (vpad.trigger & VPAD_BUTTON_TV) &&
+                !s_in_settings &&
+                !s_show_tab_switcher) {
+                tv_remote_open();
+            }
+
+            // ── Route to active overlay ─────────────────────────────────────
+            if (tv_remote_is_open()) {
+                // TV remote is top-most — nothing else renders
+                tv_remote_handle_input(&vpad, s_tp_tapped,
+                                        s_tp_last_x, s_tp_last_y);
+                tv_remote_draw(s_renderer,
+                               s_font_sm, s_font_md, s_font_lg);
+
+            } else if (s_in_settings) {
                 if (!settings_handle_input(&vpad))
                     s_in_settings = false;
                 else
