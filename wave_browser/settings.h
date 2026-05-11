@@ -14,7 +14,14 @@
 struct WaveSettings {
     bool improved_multitasking = false;
     bool improved_remote       = false;
-    int  tv_brand_index        = 0;     // index into TV_BRANDS[]
+
+    // TV remote model selection
+    // Stored as "brand/year/model" string, e.g. "Samsung/2014/UE40H6400"
+    // Empty = no model selected / use generic remote
+    char tv_model_key[128] = {};
+
+    // Auto-detect: 0=not started, 1=in progress, 2=done-found, 3=done-not found
+    int  detect_state = 0;
 };
 
 extern WaveSettings g_settings;
@@ -22,13 +29,16 @@ extern WaveSettings g_settings;
 void settings_load();
 void settings_save();
 
+// Build the key string from brand/year/model fields
+void settings_make_key(const char* brand, int year, const char* model,
+                        char* out, int out_len);
+
 // ─── Settings UI ─────────────────────────────────────────────────────────────
-// Fully self-contained: call from the main loop, pass renderer + fonts.
 
 void settings_draw(SDL_Renderer* renderer,
                    TTF_Font* font_sm,
                    TTF_Font* font_md,
                    TTF_Font* font_lg);
 
-// Returns true while settings should stay open, false when the user exits.
+// Returns true while settings should stay open.
 bool settings_handle_input(VPADStatus* vpad);

@@ -3,11 +3,10 @@
 #---------------------------------------------------------------------------------
 TARGET      := WaveBrowser
 BUILD       := build
-SOURCES     := wave_browser vendor/minizip wave_browser/tv_remotes
 RELEASE_DIR := release/$(TARGET)
 
 #---------------------------------------------------------------------------------
-# Devkit Paths
+# Devkit paths
 #---------------------------------------------------------------------------------
 DEVKITPRO   ?= /opt/devkitpro
 DEVKITPPC   := $(DEVKITPRO)/devkitPPC
@@ -16,50 +15,81 @@ WUT_ROOT    := $(DEVKITPRO)/wut
 #---------------------------------------------------------------------------------
 # Tools
 #---------------------------------------------------------------------------------
-CC          := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CXX         := $(DEVKITPPC)/bin/powerpc-eabi-g++
-LD          := $(CXX)
+CC   := $(DEVKITPPC)/bin/powerpc-eabi-gcc
+CXX  := $(DEVKITPPC)/bin/powerpc-eabi-g++
+LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
-# Compiler Flags
+# Source directories / files
+#
+#  wave_browser/          – main.cpp, settings.cpp, (no subdirs)
+#  vendor/minizip/        – vendored minizip C files
+#  TV Remotes/            – engine + registry + detect (flat, no core/)
+#  TV Remotes/brand/year/ – model .cpp files (recursive find)
 #---------------------------------------------------------------------------------
-COMMON_FLAGS := -O2 -Wall -mcpu=750 -meabi -mhard-float \
-                -ffunction-sections -fdata-sections \
-                -I$(WUT_ROOT)/include \
-                -I$(DEVKITPRO)/portlibs/wiiu/include \
-                -I$(DEVKITPRO)/portlibs/wiiu/include/SDL2 \
-                -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
-                -I$(DEVKITPRO)/portlibs/ppc/include \
-                -Ivendor/minizip
 
-CFLAGS      := $(COMMON_FLAGS) -DUSE_FILE32API
-CXXFLAGS    := $(COMMON_FLAGS) -std=c++17 -fno-exceptions -fno-rtti
+# Flat sources in wave_browser root
+WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp
 
-#---------------------------------------------------------------------------------
-# Linker Flags
-#---------------------------------------------------------------------------------
-LDFLAGS := -specs=$(WUT_ROOT)/share/wut.specs \
-           -Wl,--gc-sections \
-           -L$(WUT_ROOT)/lib \
-           -L$(DEVKITPRO)/portlibs/wiiu/lib \
-           -L$(DEVKITPRO)/portlibs/ppc/lib
+# Vendored minizip
+MINIZIP_CFILES := vendor/minizip/ioapi.c vendor/minizip/unzip.c
 
-LIBS    := -lSDL2 -lSDL2_ttf -lharfbuzz \
-           -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
-           -lbrotlidec -lbrotlicommon \
-           -lfreetype -lpng -lbz2 -lz \
-           -lwut -lm
+# TV Remotes engine (flat files only, not recursive yet – those come from find)
+TV_ENGINE_CPPFILES := \
+    wave_browser/TV\ Remotes/tv_remote.cpp    \
+    wave_browser/TV\ Remotes/model_registry.cpp \
+    wave_browser/TV\ Remotes/tv_detect.cpp
+
+# All model .cpp files under brand/year/ subdirectories (recursive)
+TV_MODEL_CPPFILES := $(shell find "wave_browser/TV Remotes" -mindepth 3 -name '*.cpp' 2>/dev/null)
+
+ALL_CFILES   := $(MINIZIP_CFILES)
+ALL_CXXFILES := $(WB_CXXFILES) $(TV_ENGINE_CPPFILES) $(TV_MODEL_CPPFILES)
 
 #---------------------------------------------------------------------------------
-# Source Files
+# Compiler flags
 #---------------------------------------------------------------------------------
-CFILES      := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
-CXXFILES    := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.cpp))
-OFILES      := $(patsubst %.c,$(BUILD)/%.o,$(CFILES)) \
-               $(patsubst %.cpp,$(BUILD)/%.o,$(CXXFILES))
+COMMON_FLAGS := \
+    -O2 -Wall -mcpu=750 -meabi -mhard-float \
+    -ffunction-sections -fdata-sections \
+    -I$(WUT_ROOT)/include \
+    -I$(DEVKITPRO)/portlibs/wiiu/include \
+    -I$(DEVKITPRO)/portlibs/wiiu/include/SDL2 \
+    -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
+    -I$(DEVKITPRO)/portlibs/ppc/include \
+    -Ivendor/minizip \
+    -Iwave_browser \
+    -I"wave_browser/TV Remotes"
+
+CFLAGS   := $(COMMON_FLAGS) -DUSE_FILE32API
+CXXFLAGS := $(COMMON_FLAGS) -std=c++17 -fno-exceptions -fno-rtti
 
 #---------------------------------------------------------------------------------
-# Default Target
+# Linker flags
+#---------------------------------------------------------------------------------
+LDFLAGS := \
+    -specs=$(WUT_ROOT)/share/wut.specs \
+    -Wl,--gc-sections \
+    -L$(WUT_ROOT)/lib \
+    -L$(DEVKITPRO)/portlibs/wiiu/lib \
+    -L$(DEVKITPRO)/portlibs/ppc/lib
+
+LIBS := \
+    -lSDL2 -lSDL2_ttf -lharfbuzz \
+    -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
+    -lbrotlidec -lbrotlicommon \
+    -lfreetype -lpng -lbz2 -lz \
+    -lwut -lm
+
+#---------------------------------------------------------------------------------
+# Object file list  (mirror source path under $(BUILD)/)
+#---------------------------------------------------------------------------------
+OFILES := \
+    $(patsubst %.c,  $(BUILD)/%.o, $(ALL_CFILES))   \
+    $(patsubst %.cpp,$(BUILD)/%.o, $(ALL_CXXFILES))
+
+#---------------------------------------------------------------------------------
+# Default target
 #---------------------------------------------------------------------------------
 all: $(TARGET).wuhb
 
@@ -67,33 +97,36 @@ all: $(TARGET).wuhb
 # Compile C
 #---------------------------------------------------------------------------------
 $(BUILD)/%.o: %.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@mkdir -p "$(dir $@)"
+	$(CC) $(CFLAGS) -c "$<" -o "$@"
 
 #---------------------------------------------------------------------------------
 # Compile C++
 #---------------------------------------------------------------------------------
 $(BUILD)/%.o: %.cpp
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	@mkdir -p "$(dir $@)"
+	$(CXX) $(CXXFLAGS) -c "$<" -o "$@"
 
 #---------------------------------------------------------------------------------
-# Link ELF
+# Link → ELF
 #---------------------------------------------------------------------------------
 $(TARGET).elf: $(OFILES)
-	$(LD) $^ $(LDFLAGS) $(LIBS) -o $@
+	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
 #---------------------------------------------------------------------------------
-# Convert ELF to RPX
+# ELF → RPX
 #---------------------------------------------------------------------------------
 $(TARGET).rpx: $(TARGET).elf
 	elf2rpl $< $@
 
 #---------------------------------------------------------------------------------
-# Pack WUHB
+# RPX → WUHB
 #---------------------------------------------------------------------------------
 $(TARGET).wuhb: $(TARGET).rpx
-	wuhbtool $(TARGET).rpx $(TARGET).wuhb --name="Wave Browser" --short-name="WaveBrowser" --author="GameBuster"
+	wuhbtool $(TARGET).rpx $(TARGET).wuhb \
+	    --name="Wave Browser" \
+	    --short-name="WaveBrowser" \
+	    --author="GameBuster"
 
 #---------------------------------------------------------------------------------
 # Release

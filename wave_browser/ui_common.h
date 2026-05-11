@@ -1,17 +1,18 @@
 #pragma once
-
+// ─── ui_common.h ─────────────────────────────────────────────────────────────
+// Generic SDL2 rendering helpers shared by all Wave Browser modules.
+// No TV-remote or settings logic lives here.
+// ─────────────────────────────────────────────────────────────────────────────
 #include <SDL.h>
 #include <SDL_ttf.h>
 
 // ─── Screen dimensions ───────────────────────────────────────────────────────
-
-#define TV_W  1280
-#define TV_H   720
+#define TV_W   1280
+#define TV_H    720
 #define DRC_W   854
 #define DRC_H   480
 
 // ─── Shared colour palette ───────────────────────────────────────────────────
-
 static constexpr SDL_Color COL_CHROME_BG    = {0xF2,0xF2,0xF2,0xFF};
 static constexpr SDL_Color COL_TAB_ACTIVE   = {0xFF,0xFF,0xFF,0xFF};
 static constexpr SDL_Color COL_TAB_INACTIVE = {0xDE,0xDE,0xDE,0xFF};
@@ -35,9 +36,7 @@ static constexpr SDL_Color COL_BLUE         = {0x42,0x85,0xF4,0xFF};
 static constexpr SDL_Color COL_FOCUS_RING   = {0x42,0x85,0xF4,0xFF};
 static constexpr SDL_Color COL_DARK_OVERLAY = {0x10,0x10,0x20,0xC8};
 
-// ─── SDL drawing helpers ─────────────────────────────────────────────────────
-// All take an explicit renderer so they can be used from any translation unit.
-
+// ─── Primitives ──────────────────────────────────────────────────────────────
 static inline void ui_rect(SDL_Renderer* ren, int x, int y, int w, int h, SDL_Color c)
 {
     SDL_SetRenderDrawColor(ren, c.r, c.g, c.b, c.a);
@@ -55,7 +54,7 @@ static inline void ui_outline(SDL_Renderer* ren, int x, int y, int w, int h,
     }
 }
 
-// align: 0 = left, 1 = center, 2 = right.  y is the baseline.
+// align: 0=left  1=center  2=right.  y is the baseline.
 static inline void ui_text(SDL_Renderer* ren, TTF_Font* font,
                             const char* text, int x, int y, SDL_Color c, int align = 0)
 {
@@ -106,4 +105,23 @@ static inline void ui_dim_overlay(SDL_Renderer* ren)
     SDL_Rect full = {0, 0, TV_W, TV_H};
     SDL_RenderFillRect(ren, &full);
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
+}
+
+// Rounded-rect approximation using corner fills
+static inline void ui_rect_rounded(SDL_Renderer* ren, int x, int y, int w, int h,
+                                    int r, SDL_Color c)
+{
+    if (r < 1) { ui_rect(ren, x, y, w, h, c); return; }
+    SDL_SetRenderDrawColor(ren, c.r, c.g, c.b, c.a);
+    // Centre cross
+    SDL_Rect horiz = {x, y + r, w, h - r * 2};
+    SDL_RenderFillRect(ren, &horiz);
+    SDL_Rect vert  = {x + r, y, w - r * 2, h};
+    SDL_RenderFillRect(ren, &vert);
+    // Corner circles (approx)
+    for (int dy = 0; dy < r; dy++) {
+        int dx = (int)SDL_sqrtf((float)(r * r - (r - dy) * (r - dy)));
+        SDL_RenderDrawLine(ren, x + r - dx,     y + dy,         x + w - r + dx - 1, y + dy);
+        SDL_RenderDrawLine(ren, x + r - dx,     y + h - dy - 1, x + w - r + dx - 1, y + h - dy - 1);
+    }
 }

@@ -9,8 +9,8 @@
 
 #include "font_data.h"
 #include "settings.h"
-#include "tv_remote.h"
 #include "ui_common.h"
+#include "TV Remotes/tv_remote.h"
 
 #include <SDL.h>
 #include <SDL_ttf.h>
@@ -24,7 +24,7 @@
 #include <stdint.h>
 #include <unistd.h>
 
-// ─── Install / update paths ──────────────────────────────────────────────────
+// ─── Install / update paths ───────────────────────────────────────────────────
 
 #define INSTALL_DIR     "fs:/vol/external01/wiiu/apps/WaveBrowser"
 #define INSTALL_WUHB    "fs:/vol/external01/wiiu/apps/WaveBrowser/WaveBrowser.wuhb"
@@ -43,7 +43,7 @@
 #define ARTIFACT_ZIP_URL \
     "https://nightly.link/baldbuffalo/wave-browser/workflows/build.yml/main/WaveBrowser.zip"
 
-// ─── Tab constants ───────────────────────────────────────────────────────────
+// ─── Tab constants ────────────────────────────────────────────────────────────
 
 #define MAX_TABS  8
 #define MAX_URL   512
@@ -72,7 +72,7 @@
 #define STICK_DEAD    0.45f
 #define STICK_REPEAT  18
 
-// ─── Tab state ───────────────────────────────────────────────────────────────
+// ─── Tab state ────────────────────────────────────────────────────────────────
 
 typedef struct { char url[MAX_URL]; char title[64]; } Tab;
 
@@ -80,18 +80,18 @@ static Tab s_tabs[MAX_TABS];
 static int s_tab_count  = 1;
 static int s_active_tab = 0;
 
-// ─── UI state ────────────────────────────────────────────────────────────────
+// ─── UI state ─────────────────────────────────────────────────────────────────
 
 static bool s_in_settings       = false;
 static bool s_show_tab_switcher = false;
 
-// ─── Focus ───────────────────────────────────────────────────────────────────
+// ─── Focus ────────────────────────────────────────────────────────────────────
 
 static int s_focus_row = 0;
 static int s_focus_col = 3;
 static int s_stick_held = 0;
 
-// ─── Touch state ─────────────────────────────────────────────────────────────
+// ─── Touch state ──────────────────────────────────────────────────────────────
 
 static bool s_tp_prev   = false;
 static int  s_tp_last_x = 0;
@@ -111,7 +111,7 @@ static void poll_touch(VPADStatus* vpad)
     s_tp_prev   = valid;
 }
 
-// ─── SDL globals ─────────────────────────────────────────────────────────────
+// ─── SDL globals ──────────────────────────────────────────────────────────────
 
 static SDL_Window*   s_window   = nullptr;
 static SDL_Renderer* s_renderer = nullptr;
@@ -120,7 +120,7 @@ static TTF_Font*     s_font_md  = nullptr;
 static TTF_Font*     s_font_lg  = nullptr;
 static TTF_Font*     s_font_xl  = nullptr;
 
-// ─── ProcUI ──────────────────────────────────────────────────────────────────
+// ─── ProcUI ───────────────────────────────────────────────────────────────────
 
 static bool s_running = true;
 
@@ -130,7 +130,7 @@ static uint32_t SaveCallback(void*)
     return 0;
 }
 
-// ─── Session persistence ─────────────────────────────────────────────────────
+// ─── Session persistence ──────────────────────────────────────────────────────
 
 static void save_session()
 {
@@ -160,11 +160,11 @@ static void load_session()
     if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
 }
 
-// ─── Thin SDL wrappers (use global renderer) ──────────────────────────────────
+// ─── Thin SDL wrappers ────────────────────────────────────────────────────────
 
-static void sdl_rect(int x,int y,int w,int h,SDL_Color c)        { ui_rect(s_renderer,x,y,w,h,c); }
-static void sdl_outline(int x,int y,int w,int h,SDL_Color c,int t=1) { ui_outline(s_renderer,x,y,w,h,c,t); }
-static void sdl_text(TTF_Font* f,const char* t,int x,int y,SDL_Color c,int a=0) { ui_text(s_renderer,f,t,x,y,c,a); }
+static void sdl_rect(int x,int y,int w,int h,SDL_Color c)                        { ui_rect(s_renderer,x,y,w,h,c); }
+static void sdl_outline(int x,int y,int w,int h,SDL_Color c,int t=1)             { ui_outline(s_renderer,x,y,w,h,c,t); }
+static void sdl_text(TTF_Font* f,const char* t,int x,int y,SDL_Color c,int a=0)  { ui_text(s_renderer,f,t,x,y,c,a); }
 
 static void draw_gear_icon(int x, int y, int size, SDL_Color c)
 {
@@ -173,7 +173,7 @@ static void draw_gear_icon(int x, int y, int size, SDL_Color c)
     for (int i = 0; i < 3; i++) sdl_rect(x, y + i*(bh+gap), size, bh, c);
 }
 
-// ─── Splash ──────────────────────────────────────────────────────────────────
+// ─── Splash ───────────────────────────────────────────────────────────────────
 
 static void draw_splash(const char* status, double pct)
 {
@@ -191,7 +191,7 @@ static void draw_splash(const char* status, double pct)
     SDL_RenderPresent(s_renderer);
 }
 
-// ─── Tab switcher overlay ────────────────────────────────────────────────────
+// ─── Tab switcher overlay ─────────────────────────────────────────────────────
 
 static void draw_tab_switcher()
 {
@@ -249,7 +249,7 @@ static void handle_switcher_input(VPADStatus* vpad)
     }
 }
 
-// ─── Browser UI ──────────────────────────────────────────────────────────────
+// ─── Browser UI ───────────────────────────────────────────────────────────────
 
 static void draw_tab(int idx, bool active)
 {
@@ -320,7 +320,7 @@ static void draw_browser_ui()
     SDL_RenderPresent(s_renderer);
 }
 
-// ─── On-screen keyboard ──────────────────────────────────────────────────────
+// ─── On-screen keyboard ───────────────────────────────────────────────────────
 
 static void open_url_keyboard()
 {
@@ -362,7 +362,7 @@ static void open_url_keyboard()
     }
 }
 
-// ─── Network helpers ─────────────────────────────────────────────────────────
+// ─── Network helpers ──────────────────────────────────────────────────────────
 
 typedef struct { char* data; size_t size; } Buffer;
 
@@ -416,7 +416,7 @@ static int fetch_file(const char* url, const char* path)
     return (res == CURLE_OK) ? 0 : 1;
 }
 
-// ─── Run-ID helpers ──────────────────────────────────────────────────────────
+// ─── Run-ID helpers ───────────────────────────────────────────────────────────
 
 static long long read_stored_run_id()
 { FILE* f=fopen(RUN_ID_PATH,"r"); if(!f) return 0; long long id=0; fscanf(f,"%lld",&id); fclose(f); return id; }
@@ -424,7 +424,7 @@ static long long read_stored_run_id()
 static void write_run_id(long long id)
 { FILE* f=fopen(RUN_ID_PATH,"w"); if(!f) return; fprintf(f,"%lld",id); fclose(f); }
 
-// ─── File backup / restore ───────────────────────────────────────────────────
+// ─── File backup / restore ────────────────────────────────────────────────────
 
 static char* file_backup(const char* path, size_t* out_len)
 {
@@ -437,7 +437,7 @@ static char* file_backup(const char* path, size_t* out_len)
 static void file_restore(const char* path, const char* buf, size_t len)
 { if(!buf||len==0) return; FILE* f=fopen(path,"wb"); if(!f) return; fwrite(buf,1,len,f); fclose(f); }
 
-// ─── Install directory helpers ───────────────────────────────────────────────
+// ─── Install directory helpers ────────────────────────────────────────────────
 
 static void mkdir_p(const char* path)
 {
@@ -448,7 +448,7 @@ static void mkdir_p(const char* path)
 static void remove_old_install()
 { remove(INSTALL_WUHB); remove(INSTALL_META); remove(RUN_ID_PATH); remove(SESSION_PATH); rmdir(INSTALL_DIR); }
 
-// ─── ZIP extraction ──────────────────────────────────────────────────────────
+// ─── ZIP extraction ───────────────────────────────────────────────────────────
 
 static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
 {
@@ -477,7 +477,7 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
     unzClose(zf); return result;
 }
 
-// ─── Update splash ───────────────────────────────────────────────────────────
+// ─── Update splash ────────────────────────────────────────────────────────────
 
 static void run_splash_and_update()
 {
@@ -527,12 +527,12 @@ static void run_splash_and_update()
     draw_splash("Update installed! Please restart Wave Browser.", 100.0); usleep(16000*300);
 }
 
-// ─── Touch hit test ──────────────────────────────────────────────────────────
+// ─── Touch hit test ───────────────────────────────────────────────────────────
 
 static bool touch_hit(int tx,int ty,int x,int y,int w,int h)
 { return tx>=x&&tx<x+w&&ty>=y&&ty<y+h; }
 
-// ─── Focus helpers ───────────────────────────────────────────────────────────
+// ─── Focus helpers ────────────────────────────────────────────────────────────
 
 static void focus_clamp()
 {
@@ -549,9 +549,9 @@ static void focus_activate()
 {
     if (s_focus_row==0) {
         switch(s_focus_col) {
-            case 0: break; // Back — stub
-            case 1: break; // Fwd  — stub
-            case 2: break; // Reload — stub
+            case 0: break;
+            case 1: break;
+            case 2: break;
             case 3: open_url_keyboard(); break;
             case 4: s_in_settings = true; break;
         }
@@ -567,7 +567,7 @@ static void focus_activate()
     }
 }
 
-// ─── Main input handler ──────────────────────────────────────────────────────
+// ─── Main input handler ───────────────────────────────────────────────────────
 
 static void handle_input(VPADStatus* vpad)
 {
@@ -634,7 +634,7 @@ static void handle_input(VPADStatus* vpad)
     }
 }
 
-// ─── Entry point ─────────────────────────────────────────────────────────────
+// ─── Entry point ──────────────────────────────────────────────────────────────
 
 int main(int, char**)
 {
@@ -657,7 +657,7 @@ int main(int, char**)
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
-    settings_load();   // populates g_settings and syncs tv_remote brand
+    settings_load();
     if (g_settings.improved_multitasking) load_session();
 
     run_splash_and_update();
@@ -677,13 +677,17 @@ int main(int, char**)
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
             poll_touch(&vpad);
 
-            // TV button interception (Improved Remote enabled)
+            // TV button → open IR remote (requires model to be configured)
             if (g_settings.improved_remote &&
                 (vpad.trigger & VPAD_BUTTON_TV) &&
                 !s_in_settings && !s_show_tab_switcher)
-                tv_remote_open();
+            {
+                if (tv_remote_get_model())
+                    tv_remote_open();
+                else
+                    s_in_settings = true;   // redirect to settings to configure
+            }
 
-            // Route to top-most active overlay
             if (tv_remote_is_open()) {
                 tv_remote_handle_input(&vpad, s_tp_tapped, s_tp_last_x, s_tp_last_y);
                 tv_remote_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
