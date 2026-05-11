@@ -24,8 +24,8 @@ LD   := $(CXX)
 #
 #  wave_browser/          – main.cpp, settings.cpp, (no subdirs)
 #  vendor/minizip/        – vendored minizip C files
-#  TV Remotes/            – engine + registry + detect (flat, no core/)
-#  TV Remotes/brand/year/ – model .cpp files (recursive find)
+#  tv_remotes/            – engine + registry + detect (flat, no core/)
+#  tv_remotes/brand/year/ – model .cpp files (recursive find)
 #---------------------------------------------------------------------------------
 
 # Flat sources in wave_browser root
@@ -34,14 +34,14 @@ WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp
 # Vendored minizip
 MINIZIP_CFILES := vendor/minizip/ioapi.c vendor/minizip/unzip.c
 
-# TV Remotes engine (flat files only, not recursive yet – those come from find)
+# tv_remotes engine (flat files only, not recursive yet – those come from find)
 TV_ENGINE_CPPFILES := \
-    wave_browser/TV\ Remotes/tv_remote.cpp    \
-    wave_browser/TV\ Remotes/model_registry.cpp \
-    wave_browser/TV\ Remotes/tv_detect.cpp
+    wave_browser/tv_remotes/tv_remote.cpp    \
+    wave_browser/tv_remotes/model_registry.cpp \
+    wave_browser/tv_remotes/tv_detect.cpp
 
 # All model .cpp files under brand/year/ subdirectories (recursive)
-TV_MODEL_CPPFILES := $(shell find "wave_browser/TV Remotes" -mindepth 3 -name '*.cpp' 2>/dev/null)
+TV_MODEL_CPPFILES := $(shell find wave_browser/tv_remotes -mindepth 3 -name '*.cpp' 2>/dev/null)
 
 ALL_CFILES   := $(MINIZIP_CFILES)
 ALL_CXXFILES := $(WB_CXXFILES) $(TV_ENGINE_CPPFILES) $(TV_MODEL_CPPFILES)
@@ -59,7 +59,7 @@ COMMON_FLAGS := \
     -I$(DEVKITPRO)/portlibs/ppc/include \
     -Ivendor/minizip \
     -Iwave_browser \
-    -I"wave_browser/TV Remotes"
+    -Iwave_browser/tv_remotes
 
 CFLAGS   := $(COMMON_FLAGS) -DUSE_FILE32API
 CXXFLAGS := $(COMMON_FLAGS) -std=c++17 -fno-exceptions -fno-rtti

@@ -1,8 +1,8 @@
 #include "settings.h"
 #include "ui_common.h"
-#include "TV Remotes/tv_remote.h"
-#include "TV Remotes/model_registry.h"
-#include "TV Remotes/tv_detect.h"
+#include "tv_remotes/tv_remote.h"
+#include "tv_remotes/model_registry.h"
+#include "tv_remotes/tv_detect.h"
 
 #include <vpad/input.h>
 #include <stdio.h>
@@ -50,7 +50,7 @@ void settings_load()
         else if (sscanf(line, "improved_remote=%d", &n) == 1)
             g_settings.improved_remote = (n != 0);
         else if (strncmp(line, "tv_model_key=", 13) == 0)
-            strncpy(g_settings.tv_model_key, line+13, sizeof(g_settings.tv_model_key)-1);
+            snprintf(g_settings.tv_model_key, sizeof(g_settings.tv_model_key), "%s", line+13);
     }
     fclose(f);
     apply_model_key(g_settings.tv_model_key);
@@ -276,7 +276,7 @@ static void draw_brand(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font
 
 static void draw_year(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
-    char hdr[64]; snprintf(hdr, sizeof(hdr), "%s – Select Year", s_brand_sel);
+    char hdr[128]; snprintf(hdr, sizeof(hdr), "%s – Select Year", s_brand_sel);
     draw_panel(ren, flg, hdr);
     for (int v = 0; v < ROWS_VISIBLE && (s_scroll+v) < s_year_count; v++) {
         int idx = s_scroll + v;
@@ -293,7 +293,7 @@ static void draw_year(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
 
 static void draw_model(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
-    char hdr[80]; snprintf(hdr, sizeof(hdr), "%s %d – Select Model", s_brand_sel, s_year_sel);
+    char hdr[128]; snprintf(hdr, sizeof(hdr), "%s %d – Select Model", s_brand_sel, s_year_sel);
     draw_panel(ren, flg, hdr);
     for (int v = 0; v < ROWS_VISIBLE && (s_scroll+v) < s_model_count; v++) {
         int idx = s_scroll + v;

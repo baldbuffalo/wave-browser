@@ -10,7 +10,7 @@
 #include "font_data.h"
 #include "settings.h"
 #include "ui_common.h"
-#include "TV Remotes/tv_remote.h"
+#include "tv_remotes/tv_remote.h"
 
 #include <SDL.h>
 #include <SDL_ttf.h>
@@ -93,22 +93,36 @@ static int s_stick_held = 0;
 
 // ─── Touch state ──────────────────────────────────────────────────────────────
 
-static bool s_tp_prev   = false;
-static int  s_tp_last_x = 0;
-static int  s_tp_last_y = 0;
-static bool s_tp_tapped = false;
+// Touch state – updated every frame by poll_touch()
+static bool s_tp_touching = false;  // finger is currently down
+static bool s_tp_pressed  = false;  // finger JUST went down this frame (use for UI hits)
+static bool s_tp_released = false;  // finger JUST lifted this frame
+static int  s_tp_x = 0, s_tp_y = 0;          // position when pressed (TV coords)
+static int  s_tp_cur_x = 0, s_tp_cur_y = 0;  // live position while held
 
 static void poll_touch(VPADStatus* vpad)
 {
     VPADTouchData tp;
     VPADGetTPCalibratedPointEx(VPAD_CHAN_0, VPAD_TP_854X480, &tp, &vpad->tpNormal);
-    bool valid = (tp.touched != 0) && (tp.validity == VPAD_VALID);
-    if (valid) {
-        s_tp_last_x = (int)((float)tp.x / DRC_W * TV_W);
-        s_tp_last_y = (int)((float)tp.y / DRC_H * TV_H);
+
+    bool touching = (tp.touched != 0) && (tp.validity == VPAD_VALID);
+
+    // Update live position whenever finger is down
+    if (touching) {
+        s_tp_cur_x = (int)((float)tp.x * TV_W / DRC_W);
+        s_tp_cur_y = (int)((float)tp.y * TV_H / DRC_H);
     }
-    s_tp_tapped = s_tp_prev && !valid;
-    s_tp_prev   = valid;
+
+    s_tp_pressed  = !s_tp_touching && touching;   // went down THIS frame
+    s_tp_released = s_tp_touching  && !touching;  // lifted THIS frame
+
+    // Snapshot position at the moment the finger lands — used for all hit tests
+    if (s_tp_pressed) {
+        s_tp_x = s_tp_cur_x;
+        s_tp_y = s_tp_cur_y;
+    }
+
+    s_tp_touching = touching;
 }
 
 // ─── SDL globals ──────────────────────────────────────────────────────────────
@@ -236,13 +250,13 @@ static void handle_switcher_input(VPADStatus* vpad)
     if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) s_active_tab++;
     if (btn & VPAD_BUTTON_A) { s_show_tab_switcher = false; return; }
 
-    if (s_tp_tapped) {
+    if (s_tp_pressed) {
         const int CW=210, CH=130, CG=24;
         int total_w=s_tab_count*CW+(s_tab_count-1)*CG;
         int sx=(TV_W-total_w)/2, cy=TV_H/2-CH/2;
         for (int i=0;i<s_tab_count;i++) {
             int cx=sx+i*(CW+CG);
-            if (s_tp_last_x>=cx&&s_tp_last_x<cx+CW&&s_tp_last_y>=cy&&s_tp_last_y<cy+CH) {
+            if (s_tp_x>=cx&&s_tp_x<cx+CW&&s_tp_y>=cy&&s_tp_y<cy+CH) {
                 s_active_tab=i; s_show_tab_switcher=false; break;
             }
         }
@@ -610,25 +624,48 @@ static void handle_input(VPADStatus* vpad)
     }
     if ((btn&VPAD_BUTTON_MINUS)&&g_settings.improved_multitasking) s_show_tab_switcher=true;
 
-    // Touch
-    if (s_tp_tapped) {
-        int tx=s_tp_last_x, ty=s_tp_last_y;
-        if (touch_hit(tx,ty,GEAR_BTN_X,GEAR_BTN_Y,GEAR_BTN_SIZE,GEAR_BTN_SIZE)){s_in_settings=true;return;}
-        if (touch_hit(tx,ty,ADDR_BAR_X,ADDR_BAR_Y,ADDR_BAR_W,ADDR_BAR_H)){s_focus_row=0;s_focus_col=3;open_url_keyboard();return;}
-        if (touch_hit(tx,ty,BTN_BACK_X,  6,BTN_SIZE,BTN_SIZE)){s_focus_row=0;s_focus_col=0;return;}
-        if (touch_hit(tx,ty,BTN_FWD_X,   6,BTN_SIZE,BTN_SIZE)){s_focus_row=0;s_focus_col=1;return;}
-        if (touch_hit(tx,ty,BTN_RELOAD_X,6,BTN_SIZE,BTN_SIZE)){s_focus_row=0;s_focus_col=2;return;}
+    // Touch — fires on finger-DOWN (s_tp_pressed) for instant response
+    if (s_tp_pressed) {
+        int tx=s_tp_x, ty=s_tp_y;
+
+        // ── Toolbar row ───────────────────────────────────────────────────
+        if (touch_hit(tx,ty,GEAR_BTN_X,GEAR_BTN_Y,GEAR_BTN_SIZE,GEAR_BTN_SIZE)) {
+            s_in_settings=true; return;
+        }
+        if (touch_hit(tx,ty,ADDR_BAR_X,ADDR_BAR_Y,ADDR_BAR_W,ADDR_BAR_H)) {
+            s_focus_row=0; s_focus_col=3; open_url_keyboard(); return;
+        }
+        if (touch_hit(tx,ty,BTN_BACK_X,  6,BTN_SIZE,BTN_SIZE)) {
+            s_focus_row=0; s_focus_col=0; return;
+        }
+        if (touch_hit(tx,ty,BTN_FWD_X,   6,BTN_SIZE,BTN_SIZE)) {
+            s_focus_row=0; s_focus_col=1; return;
+        }
+        if (touch_hit(tx,ty,BTN_RELOAD_X, 6,BTN_SIZE,BTN_SIZE)) {
+            s_focus_row=0; s_focus_col=2; return;
+        }
+
+        // ── Tab bar ───────────────────────────────────────────────────────
         for (int i=0;i<s_tab_count;i++) {
-            if (s_tab_count>1&&touch_hit(tx,ty,i*TAB_W+TAB_W-20,TOOLBAR_H,20,TAB_H)) {
+            // Close button (x) on each tab
+            if (s_tab_count>1 &&
+                touch_hit(tx,ty, i*TAB_W+TAB_W-20, TOOLBAR_H, 20, TAB_H)) {
                 for(int j=i;j<s_tab_count-1;j++) s_tabs[j]=s_tabs[j+1];
                 s_tab_count--;
                 if(s_active_tab>=s_tab_count) s_active_tab=s_tab_count-1;
                 s_focus_row=1; s_focus_col=s_active_tab; return;
             }
-            if (touch_hit(tx,ty,i*TAB_W,TOOLBAR_H,TAB_W-20,TAB_H)){s_active_tab=i;s_focus_row=1;s_focus_col=i;return;}
+            // Tab body — switch to it
+            if (touch_hit(tx,ty, i*TAB_W, TOOLBAR_H, TAB_W-20, TAB_H)) {
+                s_active_tab=i; s_focus_row=1; s_focus_col=i; return;
+            }
         }
-        if (s_tab_count<MAX_TABS&&touch_hit(tx,ty,s_tab_count*TAB_W,TOOLBAR_H,36,TAB_BAR_H)) {
-            memset(&s_tabs[s_tab_count],0,sizeof(Tab)); strcpy(s_tabs[s_tab_count].title,"New Tab");
+
+        // ── New-tab (+) button ────────────────────────────────────────────
+        if (s_tab_count<MAX_TABS &&
+            touch_hit(tx,ty, s_tab_count*TAB_W, TOOLBAR_H, 40, TAB_BAR_H)) {
+            memset(&s_tabs[s_tab_count],0,sizeof(Tab));
+            strcpy(s_tabs[s_tab_count].title,"New Tab");
             s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=s_active_tab;
         }
     }
@@ -689,7 +726,7 @@ int main(int, char**)
             }
 
             if (tv_remote_is_open()) {
-                tv_remote_handle_input(&vpad, s_tp_tapped, s_tp_last_x, s_tp_last_y);
+                tv_remote_handle_input(&vpad, s_tp_pressed, s_tp_x, s_tp_y);
                 tv_remote_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
 
             } else if (s_in_settings) {
