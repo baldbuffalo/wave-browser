@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <math.h>
 
 // ─── Install / update paths ───────────────────────────────────────────────────
 
@@ -851,19 +852,42 @@ int main(int, char**)
             VPADStatus vpad; VPADReadError error;
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
-            // Read all 4 Wii Remote channels and handle input.
-            // HOME is caught by ProcUI automatically; all other buttons
-            // are handled in handle_wii_remote_input().
-            // We only pass input to the browser when no overlay is active.
-            KPADStatus kpad;
-            for (int ch = 0; ch < 4; ch++) {
-                int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
-                if (nread > 0 &&
-                    !tv_remote_is_open() &&
-                    !s_in_settings &&
-                    !s_show_tab_switcher)
-                {
-                    handle_wii_remote_input(&kpad);
+            // ── Wii Remote input ─────────────────────────────────────────
+            // Translate D-pad / A / B / Nunchuk stick into VPAD button bits
+            // and merge into vpad BEFORE any handler is called, so ALL
+            // screens (settings, tab switcher, TV remote, browser) respond
+            // to the Wii Remote d-pad automatically.
+            // Browser-specific buttons (+/-/1/2) go through
+            // handle_wii_remote_input() only when the browser is active.
+            {
+                KPADStatus kpad;
+                for (int ch = 0; ch < 4; ch++) {
+                    int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
+                    if (nread <= 0) continue;
+
+                    // D-pad → VPAD d-pad bits (trigger only)
+                    if (kpad.trigger & KPAD_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
+                    if (kpad.trigger & KPAD_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
+                    if (kpad.trigger & KPAD_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
+                    if (kpad.trigger & KPAD_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
+
+                    // A / B → VPAD A / B
+                    if (kpad.trigger & KPAD_BUTTON_A) vpad.trigger |= VPAD_BUTTON_A;
+                    if (kpad.trigger & KPAD_BUTTON_B) vpad.trigger |= VPAD_BUTTON_B;
+
+                    // Nunchuk stick → VPAD left stick (take strongest input)
+                    if (kpad.extensionType == WPAD_EXT_NUNCHUK ||
+                        kpad.extensionType == WPAD_EXT_MPLUS_NUNCHUK)
+                    {
+                        float nx = kpad.ex_status.nunchuk.stick.x;
+                        float ny = kpad.ex_status.nunchuk.stick.y;
+                        if (fabsf(nx) > fabsf(vpad.leftStick.x)) vpad.leftStick.x = nx;
+                        if (fabsf(ny) > fabsf(vpad.leftStick.y)) vpad.leftStick.y = ny;
+                    }
+
+                    // Browser-specific buttons only when browser is active
+                    if (!tv_remote_is_open() && !s_in_settings && !s_show_tab_switcher)
+                        handle_wii_remote_input(&kpad);
                 }
             }
             poll_touch(&vpad);
