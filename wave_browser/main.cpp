@@ -91,7 +91,8 @@ static bool s_show_tab_switcher = false;
 
 static int s_focus_row = 0;
 static int s_focus_col = 3;
-static int s_stick_held = 0;
+static int s_stick_held   = 0;  // GamePad left stick repeat
+static int s_wii_stick_held = 0;  // Nunchuk stick repeat
 
 // ─── Touch state ──────────────────────────────────────────────────────────────
 
@@ -583,6 +584,138 @@ static void focus_activate()
     }
 }
 
+
+// ─── Wii Remote input ─────────────────────────────────────────────────────────
+// Called for each of the 4 Wii Remote channels every frame.
+// D-pad ALWAYS navigates focus regardless of whether a Nunchuk is attached.
+// Nunchuk stick ALSO navigates focus (with repeat) when attached.
+
+static void handle_wii_remote_input(KPADStatus* kp)
+{
+    if (!kp) return;
+    uint32_t btn = kp->trigger;   // buttons pressed THIS frame on the Wii Remote
+
+    // ── D-pad — always navigate focus ────────────────────────────────────────
+    if (btn & KPAD_BUTTON_UP) {
+        if (s_focus_row == 1) { s_focus_row = 0; s_focus_col = 3; }
+    }
+    if (btn & KPAD_BUTTON_DOWN) {
+        if (s_focus_row == 0) { s_focus_row = 1; s_focus_col = s_active_tab; }
+    }
+    if (btn & KPAD_BUTTON_LEFT) {
+        s_focus_col--;
+        focus_clamp();
+        if (s_focus_row == 1 && s_focus_col < s_tab_count)
+            s_active_tab = s_focus_col;
+    }
+    if (btn & KPAD_BUTTON_RIGHT) {
+        s_focus_col++;
+        focus_clamp();
+        if (s_focus_row == 1 && s_focus_col < s_tab_count)
+            s_active_tab = s_focus_col;
+    }
+
+    // ── A — activate focused element ─────────────────────────────────────────
+    if (btn & KPAD_BUTTON_A)
+        focus_activate();
+
+    // ── B — back ─────────────────────────────────────────────────────────────
+    if (btn & KPAD_BUTTON_B) {
+        if (s_show_tab_switcher) { s_show_tab_switcher = false; }
+        else if (s_in_settings)  { s_in_settings = false; }
+    }
+
+    // ── + — new tab ──────────────────────────────────────────────────────────
+    if ((btn & KPAD_BUTTON_PLUS) && s_tab_count < MAX_TABS) {
+        memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
+        strcpy(s_tabs[s_tab_count].title, "New Tab");
+        s_active_tab = s_tab_count++;
+        s_focus_row = 1;
+        s_focus_col = s_active_tab;
+    }
+
+    // ── − — close tab or open tab switcher ───────────────────────────────────
+    if (btn & KPAD_BUTTON_MINUS) {
+        if (g_settings.improved_multitasking) {
+            s_show_tab_switcher = true;
+        } else if (s_tab_count > 1) {
+            int ci = (s_focus_row == 1 && s_focus_col < s_tab_count)
+                     ? s_focus_col : s_active_tab;
+            for (int i = ci; i < s_tab_count - 1; i++) s_tabs[i] = s_tabs[i+1];
+            s_tab_count--;
+            if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
+            s_active_tab = (s_focus_col < s_tab_count) ? s_focus_col : s_tab_count - 1;
+            s_focus_col  = s_active_tab;
+        }
+    }
+
+    // ── 1 — reload (stub, focus reload button) ───────────────────────────────
+    if (btn & KPAD_BUTTON_1) {
+        s_focus_row = 0;
+        s_focus_col = 2;   // reload button
+        focus_activate();
+    }
+
+    // ── 2 — open address bar ─────────────────────────────────────────────────
+    if (btn & KPAD_BUTTON_2) {
+        s_focus_row = 0;
+        s_focus_col = 3;   // address bar
+        open_url_keyboard();
+    }
+
+    // ── Nunchuk (when attached) ───────────────────────────────────────────────
+    if (kp->extensionType == WPAD_EXT_NUNCHUK ||
+        kp->extensionType == WPAD_EXT_MPLUS_NUNCHUK)
+    {
+        // Nunchuk stick — navigate focus with repeat (same as GamePad left stick)
+        float nx = kp->ex_status.nunchuk.stick.x;
+        float ny = kp->ex_status.nunchuk.stick.y;
+        bool any = (nx < -STICK_DEAD || nx > STICK_DEAD ||
+                    ny > STICK_DEAD  || ny < -STICK_DEAD);
+        if (any) {
+            s_wii_stick_held++;
+            bool fire = (s_wii_stick_held == 1 || s_wii_stick_held >= STICK_REPEAT);
+            if (s_wii_stick_held >= STICK_REPEAT) s_wii_stick_held = STICK_REPEAT;
+            if (fire) {
+                if (ny > STICK_DEAD && s_focus_row == 1) {
+                    s_focus_row = 0; s_focus_col = 3;
+                }
+                if (ny < -STICK_DEAD && s_focus_row == 0) {
+                    s_focus_row = 1; s_focus_col = s_active_tab;
+                }
+                if (nx < -STICK_DEAD) {
+                    s_focus_col--;
+                    focus_clamp();
+                    if (s_focus_row == 1 && s_focus_col < s_tab_count)
+                        s_active_tab = s_focus_col;
+                }
+                if (nx > STICK_DEAD) {
+                    s_focus_col++;
+                    focus_clamp();
+                    if (s_focus_row == 1 && s_focus_col < s_tab_count)
+                        s_active_tab = s_focus_col;
+                }
+            }
+        } else {
+            s_wii_stick_held = 0;
+        }
+
+        // Nunchuk C — new tab
+        uint32_t nbtn = kp->ex_status.nunchuk.trigger;
+        if ((nbtn & KPAD_NUNCHUK_BUTTON_C) && s_tab_count < MAX_TABS) {
+            memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
+            strcpy(s_tabs[s_tab_count].title, "New Tab");
+            s_active_tab = s_tab_count++;
+            s_focus_row = 1;
+            s_focus_col = s_active_tab;
+        }
+
+        // Nunchuk Z — tab switcher
+        if ((nbtn & KPAD_NUNCHUK_BUTTON_Z) && g_settings.improved_multitasking)
+            s_show_tab_switcher = true;
+    }
+}
+
 // ─── Main input handler ───────────────────────────────────────────────────────
 
 static void handle_input(VPADStatus* vpad)
@@ -718,15 +851,21 @@ int main(int, char**)
             VPADStatus vpad; VPADReadError error;
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
-            // Read Wii Remotes — HOME button is intercepted by ProcUI/OS
-            // automatically once KPADInit() has been called. Reading each
-            // frame keeps the internal KPAD queue drained so the system
-            // overlay triggers correctly.
-            KPADStatus kpad[4];
-            KPADRead(WPAD_CHAN_0, kpad, 1);
-            KPADRead(WPAD_CHAN_1, kpad, 1);
-            KPADRead(WPAD_CHAN_2, kpad, 1);
-            KPADRead(WPAD_CHAN_3, kpad, 1);
+            // Read all 4 Wii Remote channels and handle input.
+            // HOME is caught by ProcUI automatically; all other buttons
+            // are handled in handle_wii_remote_input().
+            // We only pass input to the browser when no overlay is active.
+            KPADStatus kpad;
+            for (int ch = 0; ch < 4; ch++) {
+                int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
+                if (nread > 0 &&
+                    !tv_remote_is_open() &&
+                    !s_in_settings &&
+                    !s_show_tab_switcher)
+                {
+                    handle_wii_remote_input(&kpad);
+                }
+            }
             poll_touch(&vpad);
 
             // TV button → open IR remote (requires model to be configured)
