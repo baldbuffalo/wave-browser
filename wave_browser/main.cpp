@@ -12,7 +12,6 @@
 #include "font_data.h"
 #include "settings.h"
 #include "ui_common.h"
-#include "tv_remotes/tv_remote.h"
 
 #include <SDL.h>
 #include <SDL_ttf.h>
@@ -866,10 +865,6 @@ int main(int, char**)
                     int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
                     if (nread <= 0) continue;
 
-                    // TV remote overlay is GamePad-only (VPAD_BUTTON_TV hardware).
-                    // Wii Remote has no equivalent button, so skip it entirely.
-                    if (tv_remote_is_open()) continue;
-
                     // D-pad → VPAD d-pad bits (trigger only)
                     if (kpad.trigger & KPAD_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
                     if (kpad.trigger & KPAD_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
@@ -897,22 +892,7 @@ int main(int, char**)
             }
             poll_touch(&vpad);
 
-            // TV button → open IR remote (requires model to be configured)
-            if (g_settings.improved_remote &&
-                (vpad.trigger & VPAD_BUTTON_TV) &&
-                !s_in_settings && !s_show_tab_switcher)
-            {
-                if (tv_remote_get_model())
-                    tv_remote_open();
-                else
-                    s_in_settings = true;   // redirect to settings to configure
-            }
-
-            if (tv_remote_is_open()) {
-                tv_remote_handle_input(&vpad, s_tp_pressed, s_tp_x, s_tp_y);
-                tv_remote_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
-
-            } else if (s_in_settings) {
+            if (s_in_settings) {
                 if (!settings_handle_input(&vpad)) s_in_settings = false;
                 else settings_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
 

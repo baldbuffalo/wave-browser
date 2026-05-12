@@ -13,7 +13,6 @@
 
 struct WaveSettings {
     bool improved_multitasking = false;
-    bool improved_remote       = false;
 
     // TV remote model selection
     // Stored as "brand/year/model" string, e.g. "Samsung/2014/UE40H6400"

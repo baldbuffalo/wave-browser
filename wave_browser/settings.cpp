@@ -47,8 +47,6 @@ void settings_load()
         int n = 0;
         if      (sscanf(line, "improved_multitasking=%d", &n) == 1)
             g_settings.improved_multitasking = (n != 0);
-        else if (sscanf(line, "improved_remote=%d", &n) == 1)
-            g_settings.improved_remote = (n != 0);
         else if (strncmp(line, "tv_model_key=", 13) == 0)
             snprintf(g_settings.tv_model_key, sizeof(g_settings.tv_model_key), "%s", line+13);
     }
@@ -61,7 +59,6 @@ void settings_save()
     FILE* f = fopen(SETTINGS_PATH, "w");
     if (!f) return;
     fprintf(f, "improved_multitasking=%d\n", g_settings.improved_multitasking ? 1 : 0);
-    fprintf(f, "improved_remote=%d\n",       g_settings.improved_remote       ? 1 : 0);
     fprintf(f, "tv_model_key=%s\n",          g_settings.tv_model_key);
     fclose(f);
 }
@@ -116,9 +113,8 @@ static int   s_model_count     = 0;
 
 // Main page rows
 #define ROW_MULTITASK  0
-#define ROW_REMOTE     1
-#define ROW_TV_SETUP   2
-#define ROW_MAIN_COUNT 3
+#define ROW_TV_SETUP   1
+#define ROW_MAIN_COUNT 2
 
 // ─── List builders ───────────────────────────────────────────────────────────
 
@@ -214,7 +210,6 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
 
     const char* labels[ROW_MAIN_COUNT] = {
         "Improved Multitasking",
-        "Improved Remote Control",
         "TV Remote Setup",
     };
 
@@ -227,9 +222,8 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
         SDL_Color lc = focused ? COL_BLUE : SDL_Color{0x1A,0x1A,0x1A,0xFF};
         ui_text(ren, fmd, labels[i], LIST_X, ry+ROW_H-10, lc, 0);
 
-        if (i == ROW_MULTITASK || i == ROW_REMOTE) {
-            bool on = (i == ROW_MULTITASK) ? g_settings.improved_multitasking
-                                           : g_settings.improved_remote;
+        if (i == ROW_MULTITASK) {
+            bool on = g_settings.improved_multitasking;
             const char* val = on ? "ON" : "OFF";
             SDL_Color vc = on ? SDL_Color{0x00,0x99,0x00,0xFF}
                               : SDL_Color{0x99,0x00,0x00,0xFF};
@@ -415,8 +409,6 @@ bool settings_handle_input(VPADStatus* vpad)
         if ((btn & VPAD_BUTTON_A) || (btn & VPAD_BUTTON_LEFT) || (btn & VPAD_BUTTON_RIGHT)) {
             if (s_sel == ROW_MULTITASK)
                 g_settings.improved_multitasking = !g_settings.improved_multitasking;
-            else if (s_sel == ROW_REMOTE)
-                g_settings.improved_remote = !g_settings.improved_remote;
             else if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_A)) {
                 // Enter brand picker; also offer auto-detect via SELECT
                 build_brands();
