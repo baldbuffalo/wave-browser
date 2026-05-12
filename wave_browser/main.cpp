@@ -855,8 +855,9 @@ int main(int, char**)
             // ── Wii Remote input ─────────────────────────────────────────
             // Translate D-pad / A / B / Nunchuk stick into VPAD button bits
             // and merge into vpad BEFORE any handler is called, so ALL
-            // screens (settings, tab switcher, TV remote, browser) respond
+            // screens (settings, tab switcher, browser) respond
             // to the Wii Remote d-pad automatically.
+            // TV remote overlay is excluded — it is GamePad-only.
             // Browser-specific buttons (+/-/1/2) go through
             // handle_wii_remote_input() only when the browser is active.
             {
@@ -864,6 +865,10 @@ int main(int, char**)
                 for (int ch = 0; ch < 4; ch++) {
                     int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
                     if (nread <= 0) continue;
+
+                    // TV remote overlay is GamePad-only (VPAD_BUTTON_TV hardware).
+                    // Wii Remote has no equivalent button, so skip it entirely.
+                    if (tv_remote_is_open()) continue;
 
                     // D-pad → VPAD d-pad bits (trigger only)
                     if (kpad.trigger & KPAD_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
@@ -886,7 +891,7 @@ int main(int, char**)
                     }
 
                     // Browser-specific buttons only when browser is active
-                    if (!tv_remote_is_open() && !s_in_settings && !s_show_tab_switcher)
+                    if (!s_in_settings && !s_show_tab_switcher)
                         handle_wii_remote_input(&kpad);
                 }
             }
