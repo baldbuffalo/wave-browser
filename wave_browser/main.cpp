@@ -1,4 +1,6 @@
 #include <proc_ui/procui.h>
+#include <padscore/wpad.h>
+#include <padscore/kpad.h>
 #include <coreinit/foreground.h>
 #include <coreinit/memdefaultheap.h>
 #include <sysapp/launch.h>
@@ -691,6 +693,9 @@ int main(int, char**)
     s_font_xl = TTF_OpenFontRW(SDL_RWFromConstMem(font_data, font_data_len), 0, 48);
 
     VPADInit();
+    WPADEnableURCC(true);   // allow Wii Remote + Classic Controller
+    WPADEnableWiiRemote(true);
+    KPADInit();             // must be called for HOME button to work via ProcUI
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
@@ -712,6 +717,16 @@ int main(int, char**)
         } else if (status == PROCUI_STATUS_IN_FOREGROUND) {
             VPADStatus vpad; VPADReadError error;
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
+
+            // Read Wii Remotes — HOME button is intercepted by ProcUI/OS
+            // automatically once KPADInit() has been called. Reading each
+            // frame keeps the internal KPAD queue drained so the system
+            // overlay triggers correctly.
+            KPADStatus kpad[4];
+            KPADRead(WPAD_CHAN_0, kpad, 1);
+            KPADRead(WPAD_CHAN_1, kpad, 1);
+            KPADRead(WPAD_CHAN_2, kpad, 1);
+            KPADRead(WPAD_CHAN_3, kpad, 1);
             poll_touch(&vpad);
 
             // TV button → open IR remote (requires model to be configured)
@@ -754,6 +769,7 @@ int main(int, char**)
     SDL_DestroyWindow(s_window);
     SDL_Quit();
     AXQuit();
+    KPADShutdown();
     ProcUIShutdown();
     return 0;
 }
