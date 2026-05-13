@@ -11,6 +11,7 @@
 
 #include "font_data.h"
 #include "settings.h"
+#include "plugin_installer.h"
 #include "ui_common.h"
 
 #include <SDL.h>
@@ -834,6 +835,22 @@ int main(int, char**)
 
     settings_load();
     if (g_settings.improved_multitasking) load_session();
+
+    // ── Auto-install Aroma plugin ──────────────────────────────────────────────
+    // Copies the embedded WaveBrowserRemote.wps to the Aroma plugins directory.
+    // Runs silently — user only sees a message on first install or update.
+    {
+        int r = plugin_install();
+        if (r == 1) {
+            // Newly installed or updated — show a brief notice on the splash
+            // (run_splash_and_update draws the splash right after this block)
+            draw_splash("TV Remote plugin installed. Reboot to activate.", -1.0);
+            usleep(16000 * 180);   // ~3 seconds
+        }
+        // r==0: already current — silent
+        // r==-1: Aroma not found — silent (user may not have Aroma)
+        // r==-2: plugin not compiled yet — silent
+    }
 
     run_splash_and_update();
 

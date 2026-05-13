@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "plugin_installer.h"
 #include "ui_common.h"
 #include "tv_remotes/tv_remote.h"
 #include "tv_remotes/model_registry.h"
@@ -458,6 +459,9 @@ bool settings_handle_input(VPADStatus* vpad)
                               g_settings.tv_model_key, sizeof(g_settings.tv_model_key));
             tv_remote_set_model(m);
             settings_save();
+            // Write plugin config so Aroma plugin picks up the new model
+            // immediately without requiring an app restart
+            plugin_write_config(m);
             s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP;
         }
         if (btn & VPAD_BUTTON_B) {
@@ -477,6 +481,9 @@ bool settings_handle_input(VPADStatus* vpad)
         if (btn & VPAD_BUTTON_A) {
             // Accept the auto-detected model and close settings
             settings_save();
+            // Write plugin config for the auto-detected model
+            const TVRemoteModel* m = tv_remote_get_model();
+            if (m) plugin_write_config(m);
             s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP;
             return false;
         }

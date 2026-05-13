@@ -20,27 +20,22 @@ CXX  := $(DEVKITPPC)/bin/powerpc-eabi-g++
 LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
-# Source directories / files
-#
-#  wave_browser/          – main.cpp, settings.cpp, (no subdirs)
-#  vendor/minizip/        – vendored minizip C files
-#  tv_remotes/            – engine + registry + detect (flat, no core/)
-#  tv_remotes/brand/year/ – model .cpp files (recursive find)
+# Source files
 #---------------------------------------------------------------------------------
 
-# Flat sources in wave_browser root
+# Core wave_browser sources (exclude plugin/ subdir)
 WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp
 
 # Vendored minizip
 MINIZIP_CFILES := vendor/minizip/ioapi.c vendor/minizip/unzip.c
 
-# tv_remotes engine (flat files only, not recursive yet – those come from find)
+# TV Remotes engine files (flat)
 TV_ENGINE_CPPFILES := \
-    wave_browser/tv_remotes/tv_remote.cpp    \
-    wave_browser/tv_remotes/model_registry.cpp \
+    wave_browser/tv_remotes/tv_remote.cpp       \
+    wave_browser/tv_remotes/model_registry.cpp  \
     wave_browser/tv_remotes/tv_detect.cpp
 
-# All model .cpp files under brand/year/ subdirectories (recursive)
+# All brand/year/model files (recursive, excludes plugin/)
 TV_MODEL_CPPFILES := $(shell find wave_browser/tv_remotes -mindepth 3 -name '*.cpp' 2>/dev/null)
 
 ALL_CFILES   := $(MINIZIP_CFILES)
@@ -82,65 +77,45 @@ LIBS := \
     -lwut -lm
 
 #---------------------------------------------------------------------------------
-# Object file list  (mirror source path under $(BUILD)/)
+# Object files
 #---------------------------------------------------------------------------------
 OFILES := \
     $(patsubst %.c,  $(BUILD)/%.o, $(ALL_CFILES))   \
     $(patsubst %.cpp,$(BUILD)/%.o, $(ALL_CXXFILES))
 
 #---------------------------------------------------------------------------------
-# Default target
+# Targets
 #---------------------------------------------------------------------------------
 all: $(TARGET).wuhb
 
-#---------------------------------------------------------------------------------
-# Compile C
-#---------------------------------------------------------------------------------
 $(BUILD)/%.o: %.c
 	@mkdir -p "$(dir $@)"
 	$(CC) $(CFLAGS) -c "$<" -o "$@"
 
-#---------------------------------------------------------------------------------
-# Compile C++
-#---------------------------------------------------------------------------------
 $(BUILD)/%.o: %.cpp
 	@mkdir -p "$(dir $@)"
 	$(CXX) $(CXXFLAGS) -c "$<" -o "$@"
 
-#---------------------------------------------------------------------------------
-# Link → ELF
-#---------------------------------------------------------------------------------
 $(TARGET).elf: $(OFILES)
 	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
-#---------------------------------------------------------------------------------
-# ELF → RPX
-#---------------------------------------------------------------------------------
 $(TARGET).rpx: $(TARGET).elf
 	elf2rpl $< $@
 
-#---------------------------------------------------------------------------------
-# RPX → WUHB
-#---------------------------------------------------------------------------------
 $(TARGET).wuhb: $(TARGET).rpx
 	wuhbtool $(TARGET).rpx $(TARGET).wuhb \
 	    --name="Wave Browser" \
 	    --short-name="WaveBrowser" \
 	    --author="GameBuster"
 
-#---------------------------------------------------------------------------------
-# Release
-#---------------------------------------------------------------------------------
 release: $(TARGET).wuhb
 	mkdir -p $(RELEASE_DIR)
 	cp $(TARGET).wuhb $(RELEASE_DIR)/
 	cp meta.xml $(RELEASE_DIR)/
 	zip -r release/$(TARGET).zip $(RELEASE_DIR)
 
-#---------------------------------------------------------------------------------
-# Clean
-#---------------------------------------------------------------------------------
 clean:
 	rm -rf $(BUILD) *.elf *.rpx *.wuhb release WaveBrowser WaveBrowser.zip
+	$(MAKE) -C wave_browser/plugin clean
 
 .PHONY: all clean release
