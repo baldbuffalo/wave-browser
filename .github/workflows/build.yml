@@ -1,105 +1,103 @@
-name: Build Wave Browser (WiiU)
+name: Build Wave Browser (WiiU)  
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-  workflow_dispatch:
+on:  
+  push:  
+    branches: [main]  
+  pull_request:  
+  workflow_dispatch:  
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    container:
-      image: devkitpro/devkitppc:latest
+jobs:  
+  build:  
+    runs-on: ubuntu-latest  
+    container:  
+      image: devkitpro/devkitppc:latest  
 
-    env:
-      DEVKITPRO: /opt/devkitpro
-      DEVKITPPC: /opt/devkitpro/devkitPPC
-      WUT_ROOT: /opt/devkitpro/wut
-      PORTLIBS: /opt/devkitpro/portlibs/wiiu
+    env:  
+      DEVKITPRO: /opt/devkitpro  
+      DEVKITPPC: /opt/devkitpro/devkitPPC  
+      WUT_ROOT: /opt/devkitpro/wut  
+      PORTLIBS: /opt/devkitpro/portlibs/wiiu  
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    steps:  
+      - uses: actions/checkout@v4  
 
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y zip libxml2-utils python3
+      - name: Install system dependencies  
+        run: |  
+          apt-get update  
+          apt-get install -y zip libxml2-utils python3 git  
 
-      - name: Add wiiu-env pacman repo
-        run: |
-          cat >> /etc/pacman.conf << 'EOF'
+      - name: Add wiiu-env community pacman repo  
+        run: |  
+          cat >> /etc/pacman.conf << 'EOF'  
+          [wiiu-env]  
+          Server = https://wiiu.maschell.de/  
+          SigLevel = Optional  
+          EOF  
 
-          [wiiu-env]
-          Server = https://wiiu.maschell.de/
-          SigLevel = Optional
-          EOF
+      - name: Install devkitPro WiiU libraries  
+        run: |  
+          dkp-pacman -Sy --needed --noconfirm wiiu-dev  
 
-      - name: Install devkitPro WiiU libraries + WUPS
-        run: |
-          dkp-pacman -Sy --needed --noconfirm wiiu-dev wiiu-wups
+      # wiiu-wups is NOT a pacman package — build from source  
+      - name: Build and install WUPS from source  
+        run: |  
+          git clone --recursive --depth 1 \
+            https://github.com/wiiu-env/WiiUPluginSystem.git /tmp/wups  
+          cd /tmp/wups  
+          make -j$(nproc)  
+          make install  
 
-      - name: Add devkitPro tools to PATH
-        run: |
-          echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
-          echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
+      - name: Add devkitPro tools to PATH  
+        run: |  
+          echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH  
+          echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH  
 
-      - name: Vendor minizip source
-        run: |
-          mkdir -p vendor/minizip
-          BASE="https://raw.githubusercontent.com/madler/zlib/v1.3.1/contrib/minizip"
-          for f in ioapi.h ioapi.c unzip.h unzip.c; do
-            curl -fsSL "$BASE/$f" -o "vendor/minizip/$f"
-          done
+      - name: Vendor minizip source  
+        run: |  
+          mkdir -p vendor/minizip  
+          BASE="https://raw.githubusercontent.com/madler/zlib/v1.3.1/contrib/minizip"  
+          for f in ioapi.h ioapi.c unzip.h unzip.c; do  
+            curl -fsSL "$BASE/$f" -o "vendor/minizip/$f"  
+          done  
 
-      - name: Download font
-        run: |
-          FONT_URL=$(curl -s -A "Mozilla/4.0" "https://fonts.googleapis.com/css?family=Roboto:700" | grep -o 'https://[^)]*' | head -1)
-          wget -q "$FONT_URL" -O wave_browser/font.ttf
-          python3 -c "data=open('wave_browser/font.ttf','rb').read(); open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\nstatic const unsigned int font_data_len='+str(len(data))+';\n')"
+      - name: Download and embed font  
+        run: |  
+          FONT_URL=$(curl -s -A "Mozilla/4.0" \
+            "https://fonts.googleapis.com/css?family=Roboto:700" \
+            | grep -o 'https://[^)]*' | head -1)  
+          wget -q "$FONT_URL" -O wave_browser/font.ttf  
+          python3 -c "  
+data = open('wave_browser/font.ttf', 'rb').read()  
+with open('wave_browser/font_data.h', 'w') as f:  
+    f.write('static const unsigned char font_data[]={' + ','.join(str(b) for b in data) + '};\n')  
+    f.write('static const unsigned int font_data_len=' + str(len(data)) + ';\n')  
+print(f'Embedded {len(data)} font bytes')  
+"  
 
-      - name: Build Aroma plugin
-        run: |
-          cd wave_browser/plugin
-          make -j$(nproc)
-          ls -lh WaveBrowserRemote.wps
+      - name: Build Aroma plugin  
+        run: |  
+          cd wave_browser/plugin  
+          make -j$(nproc)  
+          ls -lh WaveBrowserRemote.wps  
 
-      - name: Embed plugin binary into header
-        run: |
-          python3 - << 'PYEOF'
-          data = open('wave_browser/plugin/WaveBrowserRemote.wps', 'rb').read()
-          with open('wave_browser/plugin_data.h', 'w') as f:
-              f.write('// Auto-generated by build.yml — do not edit\n')
-              f.write('static const unsigned char plugin_wps_data[] = {')
-              f.write(','.join(str(b) for b in data))
-              f.write('};\n')
-              f.write(f'static const unsigned int plugin_wps_len = {len(data)};\n')
-          print(f"Embedded {len(data)} bytes -> wave_browser/plugin_data.h")
-          PYEOF
+      - name: Embed plugin binary into header  
+        run: |  
+          python3 - << 'PYEOF'  
+          data = open('wave_browser/plugin/WaveBrowserRemote.wps', 'rb').read()  
+          with open('wave_browser/plugin_data.h', 'w') as f:  
+              f.write('// Auto-generated by build.yml - do not edit\n')  
+              f.write('static const unsigned char plugin_wps_data[] = {')  
+              f.write(','.join(str(b) for b in data))  
+              f.write('};\n')  
+              f.write(f'static const unsigned int plugin_wps_len = {len(data)};\n')  
+          print(f"Embedded {len(data)} bytes -> wave_browser/plugin_data.h")  
+          PYEOF  
 
-      - name: Build Wave Browser
-        run: |
-          make clean
-          make -j$(nproc)
+      - name: Build Wave Browser  
+        run: |  
+          make clean  
+          make -j$(nproc)  
 
-      - name: Validate meta.xml
-        run: |
-          if [ ! -f meta.xml ]; then
-            echo "meta.xml missing!" && exit 1
-          fi
-          xmllint --noout meta.xml
-
-      - name: Prepare release folder
-        run: |
-          mkdir -p WaveBrowser
-          cp WaveBrowser.wuhb WaveBrowser/
-          cp meta.xml WaveBrowser/
-          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: WaveBrowser
-          path: WaveBrowser/
+      - name: Validate meta.xml  
+        run: |  
+          test -f meta.xml && xmllint --no
