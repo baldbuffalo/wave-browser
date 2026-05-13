@@ -450,8 +450,8 @@ static void draw_setup_intro(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TT
         "Make Your GamePad a Real TV Remote",
         brand_model,
         "We will test the IR signal, then install a system plugin",
-        "A: Let\'s go    B: Skip setup",
-        "A  Let\'s go", "B  Skip");
+        "A: Let\'s go",
+        "A  Let\'s go", nullptr);
 }
 
 static void draw_setup_point(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -460,8 +460,8 @@ static void draw_setup_point(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TT
         "Point the GamePad at your TV",
         "Hold the GamePad so its top edge faces your TV",
         "The IR emitter is on the top edge of the GamePad",
-        "A: Ready    B: Back",
-        "A  Ready", "B  Back");
+        "A: Ready",
+        "A  Ready", nullptr);
 }
 
 static void draw_setup_test(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -479,8 +479,8 @@ static void draw_setup_test(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF
         "Press the â  TV button on the GamePad",
         s_setup_test_fired ? anim : "The TV button is the small button above the right stick",
         s_setup_test_fired ? "Watch your TV — it should turn on or off" : "",
-        "TV button: fire IR    B: Back",
-        nullptr, "B  Back");
+        "Press the TV button to fire IR",
+        nullptr, nullptr);
 }
 
 static void draw_setup_result(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -493,8 +493,8 @@ static void draw_setup_result(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, T
         "Did your TV respond?",
         sub,
         "A = Yes, it worked!     B = No, try again",
-        "A: Yes    B: No / try again",
-        "A  Yes!", "B  No");
+        "A: Yes    B: No, try again",
+        "A  Yes!", "B  Try again");
 }
 
 static void draw_setup_install(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -503,8 +503,8 @@ static void draw_setup_install(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, 
         "Install System Plugin",
         "This installs WaveBrowserRemote into Aroma so the",
         "TV button works even when Wave Browser is closed",
-        "A: Install    B: Skip (TV button only works in-app)",
-        "A  Install Plugin", "B  Skip");
+        "A: Install",
+        "A  Install Plugin", nullptr);
 }
 
 static void draw_setup_installing(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -534,7 +534,7 @@ static void draw_setup_done(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF
         sub = "TV button works while Wave Browser is open";
     } else {
         msg = "Setup complete";
-        sub = "TV button works while Wave Browser is open";
+        sub = "";
     }
 
     draw_setup_step(ren, fsm, fmd, flg, 5, 5,
@@ -683,12 +683,10 @@ bool settings_handle_input(VPADStatus* vpad)
 
     case PAGE_SETUP_INTRO:
         if (btn & VPAD_BUTTON_A) { s_page = PAGE_SETUP_POINT; }
-        if (btn & VPAD_BUTTON_B) { s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP; }
         break;
 
     case PAGE_SETUP_POINT:
         if (btn & VPAD_BUTTON_A) { s_setup_test_fired = false; s_page = PAGE_SETUP_TEST; }
-        if (btn & VPAD_BUTTON_B) { s_page = PAGE_SETUP_INTRO; }
         break;
 
     case PAGE_SETUP_TEST: {
@@ -701,7 +699,6 @@ bool settings_handle_input(VPADStatus* vpad)
             }
             s_page = PAGE_SETUP_RESULT;
         }
-        if (btn & VPAD_BUTTON_B) { s_page = PAGE_SETUP_POINT; }
         break;
     }
 
@@ -721,18 +718,10 @@ bool settings_handle_input(VPADStatus* vpad)
 
     case PAGE_SETUP_INSTALL:
         if (btn & VPAD_BUTTON_A) {
-            // Write plugin config first, then install
             const TVRemoteModel* m = tv_remote_get_model();
             if (m) plugin_write_config(m);
             s_setup_anim = 0;
             s_page = PAGE_SETUP_INSTALLING;
-        }
-        if (btn & VPAD_BUTTON_B) {
-            // Skip install — just write config so in-app TV button works
-            const TVRemoteModel* m = tv_remote_get_model();
-            if (m) plugin_write_config(m);
-            s_setup_install_result = 0;
-            s_page = PAGE_SETUP_DONE;
         }
         break;
 
