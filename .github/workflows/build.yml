@@ -28,9 +28,18 @@ jobs:
           apt-get update
           apt-get install -y zip libxml2-utils python3
 
-      - name: Install devkitPro WiiU libraries
+      - name: Add wiiu-env pacman repo
         run: |
-          dkp-pacman -Sy --noconfirm wiiu-dev wiiu-wups
+          cat >> /etc/pacman.conf << 'EOF'
+
+          [wiiu-env]
+          Server = https://wiiu.maschell.de/
+          SigLevel = Optional
+          EOF
+
+      - name: Install devkitPro WiiU libraries + WUPS
+        run: |
+          dkp-pacman -Sy --needed --noconfirm wiiu-dev wiiu-wups
 
       - name: Add devkitPro tools to PATH
         run: |
