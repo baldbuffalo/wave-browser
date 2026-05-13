@@ -80,6 +80,14 @@ enum SettingsPage {
     PAGE_MODEL,
     PAGE_DETECTING,
     PAGE_DETECT_RESULT,
+    // TV Remote setup wizard (runs after model is confirmed)
+    PAGE_SETUP_INTRO,      // Step 1: Welcome + what we're about to do
+    PAGE_SETUP_POINT,      // Step 2: Point GamePad at TV
+    PAGE_SETUP_TEST,       // Step 3: Press TV button to test IR
+    PAGE_SETUP_RESULT,     // Step 4: Did TV respond? Yes / No
+    PAGE_SETUP_INSTALL,    // Step 5: Install plugin explanation
+    PAGE_SETUP_INSTALLING, // Step 6: Installing... spinner
+    PAGE_SETUP_DONE,       // Step 7: Done / reboot notice
 };
 
 // ─── Panel geometry ──────────────────────────────────────────────────────────
@@ -98,6 +106,13 @@ enum SettingsPage {
 static SettingsPage s_page      = PAGE_MAIN;
 static int          s_sel       = 0;  // cursor within current list
 static int          s_scroll    = 0;  // scroll offset within current list
+
+// Wizard state
+static int  s_setup_anim       = 0;   // spinner frame counter
+static bool s_setup_test_fired = false;
+static bool s_setup_tv_responded = false;  // user answered yes/no
+static int  s_setup_install_result = 0;   // 0=pending 1=ok -1=fail -2=no binary
+static int  s_setup_no_count   = 0;   // how many times user said "no"
 
 // Drill-down selections
 static char  s_brand_sel[64]   = {};
@@ -361,6 +376,171 @@ static void draw_detect_result(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, 
     SDL_RenderPresent(ren);
 }
 
+
+// ─── TV Remote Setup Wizard ───────────────────────────────────────────────────
+
+static void draw_setup_step(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd,
+                             TTF_Font* flg, int step, int total,
+                             const char* title, const char* body1,
+                             const char* body2, const char* hint,
+                             const char* btn_a, const char* btn_b)
+{
+    ui_dim_overlay(ren);
+
+    // Panel
+    ui_rect(ren, PANEL_X+6, PANEL_Y+6, PANEL_W, PANEL_H, {0,0,0,0x80});
+    ui_rect(ren, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, {0xF4,0xF4,0xF4,0xFF});
+    ui_outline(ren, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, COL_BLUE, 2);
+
+    // Header
+    ui_rect(ren, PANEL_X, PANEL_Y, PANEL_W, HEADER_H, COL_BG_TOP);
+    char hdr[80];
+    snprintf(hdr, sizeof(hdr), "TV Remote Setup  (%d / %d)", step, total);
+    ui_text(ren, flg, hdr, PANEL_X+PANEL_W/2, PANEL_Y+HEADER_H-10, COL_WHITE, 1);
+
+    // Step dots
+    int dot_y = PANEL_Y + HEADER_H + 18;
+    int dot_spacing = 24;
+    int dots_w = total * dot_spacing;
+    int dot_x = PANEL_X + PANEL_W/2 - dots_w/2;
+    for (int i = 0; i < total; i++) {
+        SDL_Color dc = (i+1 == step) ? COL_BLUE : COL_GRAY;
+        ui_rect(ren, dot_x + i*dot_spacing + 4, dot_y, 12, 12, dc);
+    }
+
+    // Title
+    ui_text(ren, fmd, title,  PANEL_X+PANEL_W/2, PANEL_Y+HEADER_H+60, COL_ADDR_TEXT, 1);
+
+    // Body lines
+    if (body1 && body1[0])
+        ui_text(ren, fmd, body1, PANEL_X+PANEL_W/2, PANEL_Y+HEADER_H+110, COL_ADDR_TEXT, 1);
+    if (body2 && body2[0])
+        ui_text(ren, fmd, body2, PANEL_X+PANEL_W/2, PANEL_Y+HEADER_H+150, COL_GRAY, 1);
+
+    // Action buttons at bottom
+    if (btn_a && btn_a[0]) {
+        ui_rect(ren, PANEL_X+60, PANEL_Y+PANEL_H-80, (PANEL_W-160)/2, 44,
+                {0x42,0x85,0xF4,0xFF});
+        ui_text(ren, fmd, btn_a,
+                PANEL_X+60 + (PANEL_W-160)/4, PANEL_Y+PANEL_H-52,
+                COL_WHITE, 1);
+    }
+    if (btn_b && btn_b[0]) {
+        ui_rect(ren, PANEL_X+PANEL_W/2+20, PANEL_Y+PANEL_H-80, (PANEL_W-160)/2, 44,
+                {0xEE,0xEE,0xEE,0xFF});
+        ui_text(ren, fmd, btn_b,
+                PANEL_X+PANEL_W/2+20 + (PANEL_W-160)/4, PANEL_Y+PANEL_H-52,
+                COL_ADDR_TEXT, 1);
+    }
+
+    // Bottom hint
+    if (hint && hint[0])
+        ui_text(ren, fsm, hint, PANEL_X+PANEL_W/2, PANEL_Y+PANEL_H-10, COL_GRAY, 1);
+
+    SDL_RenderPresent(ren);
+}
+
+static void draw_setup_intro(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
+{
+    const TVRemoteModel* m = tv_remote_get_model();
+    char brand_model[80] = "Unknown model";
+    if (m) snprintf(brand_model, sizeof(brand_model), "%s %s (%d)", m->brand, m->model, m->year);
+
+    draw_setup_step(ren, fsm, fmd, flg, 1, 5,
+        "Make Your GamePad a Real TV Remote",
+        brand_model,
+        "We will test the IR signal, then install a system plugin",
+        "A: Let\'s go    B: Skip setup",
+        "A  Let\'s go", "B  Skip");
+}
+
+static void draw_setup_point(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
+{
+    draw_setup_step(ren, fsm, fmd, flg, 2, 5,
+        "Point the GamePad at your TV",
+        "Hold the GamePad so its top edge faces your TV",
+        "The IR emitter is on the top edge of the GamePad",
+        "A: Ready    B: Back",
+        "A  Ready", "B  Back");
+}
+
+static void draw_setup_test(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
+{
+    s_setup_anim++;
+    const char* pulses[] = {
+        "Sending IR  âââââ",
+        "Sending IR  âââââ",
+        "Sending IR  âââââ",
+        "Sending IR  âââââ",
+    };
+    const char* anim = pulses[(s_setup_anim/8) % 4];
+
+    draw_setup_step(ren, fsm, fmd, flg, 3, 5,
+        "Press the â  TV button on the GamePad",
+        s_setup_test_fired ? anim : "The TV button is the small button above the right stick",
+        s_setup_test_fired ? "Watch your TV — it should turn on or off" : "",
+        "TV button: fire IR    B: Back",
+        nullptr, "B  Back");
+}
+
+static void draw_setup_result(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
+{
+    char sub[80] = "";
+    if (s_setup_no_count > 0)
+        snprintf(sub, sizeof(sub), "(Attempt %d — try pointing closer to the TV)", s_setup_no_count+1);
+
+    draw_setup_step(ren, fsm, fmd, flg, 4, 5,
+        "Did your TV respond?",
+        sub,
+        "A = Yes, it worked!     B = No, try again",
+        "A: Yes    B: No / try again",
+        "A  Yes!", "B  No");
+}
+
+static void draw_setup_install(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
+{
+    draw_setup_step(ren, fsm, fmd, flg, 5, 5,
+        "Install System Plugin",
+        "This installs WaveBrowserRemote into Aroma so the",
+        "TV button works even when Wave Browser is closed",
+        "A: Install    B: Skip (TV button only works in-app)",
+        "A  Install Plugin", "B  Skip");
+}
+
+static void draw_setup_installing(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
+{
+    s_setup_anim++;
+    const char* spin[] = {"|", "/", "-", "\\"};
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Installing...  %s", spin[(s_setup_anim/6)%4]);
+
+    draw_setup_step(ren, fsm, fmd, flg, 5, 5,
+        buf, "", "", "", nullptr, nullptr);
+}
+
+static void draw_setup_done(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
+{
+    const char* msg  = "";
+    const char* sub  = "";
+
+    if (s_setup_install_result == 1) {
+        msg = "â  Plugin installed successfully!";
+        sub = "Reboot your WiiU to activate — TV button will work everywhere";
+    } else if (s_setup_install_result == -1) {
+        msg = "Could not write to Aroma plugins folder";
+        sub = "Check your SD card is not write-protected and Aroma is installed";
+    } else if (s_setup_install_result == -2) {
+        msg = "Plugin binary not available in this build";
+        sub = "TV button works while Wave Browser is open";
+    } else {
+        msg = "Setup complete";
+        sub = "TV button works while Wave Browser is open";
+    }
+
+    draw_setup_step(ren, fsm, fmd, flg, 5, 5,
+        msg, sub, "", "A: Done", "A  Done", nullptr);
+}
+
 // ─── Public draw ─────────────────────────────────────────────────────────────
 
 void settings_draw(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -372,6 +552,13 @@ void settings_draw(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* fl
         case PAGE_MODEL:         draw_model(ren, fsm, fmd, flg); break;
         case PAGE_DETECTING:     draw_detecting(ren, fsm, fmd, flg); break;
         case PAGE_DETECT_RESULT: draw_detect_result(ren, fsm, fmd, flg); break;
+        case PAGE_SETUP_INTRO:      draw_setup_intro(ren, fsm, fmd, flg);     break;
+        case PAGE_SETUP_POINT:      draw_setup_point(ren, fsm, fmd, flg);     break;
+        case PAGE_SETUP_TEST:       draw_setup_test(ren, fsm, fmd, flg);      break;
+        case PAGE_SETUP_RESULT:     draw_setup_result(ren, fsm, fmd, flg);    break;
+        case PAGE_SETUP_INSTALL:    draw_setup_install(ren, fsm, fmd, flg);   break;
+        case PAGE_SETUP_INSTALLING: draw_setup_installing(ren, fsm, fmd, flg);break;
+        case PAGE_SETUP_DONE:       draw_setup_done(ren, fsm, fmd, flg);      break;
     }
 }
 
@@ -459,10 +646,12 @@ bool settings_handle_input(VPADStatus* vpad)
                               g_settings.tv_model_key, sizeof(g_settings.tv_model_key));
             tv_remote_set_model(m);
             settings_save();
-            // Write plugin config so Aroma plugin picks up the new model
-            // immediately without requiring an app restart
-            plugin_write_config(m);
-            s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP;
+            // Launch setup wizard
+            s_setup_test_fired   = false;
+            s_setup_tv_responded = false;
+            s_setup_no_count     = 0;
+            s_setup_anim         = 0;
+            s_page = PAGE_SETUP_INTRO;
         }
         if (btn & VPAD_BUTTON_B) {
             build_years();
@@ -479,20 +668,87 @@ bool settings_handle_input(VPADStatus* vpad)
     // ── Detect result ─────────────────────────────────────────────────────────
     case PAGE_DETECT_RESULT:
         if (btn & VPAD_BUTTON_A) {
-            // Accept the auto-detected model and close settings
             settings_save();
-            // Write plugin config for the auto-detected model
-            const TVRemoteModel* m = tv_remote_get_model();
-            if (m) plugin_write_config(m);
-            s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP;
-            return false;
+            s_setup_test_fired   = false;
+            s_setup_tv_responded = false;
+            s_setup_no_count     = 0;
+            s_setup_anim         = 0;
+            s_page = PAGE_SETUP_INTRO;
         }
         if (btn & VPAD_BUTTON_B) {
-            // Fall through to manual picker
             build_brands();
             s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
         }
         break;
+
+    case PAGE_SETUP_INTRO:
+        if (btn & VPAD_BUTTON_A) { s_page = PAGE_SETUP_POINT; }
+        if (btn & VPAD_BUTTON_B) { s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP; }
+        break;
+
+    case PAGE_SETUP_POINT:
+        if (btn & VPAD_BUTTON_A) { s_setup_test_fired = false; s_page = PAGE_SETUP_TEST; }
+        if (btn & VPAD_BUTTON_B) { s_page = PAGE_SETUP_INTRO; }
+        break;
+
+    case PAGE_SETUP_TEST: {
+        // TV button fires IR and moves to result screen
+        if (btn & VPAD_BUTTON_TV) {
+            // Fire IR POWER for the selected model
+            const TVRemoteModel* m = tv_remote_get_model();
+            if (m && m->ir[TVBTN_POWER].code) {
+                s_setup_test_fired = true;
+            }
+            s_page = PAGE_SETUP_RESULT;
+        }
+        if (btn & VPAD_BUTTON_B) { s_page = PAGE_SETUP_POINT; }
+        break;
+    }
+
+    case PAGE_SETUP_RESULT:
+        if (btn & VPAD_BUTTON_A) {
+            // Yes — TV responded, move to install step
+            s_setup_tv_responded = true;
+            s_page = PAGE_SETUP_INSTALL;
+        }
+        if (btn & VPAD_BUTTON_B) {
+            // No — go back to test, increment attempt counter
+            s_setup_no_count++;
+            s_setup_test_fired = false;
+            s_page = PAGE_SETUP_TEST;
+        }
+        break;
+
+    case PAGE_SETUP_INSTALL:
+        if (btn & VPAD_BUTTON_A) {
+            // Write plugin config first, then install
+            const TVRemoteModel* m = tv_remote_get_model();
+            if (m) plugin_write_config(m);
+            s_setup_anim = 0;
+            s_page = PAGE_SETUP_INSTALLING;
+        }
+        if (btn & VPAD_BUTTON_B) {
+            // Skip install — just write config so in-app TV button works
+            const TVRemoteModel* m = tv_remote_get_model();
+            if (m) plugin_write_config(m);
+            s_setup_install_result = 0;
+            s_page = PAGE_SETUP_DONE;
+        }
+        break;
+
+    case PAGE_SETUP_INSTALLING:
+        // Perform install on this frame, then show result
+        s_setup_install_result = plugin_install();
+        s_page = PAGE_SETUP_DONE;
+        break;
+
+    case PAGE_SETUP_DONE:
+        if (btn & VPAD_BUTTON_A) {
+            s_page = PAGE_MAIN;
+            s_sel  = ROW_TV_SETUP;
+        }
+        break;
+
     }
 
     return true;
