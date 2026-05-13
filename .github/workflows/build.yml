@@ -67,10 +67,10 @@ jobs:
             | grep -o 'https://[^)]*' | head -1)  
           wget -q "$FONT_URL" -O wave_browser/font.ttf  
           python3 -c "  
-data = open('wave_browser/font.ttf', 'rb').read()  
-with open('wave_browser/font_data.h', 'w') as f:  
-    f.write('static const unsigned char font_data[]={' + ','.join(str(b) for b in data) + '};\n')  
-    f.write('static const unsigned int font_data_len=' + str(len(data)) + ';\n')  
+          data = open('wave_browser/font.ttf', 'rb').read()  
+        with open('wave_browser/font_data.h', 'w') as f:  
+        f.write('static const unsigned char font_data[]={' + ','.join(str(b) for b in data) + '};\n')  
+        f.write('static const unsigned int font_data_len=' + str(len(data)) + ';\n')  
 print(f'Embedded {len(data)} font bytes')  
 "  
 
