@@ -9,45 +9,22 @@ on:
 
 jobs:
   # ── Step 1: Build the Aroma plugin ───────────────────────────────────────────
+  # Uses a custom Dockerfile that layers wiiupluginsystem onto devkitppc,
+  # exactly as the official WUPS docs recommend.
   build-plugin:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/wiiu-env/devkitppc:latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install WUPS
+      - name: Build plugin via Docker (official WUPS pattern)
         run: |
-          # wiiu-env image ships dkp-pacman with their own repo pre-configured
-          # Try dkp-pacman first (fastest), fall back to direct pkg install
-          dkp-pacman -Sy --noconfirm wiiu-wups 2>/dev/null && echo "installed via pacman" && exit 0
-
-          # Fallback: install the .pkg.tar.zst directly from a known release
-          # Find latest tag via redirect (no API rate limit)
-          LATEST=$(curl -sI "https://github.com/wiiu-env/WiiUPluginSystem/releases/latest" \
-            | grep -i "^location:" | sed 's|.*/tag/||' | tr -d '[:space:]')
-          echo "WUPS version: $LATEST"
-
-          # Download the pacman package for that tag
-          PKG_URL="https://github.com/wiiu-env/WiiUPluginSystem/releases/download/${LATEST}/wups-${LATEST#v}-1-any.pkg.tar.zst"
-          echo "Trying: $PKG_URL"
-          curl -fL "$PKG_URL" -o /tmp/wups.pkg.tar.zst \
-            || curl -fL "https://github.com/wiiu-env/WiiUPluginSystem/releases/download/${LATEST}/wups-1-any.pkg.tar.zst" \
-                    -o /tmp/wups.pkg.tar.zst
-
-          # Install the package
-          dkp-pacman --noconfirm -U /tmp/wups.pkg.tar.zst
-
-      - name: Verify WUPS headers present
-        run: ls /opt/devkitpro/wups/include/
-
-      - name: Build Aroma plugin
-        run: |
-          cd wave_browser/plugin
-          make -j$(nproc)
-          ls -lh WaveBrowserRemote.wps
+          docker build -t wavebrowser-plugin-builder wave_browser/plugin/
+          docker run --rm \
+            -v "$PWD/wave_browser/plugin:/plugin" \
+            wavebrowser-plugin-builder \
+            sh -c "cd /plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
