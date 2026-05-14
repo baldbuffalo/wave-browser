@@ -22,9 +22,9 @@ jobs:
         run: |
           docker build -t wavebrowser-plugin-builder wave_browser/plugin/
           docker run --rm \
-            -v "$PWD/wave_browser/plugin:/plugin" \
+            -v "$PWD/wave_browser:/wave_browser" \
             wavebrowser-plugin-builder \
-            sh -c "cd /plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
+            sh -c "cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
