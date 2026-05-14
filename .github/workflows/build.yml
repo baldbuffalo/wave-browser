@@ -18,14 +18,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install WUPS from wiiu-env release
+      - name: Install WUPS
         run: |
-          # Download latest WUPS SDK release and extract into devkitPro prefix
-          WUPS_URL=$(curl -s https://api.github.com/repos/wiiu-env/WiiUPluginSystem/releases/latest \
-            | grep "browser_download_url" | grep "\.tar\.gz" | cut -d'"' -f4 | head -1)
-          echo "Downloading WUPS from: $WUPS_URL"
-          curl -L "$WUPS_URL" | tar -xz -C /opt/devkitpro
-          ls /opt/devkitpro/wups/include/
+          # wiiu-env image ships dkp-pacman with their own repo pre-configured
+          # Try dkp-pacman first (fastest), fall back to direct pkg install
+          dkp-pacman -Sy --noconfirm wiiu-wups 2>/dev/null && echo "installed via pacman" && exit 0
+
+          # Fallback: install the .pkg.tar.zst directly from a known release
+          # Find latest tag via redirect (no API rate limit)
+          LATEST=$(curl -sI "https://github.com/wiiu-env/WiiUPluginSystem/releases/latest" \
+            | grep -i "^location:" | sed 's|.*/tag/||' | tr -d '[:space:]')
+          echo "WUPS version: $LATEST"
+
+          # Download the pacman package for that tag
+          PKG_URL="https://github.com/wiiu-env/WiiUPluginSystem/releases/download/${LATEST}/wups-${LATEST#v}-1-any.pkg.tar.zst"
+          echo "Trying: $PKG_URL"
+          curl -fL "$PKG_URL" -o /tmp/wups.pkg.tar.zst \
+            || curl -fL "https://github.com/wiiu-env/WiiUPluginSystem/releases/download/${LATEST}/wups-1-any.pkg.tar.zst" \
+                    -o /tmp/wups.pkg.tar.zst
+
+          # Install the package
+          dkp-pacman --noconfirm -U /tmp/wups.pkg.tar.zst
+
+      - name: Verify WUPS headers present
+        run: ls /opt/devkitpro/wups/include/
 
       - name: Build Aroma plugin
         run: |
