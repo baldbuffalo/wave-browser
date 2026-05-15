@@ -1,9 +1,3 @@
-#---------------------------------------------------------------------------------
-# WaveBrowserRemote Aroma plugin
-# Output: WaveBrowserRemote.wps
-# Requires: wups package from devkitPro (dkp-pacman -S wiiu-wups)
-#---------------------------------------------------------------------------------
-
 TARGET  := WaveBrowserRemote
 BUILD   := build_plugin
 
@@ -11,9 +5,8 @@ DEVKITPRO  ?= /opt/devkitpro
 DEVKITPPC  := $(DEVKITPRO)/devkitPPC
 WUPS_ROOT  := $(DEVKITPRO)/wups
 
-CC   := $(DEVKITPPC)/bin/powerpc-eabi-gcc
-CXX  := $(DEVKITPPC)/bin/powerpc-eabi-g++
-LD   := $(CXX)
+CXX := $(DEVKITPPC)/bin/powerpc-eabi-g++
+STRIP := $(DEVKITPPC)/bin/powerpc-eabi-strip
 
 CXXFLAGS := \
     -O2 -Wall -mcpu=750 -meabi -mhard-float \
@@ -42,10 +35,11 @@ $(BUILD)/%.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OFILES)
-	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
+	$(CXX) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
+# Strip the ELF and rename to .wps — Aroma accepts stripped ELF as .wps
 $(TARGET).wps: $(TARGET).elf
-	$(DEVKITPRO)/tools/bin/wpsstrip $< $@
+	$(STRIP) $< -o $@
 
 clean:
 	rm -rf $(BUILD) $(TARGET).elf $(TARGET).wps
