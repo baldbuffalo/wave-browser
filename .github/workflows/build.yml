@@ -8,13 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── Plugin build ─────────────────────────────────────────────────────────────
   build-plugin:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
 
       - name: Build plugin via Docker
         run: |
@@ -30,18 +28,7 @@ jobs:
           name: plugin-wps
           path: wave_browser/plugin/WaveBrowserRemote.wps
 
-      - name: Write error log on failure
-        if: failure()
-        run: |
-          git config user.email "ci@wave-browser"
-          git config user.name  "Wave Browser CI"
-          mkdir -p .build_status
-          echo "FAILED" > .build_status/status.txt
-          echo "job=build-plugin" >> .build_status/status.txt
-          git add .build_status/
-          git commit -m "ci: build-plugin failed [skip ci]" || true
-          git push origin main || true
-
+  # ── Main app build ───────────────────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
     needs: build-plugin
@@ -54,10 +41,7 @@ jobs:
       PORTLIBS: /opt/devkitpro/portlibs/wiiu
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: apt-get update && apt-get install -y zip libxml2-utils python3
@@ -117,35 +101,67 @@ jobs:
           cp meta.xml WaveBrowser/
           cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/
 
-      - name: Upload artifact
+      - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: WaveBrowser
           path: WaveBrowser/
 
-      - name: Write error log on failure
-        if: failure()
-        run: |
-          git config user.email "ci@wave-browser"
-          git config user.name  "Wave Browser CI"
-          mkdir -p .build_status
-          echo "FAILED" > .build_status/status.txt
-          echo "job=build" >> .build_status/status.txt
-          # Capture last 200 lines of build output
-          tail -200 /tmp/build.log > .build_status/error.log 2>/dev/null || \
-            echo "no build log available" > .build_status/error.log
-          git add .build_status/
-          git commit -m "ci: build failed [skip ci]" || true
-          git push origin main || true
+      # Save build log as artifact regardless of outcome
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          if-no-files-found: ignore
 
-      - name: Write success status
-        if: success()
+  # ── Status reporter (runs on ubuntu — has git) ───────────────────────────────
+  report-status:
+    runs-on: ubuntu-latest
+    needs: [build-plugin, build]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download build log
+        uses: actions/download-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/
+        continue-on-error: true
+
+      - name: Write status to repo
         run: |
+          # Determine overall result
+          PLUGIN="${{ needs.build-plugin.result }}"
+          BUILD="${{ needs.build.result }}"
+
+          mkdir -p .build_status
+
+          if [ "$PLUGIN" = "success" ] && [ "$BUILD" = "success" ]; then
+            echo "SUCCESS" > .build_status/status.txt
+            echo "" > .build_status/error.log
+          else
+            echo "FAILED" > .build_status/status.txt
+            FAILED_JOB="unknown"
+            [ "$PLUGIN" != "success" ] && FAILED_JOB="build-plugin"
+            [ "$BUILD"   != "success" ] && FAILED_JOB="build"
+            echo "job=$FAILED_JOB" >> .build_status/status.txt
+            # Copy build log if present
+            if [ -f /tmp/build.log ]; then
+              tail -200 /tmp/build.log > .build_status/error.log
+            else
+              echo "no build log — check GitHub Actions UI for build-plugin errors" \
+                > .build_status/error.log
+            fi
+          fi
+
           git config user.email "ci@wave-browser"
           git config user.name  "Wave Browser CI"
-          mkdir -p .build_status
-          echo "SUCCESS" > .build_status/status.txt
-          echo "" > .build_status/error.log
           git add .build_status/
-          git commit -m "ci: build passed [skip ci]" || true
-          git push origin main || true
+          git diff --cached --quiet || \
+            git commit -m "ci: build $(cat .build_status/status.txt) [skip ci]"
+          git push origin main
