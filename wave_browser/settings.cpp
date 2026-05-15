@@ -49,7 +49,8 @@ void settings_load()
         if      (sscanf(line, "improved_multitasking=%d", &n) == 1)
             g_settings.improved_multitasking = (n != 0);
         else if (strncmp(line, "tv_model_key=", 13) == 0)
-            snprintf(g_settings.tv_model_key, sizeof(g_settings.tv_model_key), "%s", line+13);
+            snprintf(g_settings.tv_model_key, sizeof(g_settings.tv_model_key), "%.*s",
+                     (int)(sizeof(g_settings.tv_model_key)-1), line+13);
     }
     fclose(f);
     apply_model_key(g_settings.tv_model_key);

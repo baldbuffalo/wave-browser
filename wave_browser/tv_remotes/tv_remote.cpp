@@ -11,12 +11,7 @@
 // nn::ccr::CcSendIr() takes an array of on/off durations in ~26.3 µs ticks.
 // VPAD_BUTTON_TV is intercepted in main.cpp; we fire our own burst instead.
 
-#if __has_include(<nn/ccr.h>)
-#  include <nn/ccr.h>
-#  define HAVE_CCR 1
-#else
-#  define HAVE_CCR 0
-#endif
+// CEC/IR is handled by the Aroma plugin — no CCR needed in the app
 
 // ─── Pulse builder ────────────────────────────────────────────────────────────
 
@@ -31,11 +26,8 @@ static inline void ms(uint32_t m, uint32_t s) { pulse_add(us2t(m)); pulse_add(us
 
 static void blast()
 {
-#if HAVE_CCR
-    nn::ccr::CcSendIr(s_pulses, (uint32_t)s_pulse_count);
-#else
+    // No-op: TV control is via HDMI-CEC in the Aroma plugin
     (void)s_pulses; (void)s_pulse_count;
-#endif
 }
 
 // ─── Protocol encoders ────────────────────────────────────────────────────────

@@ -596,19 +596,19 @@ static void handle_wii_remote_input(KPADStatus* kp)
     uint32_t btn = kp->trigger;   // buttons pressed THIS frame on the Wii Remote
 
     // ── D-pad — always navigate focus ────────────────────────────────────────
-    if (btn & KPAD_BUTTON_UP) {
+    if (btn & WPAD_BUTTON_UP) {
         if (s_focus_row == 1) { s_focus_row = 0; s_focus_col = 3; }
     }
-    if (btn & KPAD_BUTTON_DOWN) {
+    if (btn & WPAD_BUTTON_DOWN) {
         if (s_focus_row == 0) { s_focus_row = 1; s_focus_col = s_active_tab; }
     }
-    if (btn & KPAD_BUTTON_LEFT) {
+    if (btn & WPAD_BUTTON_LEFT) {
         s_focus_col--;
         focus_clamp();
         if (s_focus_row == 1 && s_focus_col < s_tab_count)
             s_active_tab = s_focus_col;
     }
-    if (btn & KPAD_BUTTON_RIGHT) {
+    if (btn & WPAD_BUTTON_RIGHT) {
         s_focus_col++;
         focus_clamp();
         if (s_focus_row == 1 && s_focus_col < s_tab_count)
@@ -616,17 +616,17 @@ static void handle_wii_remote_input(KPADStatus* kp)
     }
 
     // ── A — activate focused element ─────────────────────────────────────────
-    if (btn & KPAD_BUTTON_A)
+    if (btn & WPAD_BUTTON_A)
         focus_activate();
 
     // ── B — back ─────────────────────────────────────────────────────────────
-    if (btn & KPAD_BUTTON_B) {
+    if (btn & WPAD_BUTTON_B) {
         if (s_show_tab_switcher) { s_show_tab_switcher = false; }
         else if (s_in_settings)  { s_in_settings = false; }
     }
 
     // ── + — new tab ──────────────────────────────────────────────────────────
-    if ((btn & KPAD_BUTTON_PLUS) && s_tab_count < MAX_TABS) {
+    if ((btn & WPAD_BUTTON_PLUS) && s_tab_count < MAX_TABS) {
         memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
         strcpy(s_tabs[s_tab_count].title, "New Tab");
         s_active_tab = s_tab_count++;
@@ -635,7 +635,7 @@ static void handle_wii_remote_input(KPADStatus* kp)
     }
 
     // ── − — close tab or open tab switcher ───────────────────────────────────
-    if (btn & KPAD_BUTTON_MINUS) {
+    if (btn & WPAD_BUTTON_MINUS) {
         if (g_settings.improved_multitasking) {
             s_show_tab_switcher = true;
         } else if (s_tab_count > 1) {
@@ -650,14 +650,14 @@ static void handle_wii_remote_input(KPADStatus* kp)
     }
 
     // ── 1 — reload (stub, focus reload button) ───────────────────────────────
-    if (btn & KPAD_BUTTON_1) {
+    if (btn & WPAD_BUTTON_1) {
         s_focus_row = 0;
         s_focus_col = 2;   // reload button
         focus_activate();
     }
 
     // ── 2 — open address bar ─────────────────────────────────────────────────
-    if (btn & KPAD_BUTTON_2) {
+    if (btn & WPAD_BUTTON_2) {
         s_focus_row = 0;
         s_focus_col = 3;   // address bar
         open_url_keyboard();
@@ -668,8 +668,8 @@ static void handle_wii_remote_input(KPADStatus* kp)
         kp->extensionType == WPAD_EXT_MPLUS_NUNCHUK)
     {
         // Nunchuk stick — navigate focus with repeat (same as GamePad left stick)
-        float nx = kp->ex_status.nunchuk.stick.x;
-        float ny = kp->ex_status.nunchuk.stick.y;
+        float nx = kp->nunchuk.stick.x;
+        float ny = kp->nunchuk.stick.y;
         bool any = (nx < -STICK_DEAD || nx > STICK_DEAD ||
                     ny > STICK_DEAD  || ny < -STICK_DEAD);
         if (any) {
@@ -701,8 +701,8 @@ static void handle_wii_remote_input(KPADStatus* kp)
         }
 
         // Nunchuk C — new tab
-        uint32_t nbtn = kp->ex_status.nunchuk.trigger;
-        if ((nbtn & KPAD_NUNCHUK_BUTTON_C) && s_tab_count < MAX_TABS) {
+        uint32_t nbtn = kp->nunchuk.trigger;
+        if ((nbtn & WPAD_NUNCHUK_BUTTON_C) && s_tab_count < MAX_TABS) {
             memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
             strcpy(s_tabs[s_tab_count].title, "New Tab");
             s_active_tab = s_tab_count++;
@@ -711,7 +711,7 @@ static void handle_wii_remote_input(KPADStatus* kp)
         }
 
         // Nunchuk Z — tab switcher
-        if ((nbtn & KPAD_NUNCHUK_BUTTON_Z) && g_settings.improved_multitasking)
+        if ((nbtn & WPAD_NUNCHUK_BUTTON_Z) && g_settings.improved_multitasking)
             s_show_tab_switcher = true;
     }
 }
@@ -867,21 +867,21 @@ int main(int, char**)
                     if (nread <= 0) continue;
 
                     // D-pad → VPAD d-pad bits (trigger only)
-                    if (kpad.trigger & KPAD_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
-                    if (kpad.trigger & KPAD_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
-                    if (kpad.trigger & KPAD_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
-                    if (kpad.trigger & KPAD_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
+                    if (kpad.trigger & WPAD_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
+                    if (kpad.trigger & WPAD_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
+                    if (kpad.trigger & WPAD_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
+                    if (kpad.trigger & WPAD_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
 
                     // A / B → VPAD A / B
-                    if (kpad.trigger & KPAD_BUTTON_A) vpad.trigger |= VPAD_BUTTON_A;
-                    if (kpad.trigger & KPAD_BUTTON_B) vpad.trigger |= VPAD_BUTTON_B;
+                    if (kpad.trigger & WPAD_BUTTON_A) vpad.trigger |= VPAD_BUTTON_A;
+                    if (kpad.trigger & WPAD_BUTTON_B) vpad.trigger |= VPAD_BUTTON_B;
 
                     // Nunchuk stick → VPAD left stick (take strongest input)
                     if (kpad.extensionType == WPAD_EXT_NUNCHUK ||
                         kpad.extensionType == WPAD_EXT_MPLUS_NUNCHUK)
                     {
-                        float nx = kpad.ex_status.nunchuk.stick.x;
-                        float ny = kpad.ex_status.nunchuk.stick.y;
+                        float nx = kpad.nunchuk.stick.x;
+                        float ny = kpad.nunchuk.stick.y;
                         if (fabsf(nx) > fabsf(vpad.leftStick.x)) vpad.leftStick.x = nx;
                         if (fabsf(ny) > fabsf(vpad.leftStick.y)) vpad.leftStick.y = ny;
                     }
