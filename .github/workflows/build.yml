@@ -8,17 +8,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Step 1: Build the Aroma plugin ───────────────────────────────────────────
-  # Uses a custom Dockerfile that layers wiiupluginsystem onto devkitppc,
-  # exactly as the official WUPS docs recommend.
   build-plugin:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build plugin via Docker (official WUPS pattern)
+      - name: Build plugin via Docker
         run: |
           docker build -t wavebrowser-plugin-builder wave_browser/plugin/
           docker run --rm \
@@ -32,13 +30,23 @@ jobs:
           name: plugin-wps
           path: wave_browser/plugin/WaveBrowserRemote.wps
 
-  # ── Step 2: Build the main app ───────────────────────────────────────────────
+      - name: Write error log on failure
+        if: failure()
+        run: |
+          git config user.email "ci@wave-browser"
+          git config user.name  "Wave Browser CI"
+          mkdir -p .build_status
+          echo "FAILED" > .build_status/status.txt
+          echo "job=build-plugin" >> .build_status/status.txt
+          git add .build_status/
+          git commit -m "ci: build-plugin failed [skip ci]" || true
+          git push origin main || true
+
   build:
     runs-on: ubuntu-latest
     needs: build-plugin
     container:
       image: devkitpro/devkitppc:latest
-
     env:
       DEVKITPRO: /opt/devkitpro
       DEVKITPPC: /opt/devkitpro/devkitPPC
@@ -48,6 +56,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
         run: apt-get update && apt-get install -y zip libxml2-utils python3
@@ -93,7 +103,7 @@ jobs:
           "
 
       - name: Build Wave Browser
-        run: make clean && make -j$(nproc)
+        run: make clean && make -j$(nproc) 2>&1 | tee /tmp/build.log; exit ${PIPESTATUS[0]}
 
       - name: Validate meta.xml
         run: |
@@ -112,3 +122,30 @@ jobs:
         with:
           name: WaveBrowser
           path: WaveBrowser/
+
+      - name: Write error log on failure
+        if: failure()
+        run: |
+          git config user.email "ci@wave-browser"
+          git config user.name  "Wave Browser CI"
+          mkdir -p .build_status
+          echo "FAILED" > .build_status/status.txt
+          echo "job=build" >> .build_status/status.txt
+          # Capture last 200 lines of build output
+          tail -200 /tmp/build.log > .build_status/error.log 2>/dev/null || \
+            echo "no build log available" > .build_status/error.log
+          git add .build_status/
+          git commit -m "ci: build failed [skip ci]" || true
+          git push origin main || true
+
+      - name: Write success status
+        if: success()
+        run: |
+          git config user.email "ci@wave-browser"
+          git config user.name  "Wave Browser CI"
+          mkdir -p .build_status
+          echo "SUCCESS" > .build_status/status.txt
+          echo "" > .build_status/error.log
+          git add .build_status/
+          git commit -m "ci: build passed [skip ci]" || true
+          git push origin main || true
