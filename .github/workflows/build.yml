@@ -152,7 +152,7 @@ jobs:
             echo "job=$FAILED_JOB" >> .build_status/status.txt
             # Copy build log if present
             if [ -f /tmp/build.log ]; then
-              tail -200 /tmp/build.log > .build_status/error.log
+              tail -500 /tmp/build.log > .build_status/error.log
             else
               echo "no build log — check GitHub Actions UI for build-plugin errors" \
                 > .build_status/error.log
