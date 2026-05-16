@@ -164,4 +164,4 @@ jobs:
           git add .build_status/
           git diff --cached --quiet || \
             git commit -m "ci: build $(cat .build_status/status.txt) [skip ci]"
-          git push origin main
+          git push origin HEAD:main

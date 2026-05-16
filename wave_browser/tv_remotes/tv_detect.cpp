@@ -1,6 +1,7 @@
 #include "tv_detect.h"
 #include "model_registry.h"
 #include <coreinit/thread.h>
+#include <coreinit/time.h>
 #include <coreinit/mutex.h>
 #include <string.h>
 #include <strings.h>
@@ -51,14 +52,14 @@ static int detect_thread(int, const char**)
     uint8_t buf[32]; int n;
 
     if (cec_send(0, CEC_OPCODE_GIVE_DEVICE_VENDOR)) {
-        OSSleepMilliseconds(300);
+        OSSleepTicks(OSMillisecondsToTicks(300));
         n = cec_recv(buf, sizeof(buf), 400);
         if (n >= 5 && buf[1] == CEC_OPCODE_DEVICE_VENDOR_ID)
             res.cec_vendor = ((uint32_t)buf[2]<<16)|((uint32_t)buf[3]<<8)|(uint32_t)buf[4];
     }
 
     if (cec_send(0, CEC_OPCODE_GIVE_OSD_NAME)) {
-        OSSleepMilliseconds(300);
+        OSSleepTicks(OSMillisecondsToTicks(300));
         n = cec_recv(buf, sizeof(buf), 400);
         if (n >= 2 && buf[1] == CEC_OPCODE_SET_OSD_NAME) {
             int len = n-2; if (len>15) len=15;
