@@ -87,19 +87,23 @@ jobs:
           "
 
       - name: Build Wave Browser
-        run: make clean && make -j$(nproc) 2>&1 | tee /tmp/build.log; exit ${PIPESTATUS[0]}
+        run: |
+          make clean && make -j$(nproc) 2>&1 | tee /tmp/build.log
+          echo "make_exit=${PIPESTATUS[0]}" >> /tmp/build_meta.txt
+          exit ${PIPESTATUS[0]}
 
       - name: Validate meta.xml
         run: |
-          if [ ! -f meta.xml ]; then echo "meta.xml missing!" && exit 1; fi
-          xmllint --noout meta.xml
+          if [ ! -f meta.xml ]; then echo "meta.xml missing!" | tee -a /tmp/build.log && exit 1; fi
+          xmllint --noout meta.xml 2>&1 | tee -a /tmp/build.log
 
       - name: Prepare release folder
         run: |
           mkdir -p WaveBrowser
-          cp WaveBrowser.wuhb WaveBrowser/
+          cp WaveBrowser.wuhb WaveBrowser/ 2>&1 | tee -a /tmp/build.log
           cp meta.xml WaveBrowser/
-          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/
+          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/ 2>&1 | tee -a /tmp/build.log
+          echo "release folder ok" | tee -a /tmp/build.log
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
