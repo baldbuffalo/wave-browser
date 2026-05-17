@@ -58,6 +58,9 @@ jobs:
           name: plugin-wps
           path: wave_browser/plugin/
 
+      - name: Show plugin dir contents
+        run: find wave_browser/plugin/ -type f 2>/dev/null || echo "plugin dir empty"
+
       - name: Vendor minizip source
         run: |
           mkdir -p vendor/minizip
@@ -97,7 +100,7 @@ jobs:
           mkdir -p WaveBrowser
           cp WaveBrowser.wuhb WaveBrowser/
           cp meta.xml WaveBrowser/
-          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/
+          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/ 2>/dev/null || echo "WaveBrowserRemote.wps not found — skipping"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
