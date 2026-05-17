@@ -53,7 +53,7 @@ jobs:
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
       - name: Download plugin binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: plugin-wps
           path: wave_browser/plugin/
