@@ -57,9 +57,23 @@ jobs:
         with:
           name: plugin-wps
           path: wave_browser/plugin/
+          merge-multiple: true
 
-      - name: Show plugin dir contents
-        run: find wave_browser/plugin/ -type f 2>/dev/null || echo "plugin dir empty"
+      - name: Locate and normalize wps file
+        run: |
+          # Handle v4 artifact download which may put file in a subdirectory
+          WPS=$(find wave_browser/plugin/ -name "WaveBrowserRemote.wps" | head -1)
+          if [ -z "$WPS" ]; then
+            echo "ERROR: WaveBrowserRemote.wps not found after download"
+            find wave_browser/plugin/ || true
+            exit 1
+          fi
+          echo "Found: $WPS"
+          # Move to expected location if it landed in a subdir
+          if [ "$WPS" != "wave_browser/plugin/WaveBrowserRemote.wps" ]; then
+            mv "$WPS" wave_browser/plugin/WaveBrowserRemote.wps
+            echo "Moved to wave_browser/plugin/WaveBrowserRemote.wps"
+          fi
 
       - name: Vendor minizip source
         run: |
