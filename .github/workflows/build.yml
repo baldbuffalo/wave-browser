@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Plugin build ─────────────────────────────────────────────────────────────
   build-plugin:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +27,6 @@ jobs:
           name: plugin-wps
           path: wave_browser/plugin/WaveBrowserRemote.wps
 
-  # ── Main app build ───────────────────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
     needs: build-plugin
@@ -87,85 +85,22 @@ jobs:
           "
 
       - name: Build Wave Browser
-        run: |
-          make clean && make -j$(nproc) 2>&1 | tee /tmp/build.log
-          echo "make_exit=${PIPESTATUS[0]}" >> /tmp/build_meta.txt
-          exit ${PIPESTATUS[0]}
+        run: make clean && make -j$(nproc)
 
       - name: Validate meta.xml
         run: |
-          if [ ! -f meta.xml ]; then echo "meta.xml missing!" | tee -a /tmp/build.log && exit 1; fi
-          xmllint --noout meta.xml 2>&1 | tee -a /tmp/build.log
+          if [ ! -f meta.xml ]; then echo "meta.xml missing!" && exit 1; fi
+          xmllint --noout meta.xml
 
       - name: Prepare release folder
         run: |
           mkdir -p WaveBrowser
-          cp WaveBrowser.wuhb WaveBrowser/ 2>&1 | tee -a /tmp/build.log
+          cp WaveBrowser.wuhb WaveBrowser/
           cp meta.xml WaveBrowser/
-          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/ 2>&1 | tee -a /tmp/build.log
-          echo "release folder ok" | tee -a /tmp/build.log
+          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/
 
-      - name: Upload release artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: WaveBrowser
           path: WaveBrowser/
-
-      # Save build log as artifact regardless of outcome
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: /tmp/build.log
-          if-no-files-found: ignore
-
-  # ── Status reporter (runs on ubuntu — has git) ───────────────────────────────
-  report-status:
-    runs-on: ubuntu-latest
-    needs: [build-plugin, build]
-    if: always()
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download build log
-        uses: actions/download-artifact@v4
-        with:
-          name: build-log
-          path: /tmp/
-        continue-on-error: true
-
-      - name: Write status to repo
-        run: |
-          # Determine overall result
-          PLUGIN="${{ needs.build-plugin.result }}"
-          BUILD="${{ needs.build.result }}"
-
-          mkdir -p .build_status
-
-          if [ "$PLUGIN" = "success" ] && [ "$BUILD" = "success" ]; then
-            echo "SUCCESS" > .build_status/status.txt
-            echo "" > .build_status/error.log
-          else
-            echo "FAILED" > .build_status/status.txt
-            FAILED_JOB="unknown"
-            [ "$PLUGIN" != "success" ] && FAILED_JOB="build-plugin"
-            [ "$BUILD"   != "success" ] && FAILED_JOB="build"
-            echo "job=$FAILED_JOB" >> .build_status/status.txt
-            # Copy build log if present
-            if [ -f /tmp/build.log ]; then
-              tail -500 /tmp/build.log > .build_status/error.log
-            else
-              echo "no build log — check GitHub Actions UI for build-plugin errors" \
-                > .build_status/error.log
-            fi
-          fi
-
-          git config user.email "ci@wave-browser"
-          git config user.name  "Wave Browser CI"
-          git add .build_status/
-          git diff --cached --quiet || \
-            git commit -m "ci: build $(cat .build_status/status.txt) [skip ci]"
-          git push origin HEAD:main
