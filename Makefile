@@ -116,6 +116,5 @@ release: $(TARGET).wuhb
 
 clean:
 	rm -rf $(BUILD) *.elf *.rpx *.wuhb release WaveBrowser WaveBrowser.zip
-	$(MAKE) -C wave_browser/plugin clean
 
 .PHONY: all clean release
