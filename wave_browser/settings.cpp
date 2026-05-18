@@ -109,11 +109,21 @@ static int          s_sel       = 0;  // cursor within current list
 static int          s_scroll    = 0;  // scroll offset within current list
 
 // Wizard state
-static int  s_setup_anim       = 0;   // spinner frame counter
-static bool s_setup_test_fired = false;
+static int  s_setup_anim         = 0;   // spinner frame counter
+static bool s_setup_test_fired   = false;
 static bool s_setup_tv_responded = false;  // user answered yes/no
 static int  s_setup_install_result = 0;   // 0=pending 1=ok -1=fail -2=no binary
-static int  s_setup_no_count   = 0;   // how many times user said "no"
+static int  s_setup_no_count     = 0;   // how many times user said "no"
+
+// Install progress (written by callback, read by draw_setup_installing)
+static double s_install_pct      = 0.0;
+static char   s_install_msg[64]  = {};
+
+static void plugin_progress_cb(const char* msg, double pct)
+{
+    if (msg) strncpy(s_install_msg, msg, sizeof(s_install_msg)-1);
+    s_install_pct = pct;
+}
 
 // Drill-down selections
 static char  s_brand_sel[64]   = {};
@@ -287,7 +297,7 @@ static void draw_brand(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font
 
 static void draw_year(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
-    char hdr[128]; snprintf(hdr, sizeof(hdr), "%s – Select Year", s_brand_sel);
+    char hdr[128]; snprintf(hdr, sizeof(hdr), "%s \xe2\x80\x93 Select Year", s_brand_sel);
     draw_panel(ren, flg, hdr);
     for (int v = 0; v < ROWS_VISIBLE && (s_scroll+v) < s_year_count; v++) {
         int idx = s_scroll + v;
@@ -304,7 +314,7 @@ static void draw_year(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
 
 static void draw_model(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
-    char hdr[128]; snprintf(hdr, sizeof(hdr), "%s %d – Select Model", s_brand_sel, s_year_sel);
+    char hdr[128]; snprintf(hdr, sizeof(hdr), "%s %d \xe2\x80\x93 Select Model", s_brand_sel, s_year_sel);
     draw_panel(ren, flg, hdr);
     for (int v = 0; v < ROWS_VISIBLE && (s_scroll+v) < s_model_count; v++) {
         int idx = s_scroll + v;
@@ -469,17 +479,17 @@ static void draw_setup_test(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF
 {
     s_setup_anim++;
     const char* pulses[] = {
-        "Sending IR  âââââ",
-        "Sending IR  âââââ",
-        "Sending IR  âââââ",
-        "Sending IR  âââââ",
+        "Sending IR  |||||",
+        "Sending IR  |||||",
+        "Sending IR  |||||",
+        "Sending IR  |||||",
     };
     const char* anim = pulses[(s_setup_anim/8) % 4];
 
     draw_setup_step(ren, fsm, fmd, flg, 3, 5,
-        "Press the â  TV button on the GamePad",
+        "Press the TV button on the GamePad",
         s_setup_test_fired ? anim : "The TV button is the small button above the right stick",
-        s_setup_test_fired ? "Watch your TV — it should turn on or off" : "",
+        s_setup_test_fired ? "Watch your TV \xe2\x80\x94 it should turn on or off" : "",
         "Press the TV button to fire IR",
         nullptr, nullptr);
 }
@@ -488,7 +498,7 @@ static void draw_setup_result(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, T
 {
     char sub[80] = "";
     if (s_setup_no_count > 0)
-        snprintf(sub, sizeof(sub), "(Attempt %d — try pointing closer to the TV)", s_setup_no_count+1);
+        snprintf(sub, sizeof(sub), "(Attempt %d \xe2\x80\x94 try pointing closer to the TV)", s_setup_no_count+1);
 
     draw_setup_step(ren, fsm, fmd, flg, 4, 5,
         "Did your TV respond?",
@@ -512,8 +522,15 @@ static void draw_setup_installing(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fm
 {
     s_setup_anim++;
     const char* spin[] = {"|", "/", "-", "\\"};
-    char buf[32];
-    snprintf(buf, sizeof(buf), "Installing...  %s", spin[(s_setup_anim/6)%4]);
+
+    // Show download progress if available, otherwise generic spinner
+    char buf[64];
+    if (s_install_msg[0] && s_install_pct > 0.0)
+        snprintf(buf, sizeof(buf), "%s  %.0f%%", s_install_msg, s_install_pct);
+    else if (s_install_msg[0])
+        snprintf(buf, sizeof(buf), "%s  %s", s_install_msg, spin[(s_setup_anim/6)%4]);
+    else
+        snprintf(buf, sizeof(buf), "Installing...  %s", spin[(s_setup_anim/6)%4]);
 
     draw_setup_step(ren, fsm, fmd, flg, 5, 5,
         buf, "", "", "", nullptr, nullptr);
@@ -525,8 +542,8 @@ static void draw_setup_done(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF
     const char* sub  = "";
 
     if (s_setup_install_result == 1) {
-        msg = "â  Plugin installed successfully!";
-        sub = "Reboot your WiiU to activate — TV button will work everywhere";
+        msg = "Plugin installed successfully!";
+        sub = "Reboot your WiiU to activate \xe2\x80\x94 TV button will work everywhere";
     } else if (s_setup_install_result == -1) {
         msg = "Download or install failed";
         sub = "Check your internet connection and that Aroma is installed";
@@ -693,7 +710,6 @@ bool settings_handle_input(VPADStatus* vpad)
     case PAGE_SETUP_TEST: {
         // TV button fires IR and moves to result screen
         if (btn & VPAD_BUTTON_TV) {
-            // Fire IR POWER for the selected model
             const TVRemoteModel* m = tv_remote_get_model();
             if (m && m->ir[TVBTN_POWER].code) {
                 s_setup_test_fired = true;
