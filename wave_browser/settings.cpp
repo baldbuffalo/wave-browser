@@ -528,8 +528,8 @@ static void draw_setup_done(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF
         msg = "â  Plugin installed successfully!";
         sub = "Reboot your WiiU to activate — TV button will work everywhere";
     } else if (s_setup_install_result == -1) {
-        msg = "Could not write to Aroma plugins folder";
-        sub = "Check your SD card is not write-protected and Aroma is installed";
+        msg = "Download or install failed";
+        sub = "Check your internet connection and that Aroma is installed";
     } else if (s_setup_install_result == -2) {
         msg = "Plugin binary not available in this build";
         sub = "TV button works while Wave Browser is open";
@@ -727,8 +727,10 @@ bool settings_handle_input(VPADStatus* vpad)
         break;
 
     case PAGE_SETUP_INSTALLING:
-        // Perform install on this frame, then show result
-        s_setup_install_result = plugin_install();
+        // plugin_install() is blocking — runs download + extract this frame
+        s_install_pct = 0.0;
+        strncpy(s_install_msg, "Connecting to GitHub...", sizeof(s_install_msg)-1);
+        s_setup_install_result = plugin_install(plugin_progress_cb);
         s_page = PAGE_SETUP_DONE;
         break;
 
