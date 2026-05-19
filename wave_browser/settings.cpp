@@ -56,14 +56,6 @@ void settings_load()
     apply_model_key(g_settings.tv_model_key);
 }
 
-void settings_open()
-{
-    // Reset to top of main page every time settings is opened
-    s_page = PAGE_MAIN;
-    s_sel  = 0;
-    s_scroll = 0;
-}
-
 void settings_save()
 {
     FILE* f = fopen(SETTINGS_PATH, "w");
@@ -115,6 +107,14 @@ enum SettingsPage {
 static SettingsPage s_page      = PAGE_MAIN;
 static int          s_sel       = 0;  // cursor within current list
 static int          s_scroll    = 0;  // scroll offset within current list
+
+void settings_open()
+{
+    s_page   = PAGE_MAIN;
+    s_sel    = 0;
+    s_scroll = 0;
+}
+
 
 // Wizard state
 static int  s_setup_anim         = 0;   // spinner frame counter
