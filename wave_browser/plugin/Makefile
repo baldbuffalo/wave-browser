@@ -6,7 +6,6 @@ DEVKITPPC  := $(DEVKITPRO)/devkitPPC
 WUPS_ROOT  := $(DEVKITPRO)/wups
 
 CXX := $(DEVKITPPC)/bin/powerpc-eabi-g++
-STRIP := $(DEVKITPPC)/bin/powerpc-eabi-strip
 
 CXXFLAGS := \
     -O2 -Wall -mcpu=750 -meabi -mhard-float \
@@ -37,9 +36,8 @@ $(BUILD)/%.o: %.cpp
 $(TARGET).elf: $(OFILES)
 	$(CXX) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
-# Strip the ELF and rename to .wps — Aroma accepts stripped ELF as .wps
 $(TARGET).wps: $(TARGET).elf
-	$(STRIP) $< -o $@
+	elf2rpl $< $@
 
 clean:
 	rm -rf $(BUILD) $(TARGET).elf $(TARGET).wps
