@@ -586,16 +586,12 @@ static void focus_activate()
 
 
 // ─── Wii Remote input ─────────────────────────────────────────────────────────
-// Called for each of the 4 Wii Remote channels every frame.
-// D-pad ALWAYS navigates focus regardless of whether a Nunchuk is attached.
-// Nunchuk stick ALSO navigates focus (with repeat) when attached.
 
 static void handle_wii_remote_input(KPADStatus* kp)
 {
     if (!kp) return;
-    uint32_t btn = kp->trigger;   // buttons pressed THIS frame on the Wii Remote
+    uint32_t btn = kp->trigger;
 
-    // ── D-pad — always navigate focus ────────────────────────────────────────
     if (btn & WPAD_BUTTON_UP) {
         if (s_focus_row == 1) { s_focus_row = 0; s_focus_col = 3; }
     }
@@ -615,17 +611,14 @@ static void handle_wii_remote_input(KPADStatus* kp)
             s_active_tab = s_focus_col;
     }
 
-    // ── A — activate focused element ─────────────────────────────────────────
     if (btn & WPAD_BUTTON_A)
         focus_activate();
 
-    // ── B — back ─────────────────────────────────────────────────────────────
     if (btn & WPAD_BUTTON_B) {
         if (s_show_tab_switcher) { s_show_tab_switcher = false; }
         else if (s_in_settings)  { s_in_settings = false; }
     }
 
-    // ── + — new tab ──────────────────────────────────────────────────────────
     if ((btn & WPAD_BUTTON_PLUS) && s_tab_count < MAX_TABS) {
         memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
         strcpy(s_tabs[s_tab_count].title, "New Tab");
@@ -634,7 +627,6 @@ static void handle_wii_remote_input(KPADStatus* kp)
         s_focus_col = s_active_tab;
     }
 
-    // ── − — close tab or open tab switcher ───────────────────────────────────
     if (btn & WPAD_BUTTON_MINUS) {
         if (g_settings.improved_multitasking) {
             s_show_tab_switcher = true;
@@ -649,25 +641,21 @@ static void handle_wii_remote_input(KPADStatus* kp)
         }
     }
 
-    // ── 1 — reload (stub, focus reload button) ───────────────────────────────
     if (btn & WPAD_BUTTON_1) {
         s_focus_row = 0;
-        s_focus_col = 2;   // reload button
+        s_focus_col = 2;
         focus_activate();
     }
 
-    // ── 2 — open address bar ─────────────────────────────────────────────────
     if (btn & WPAD_BUTTON_2) {
         s_focus_row = 0;
-        s_focus_col = 3;   // address bar
+        s_focus_col = 3;
         open_url_keyboard();
     }
 
-    // ── Nunchuk (when attached) ───────────────────────────────────────────────
     if (kp->extensionType == WPAD_EXT_NUNCHUK ||
         kp->extensionType == WPAD_EXT_MPLUS_NUNCHUK)
     {
-        // Nunchuk stick — navigate focus with repeat (same as GamePad left stick)
         float nx = kp->nunchuk.stick.x;
         float ny = kp->nunchuk.stick.y;
         bool any = (nx < -STICK_DEAD || nx > STICK_DEAD ||
@@ -700,7 +688,6 @@ static void handle_wii_remote_input(KPADStatus* kp)
             s_wii_stick_held = 0;
         }
 
-        // Nunchuk C — new tab
         uint32_t nbtn = kp->nunchuk.trigger;
         if ((nbtn & WPAD_NUNCHUK_BUTTON_C) && s_tab_count < MAX_TABS) {
             memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
@@ -710,7 +697,6 @@ static void handle_wii_remote_input(KPADStatus* kp)
             s_focus_col = s_active_tab;
         }
 
-        // Nunchuk Z — tab switcher
         if ((nbtn & WPAD_NUNCHUK_BUTTON_Z) && g_settings.improved_multitasking)
             s_show_tab_switcher = true;
     }
@@ -763,7 +749,6 @@ static void handle_input(VPADStatus* vpad)
     if (s_tp_pressed) {
         int tx=s_tp_x, ty=s_tp_y;
 
-        // ── Toolbar row ───────────────────────────────────────────────────
         if (touch_hit(tx,ty,GEAR_BTN_X,GEAR_BTN_Y,GEAR_BTN_SIZE,GEAR_BTN_SIZE)) {
             s_in_settings=true; settings_open(); return;
         }
@@ -780,9 +765,7 @@ static void handle_input(VPADStatus* vpad)
             s_focus_row=0; s_focus_col=2; return;
         }
 
-        // ── Tab bar ───────────────────────────────────────────────────────
         for (int i=0;i<s_tab_count;i++) {
-            // Close button (x) on each tab
             if (s_tab_count>1 &&
                 touch_hit(tx,ty, i*TAB_W+TAB_W-20, TOOLBAR_H, 20, TAB_H)) {
                 for(int j=i;j<s_tab_count-1;j++) s_tabs[j]=s_tabs[j+1];
@@ -790,13 +773,11 @@ static void handle_input(VPADStatus* vpad)
                 if(s_active_tab>=s_tab_count) s_active_tab=s_tab_count-1;
                 s_focus_row=1; s_focus_col=s_active_tab; return;
             }
-            // Tab body — switch to it
             if (touch_hit(tx,ty, i*TAB_W, TOOLBAR_H, TAB_W-20, TAB_H)) {
                 s_active_tab=i; s_focus_row=1; s_focus_col=i; return;
             }
         }
 
-        // ── New-tab (+) button ────────────────────────────────────────────
         if (s_tab_count<MAX_TABS &&
             touch_hit(tx,ty, s_tab_count*TAB_W, TOOLBAR_H, 40, TAB_BAR_H)) {
             memset(&s_tabs[s_tab_count],0,sizeof(Tab));
@@ -826,15 +807,14 @@ int main(int, char**)
     s_font_xl = TTF_OpenFontRW(SDL_RWFromConstMem(font_data, font_data_len), 0, 48);
 
     VPADInit();
-    WPADEnableURCC(true);   // allow Wii Remote + Classic Controller
+    WPADEnableURCC(true);
     WPADEnableWiiRemote(true);
-    KPADInit();             // must be called for HOME button to work via ProcUI
+    KPADInit();
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
     settings_load();
     if (g_settings.improved_multitasking) load_session();
-
 
     run_splash_and_update();
 
@@ -852,31 +832,20 @@ int main(int, char**)
             VPADStatus vpad; VPADReadError error;
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
-            // ── Wii Remote input ─────────────────────────────────────────
-            // Translate D-pad / A / B / Nunchuk stick into VPAD button bits
-            // and merge into vpad BEFORE any handler is called, so ALL
-            // screens (settings, tab switcher, browser) respond
-            // to the Wii Remote d-pad automatically.
-            // TV remote overlay is excluded — it is GamePad-only.
-            // Browser-specific buttons (+/-/1/2) go through
-            // handle_wii_remote_input() only when the browser is active.
             {
                 KPADStatus kpad;
                 for (int ch = 0; ch < 4; ch++) {
                     int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
                     if (nread <= 0) continue;
 
-                    // D-pad → VPAD d-pad bits (trigger only)
                     if (kpad.trigger & WPAD_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
                     if (kpad.trigger & WPAD_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
                     if (kpad.trigger & WPAD_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
                     if (kpad.trigger & WPAD_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
 
-                    // A / B → VPAD A / B
                     if (kpad.trigger & WPAD_BUTTON_A) vpad.trigger |= VPAD_BUTTON_A;
                     if (kpad.trigger & WPAD_BUTTON_B) vpad.trigger |= VPAD_BUTTON_B;
 
-                    // Nunchuk stick → VPAD left stick (take strongest input)
                     if (kpad.extensionType == WPAD_EXT_NUNCHUK ||
                         kpad.extensionType == WPAD_EXT_MPLUS_NUNCHUK)
                     {
@@ -886,7 +855,6 @@ int main(int, char**)
                         if (fabsf(ny) > fabsf(vpad.leftStick.y)) vpad.leftStick.y = ny;
                     }
 
-                    // Browser-specific buttons only when browser is active
                     if (!s_in_settings && !s_show_tab_switcher)
                         handle_wii_remote_input(&kpad);
                 }
@@ -894,7 +862,7 @@ int main(int, char**)
             poll_touch(&vpad);
 
             if (s_in_settings) {
-                if (!settings_handle_input(&vpad)) s_in_settings = false;
+                if (!settings_handle_input(&vpad, s_tp_pressed, s_tp_x, s_tp_y)) s_in_settings = false;
                 else settings_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
 
             } else if (s_show_tab_switcher) {
