@@ -570,7 +570,7 @@ static void focus_activate()
             case 1: break;
             case 2: break;
             case 3: open_url_keyboard(); break;
-            case 4: s_in_settings = true; break;
+            case 4: s_in_settings = true; settings_open(); break;
         }
     } else {
         if (s_focus_col < s_tab_count) {
@@ -765,7 +765,7 @@ static void handle_input(VPADStatus* vpad)
 
         // ── Toolbar row ───────────────────────────────────────────────────
         if (touch_hit(tx,ty,GEAR_BTN_X,GEAR_BTN_Y,GEAR_BTN_SIZE,GEAR_BTN_SIZE)) {
-            s_in_settings=true; return;
+            s_in_settings=true; settings_open(); return;
         }
         if (touch_hit(tx,ty,ADDR_BAR_X,ADDR_BAR_Y,ADDR_BAR_W,ADDR_BAR_H)) {
             s_focus_row=0; s_focus_col=3; open_url_keyboard(); return;

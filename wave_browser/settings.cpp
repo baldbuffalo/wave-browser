@@ -56,6 +56,14 @@ void settings_load()
     apply_model_key(g_settings.tv_model_key);
 }
 
+void settings_open()
+{
+    // Reset to top of main page every time settings is opened
+    s_page = PAGE_MAIN;
+    s_sel  = 0;
+    s_scroll = 0;
+}
+
 void settings_save()
 {
     FILE* f = fopen(SETTINGS_PATH, "w");
@@ -231,48 +239,105 @@ static void draw_hint(SDL_Renderer* ren, TTF_Font* font_sm, const char* hint)
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
+// Full-screen settings constants
+#define SETTINGS_HEADER_H  72
+#define SETTINGS_ROW_H    100
+#define SETTINGS_ROW_PAD   24
+#define SETTINGS_ROW_X     48
+#define SETTINGS_ROW_W    (TV_W - 96)
+#define SETTINGS_ROW_START 100
+
 static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
-    draw_panel(ren, flg, "Settings");
+    // Full screen white background
+    ui_rect(ren, 0, 0, TV_W, TV_H, {0xFF,0xFF,0xFF,0xFF});
 
-    const char* labels[ROW_MAIN_COUNT] = {
-        "Improved Multitasking",
-        "TV Remote Setup",
+    // White header box with blue bottom border
+    ui_rect(ren, 0, 0, TV_W, SETTINGS_HEADER_H, {0xFF,0xFF,0xFF,0xFF});
+    ui_rect(ren, 0, SETTINGS_HEADER_H, TV_W, 3, COL_BLUE);
+    // "wiiu settings" title left-aligned with icon feel
+    ui_text(ren, flg, "wiiu settings", 40, SETTINGS_HEADER_H - 18, COL_ADDR_TEXT, 0);
+    // B to close hint on right
+    ui_text(ren, fsm, "B: save & close", TV_W - 16, SETTINGS_HEADER_H - 10, COL_GRAY, 2);
+
+    struct RowInfo {
+        const char* title;
+        const char* description;
+    };
+    const RowInfo rows[ROW_MAIN_COUNT] = {
+        {
+            "Improved Multitasking",
+            "Keeps tabs open when switching apps and restores your session on next launch"
+        },
+        {
+            "TV Remote Setup",
+            "Configure your TV model so the GamePad TV button controls your TV via HDMI-CEC"
+        },
     };
 
     for (int i = 0; i < ROW_MAIN_COUNT; i++) {
-        int ry = LIST_TOP + i * (ROW_H + 4);
+        int ry = SETTINGS_ROW_START + i * (SETTINGS_ROW_H + SETTINGS_ROW_PAD);
         bool focused = (i == s_sel);
-        SDL_Color bg = focused ? SDL_Color{0xE0,0xEA,0xFF,0xFF} : SDL_Color{0xF8,0xF8,0xF8,0xFF};
-        ui_rect(ren, PANEL_X+4, ry, PANEL_W-8, ROW_H, bg);
-        if (focused) ui_outline(ren, PANEL_X+4, ry, PANEL_W-8, ROW_H, COL_FOCUS_RING, 2);
-        SDL_Color lc = focused ? COL_BLUE : SDL_Color{0x1A,0x1A,0x1A,0xFF};
-        ui_text(ren, fmd, labels[i], LIST_X, ry+ROW_H-10, lc, 0);
 
+        // Row background
+        SDL_Color bg = focused
+            ? SDL_Color{0xE8,0xF0,0xFF,0xFF}
+            : SDL_Color{0xF8,0xF8,0xF8,0xFF};
+        ui_rect(ren, SETTINGS_ROW_X, ry, SETTINGS_ROW_W, SETTINGS_ROW_H, bg);
+
+        // Left accent bar when focused
+        if (focused)
+            ui_rect(ren, SETTINGS_ROW_X, ry, 5, SETTINGS_ROW_H, COL_BLUE);
+
+        // Subtle border
+        SDL_Color border = focused ? COL_BLUE : SDL_Color{0xE0,0xE0,0xE0,0xFF};
+        ui_outline(ren, SETTINGS_ROW_X, ry, SETTINGS_ROW_W, SETTINGS_ROW_H, border, focused ? 2 : 1);
+
+        int text_x = SETTINGS_ROW_X + 24;
+        SDL_Color title_c = focused ? COL_BLUE : COL_ADDR_TEXT;
+
+        // Title
+        ui_text(ren, fmd, rows[i].title, text_x, ry + 36, title_c, 0);
+
+        // Description
+        ui_text(ren, fsm, rows[i].description, text_x, ry + 68, COL_GRAY, 0);
+
+        // Right-side value / arrow
         if (i == ROW_MULTITASK) {
             bool on = g_settings.improved_multitasking;
-            const char* val = on ? "ON" : "OFF";
-            SDL_Color vc = on ? SDL_Color{0x00,0x99,0x00,0xFF}
-                              : SDL_Color{0x99,0x00,0x00,0xFF};
-            ui_text(ren, fmd, val, PANEL_X+PANEL_W-40, ry+ROW_H-10, vc, 2);
-        } else {
-            // TV Remote row: show current model key or "Not configured"
-            const char* key = g_settings.tv_model_key[0]
-                ? g_settings.tv_model_key : "Not configured";
-            SDL_Color vc = g_settings.tv_model_key[0]
+            // Toggle pill
+            SDL_Color pill_bg = on
                 ? SDL_Color{0x00,0x99,0x00,0xFF}
+                : SDL_Color{0xCC,0xCC,0xCC,0xFF};
+            ui_rect(ren, SETTINGS_ROW_X + SETTINGS_ROW_W - 84, ry + 30, 68, 36, pill_bg);
+            ui_text(ren, fmd, on ? "ON" : "OFF",
+                    SETTINGS_ROW_X + SETTINGS_ROW_W - 50,
+                    ry + 56, COL_WHITE, 1);
+        } else {
+            // TV Setup: show configured model or "Set up" + arrow
+            const char* key = g_settings.tv_model_key[0]
+                ? g_settings.tv_model_key : "Not set up";
+            SDL_Color vc = g_settings.tv_model_key[0]
+                ? SDL_Color{0x00,0x88,0x00,0xFF}
                 : SDL_Color{0x88,0x88,0x88,0xFF};
-            // Truncate if long
-            char buf[48];
-            strncpy(buf, key, 46); buf[46] = '\0';
-            ui_text(ren, fsm, buf, PANEL_X+PANEL_W-40, ry+ROW_H-10, vc, 2);
-            ui_text(ren, fsm, "\xe2\x96\xba", PANEL_X+PANEL_W-12, ry+ROW_H-10, lc, 2);
+            char buf[40]; strncpy(buf, key, 38); buf[38] = '\0';
+            ui_text(ren, fsm, buf,
+                    SETTINGS_ROW_X + SETTINGS_ROW_W - 16,
+                    ry + 42, vc, 2);
+            // Arrow indicator
+            ui_text(ren, fmd, "\xe2\x96\xba",
+                    SETTINGS_ROW_X + SETTINGS_ROW_W - 16,
+                    ry + 72, focused ? COL_BLUE : COL_GRAY, 2);
         }
-
-        if (i < ROW_MAIN_COUNT-1)
-            ui_rect(ren, PANEL_X+16, ry+ROW_H, PANEL_W-32, 1, COL_TOOLBAR_LINE);
     }
-    draw_hint(ren, fsm, "\xe2\x96\xb2\xe2\x96\xbc: select  A/\xe2\x97\x84\xe2\x96\xba: toggle  B: save & close");
+
+    // Bottom hint bar
+    ui_rect(ren, 0, TV_H - 40, TV_W, 40, {0xF2,0xF2,0xF2,0xFF});
+    ui_rect(ren, 0, TV_H - 40, TV_W, 1, {0xE0,0xE0,0xE0,0xFF});
+    ui_text(ren, fsm,
+            "\xe2\x96\xb2\xe2\x96\xbc: move  A: select / toggle  B: save & close",
+            TV_W/2, TV_H - 12, COL_GRAY, 1);
+
     SDL_RenderPresent(ren);
 }
 
@@ -609,25 +674,32 @@ bool settings_handle_input(VPADStatus* vpad)
 
     // ── Main ──────────────────────────────────────────────────────────────────
     case PAGE_MAIN:
-        if (btn & VPAD_BUTTON_UP)   s_sel = (s_sel > 0) ? s_sel-1 : ROW_MAIN_COUNT-1;
-        if (btn & VPAD_BUTTON_DOWN) s_sel = (s_sel < ROW_MAIN_COUNT-1) ? s_sel+1 : 0;
+        // Navigate rows
+        if (btn & VPAD_BUTTON_UP)   s_sel = (s_sel > 0) ? s_sel - 1 : ROW_MAIN_COUNT - 1;
+        if (btn & VPAD_BUTTON_DOWN) s_sel = (s_sel < ROW_MAIN_COUNT - 1) ? s_sel + 1 : 0;
 
-        if ((btn & VPAD_BUTTON_A) || (btn & VPAD_BUTTON_LEFT) || (btn & VPAD_BUTTON_RIGHT)) {
-            if (s_sel == ROW_MULTITASK)
-                g_settings.improved_multitasking = !g_settings.improved_multitasking;
-            else if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_A)) {
-                // Enter brand picker; also offer auto-detect via SELECT
-                build_brands();
-                s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
-            }
+        // Multitasking toggle — A, left, or right all toggle it
+        if (s_sel == ROW_MULTITASK &&
+            ((btn & VPAD_BUTTON_A) || (btn & VPAD_BUTTON_LEFT) || (btn & VPAD_BUTTON_RIGHT)))
+        {
+            g_settings.improved_multitasking = !g_settings.improved_multitasking;
         }
-        // SELECT on main page → start CEC detect
-        if ((btn & VPAD_BUTTON_MINUS) && s_sel == ROW_TV_SETUP) {
+
+        // TV Remote Setup — A enters brand picker
+        if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_A)) {
+            build_brands();
+            s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+        }
+
+        // SELECT on TV Setup row → auto-detect via CEC
+        if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_MINUS)) {
             tv_detect_start();
             s_page = PAGE_DETECTING;
             s_detect_anim = 0;
         }
-        if (btn & VPAD_BUTTON_B) { settings_save(); s_sel = 0; s_page = PAGE_MAIN; return false; }
+
+        // B — save and close settings
+        if (btn & VPAD_BUTTON_B) { settings_save(); return false; }
         break;
 
     // ── Brand ─────────────────────────────────────────────────────────────────

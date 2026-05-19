@@ -26,6 +26,7 @@ struct WaveSettings {
 extern WaveSettings g_settings;
 
 void settings_load();
+void settings_open();   // call whenever settings screen is entered
 void settings_save();
 
 // Build the key string from brand/year/model fields
