@@ -19,7 +19,7 @@ jobs:
           docker run --rm \
             -v "$PWD/wave_browser:/wave_browser" \
             wavebrowser-plugin-builder \
-            sh -c "cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
+            sh -c "which elf2rpl && cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
