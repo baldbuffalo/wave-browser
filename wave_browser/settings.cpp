@@ -255,8 +255,8 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
     // White header box with blue bottom border
     ui_rect(ren, 0, 0, TV_W, SETTINGS_HEADER_H, {0xFF,0xFF,0xFF,0xFF});
     ui_rect(ren, 0, SETTINGS_HEADER_H, TV_W, 3, COL_BLUE);
-    // "wiiu settings" title left-aligned with icon feel
-    ui_text(ren, flg, "wiiu settings", 40, SETTINGS_HEADER_H - 18, COL_ADDR_TEXT, 0);
+    // "Wiiu Settings" title left-aligned with icon feel
+    ui_text(ren, flg, "Wiiu Settings", 40, SETTINGS_HEADER_H - 18, COL_ADDR_TEXT, 0);
     // B to close hint on right
     ui_text(ren, fsm, "B: save & close", TV_W - 16, SETTINGS_HEADER_H - 10, COL_GRAY, 2);
 
@@ -666,7 +666,7 @@ static void list_nav(int count, uint32_t btn)
 
 // ─── Public input ────────────────────────────────────────────────────────────
 
-bool settings_handle_input(VPADStatus* vpad)
+bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y)
 {
     uint32_t btn = vpad->trigger;
 
@@ -674,7 +674,7 @@ bool settings_handle_input(VPADStatus* vpad)
 
     // ── Main ──────────────────────────────────────────────────────────────────
     case PAGE_MAIN:
-        // Navigate rows
+        // Navigate rows with d-pad
         if (btn & VPAD_BUTTON_UP)   s_sel = (s_sel > 0) ? s_sel - 1 : ROW_MAIN_COUNT - 1;
         if (btn & VPAD_BUTTON_DOWN) s_sel = (s_sel < ROW_MAIN_COUNT - 1) ? s_sel + 1 : 0;
 
@@ -696,6 +696,29 @@ bool settings_handle_input(VPADStatus* vpad)
             tv_detect_start();
             s_page = PAGE_DETECTING;
             s_detect_anim = 0;
+        }
+
+        // Touch — tap a row to select it; tap an already-selected row to activate it
+        if (tp_pressed) {
+            for (int i = 0; i < ROW_MAIN_COUNT; i++) {
+                int ry = SETTINGS_ROW_START + i * (SETTINGS_ROW_H + SETTINGS_ROW_PAD);
+                if (tp_x >= SETTINGS_ROW_X &&
+                    tp_x <  SETTINGS_ROW_X + SETTINGS_ROW_W &&
+                    tp_y >= ry &&
+                    tp_y <  ry + SETTINGS_ROW_H)
+                {
+                    if (i == ROW_MULTITASK) {
+                        // Always toggle on tap
+                        g_settings.improved_multitasking = !g_settings.improved_multitasking;
+                    } else if (i == ROW_TV_SETUP) {
+                        // Always open brand picker on tap
+                        build_brands();
+                        s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+                    }
+                    s_sel = i;
+                    break;
+                }
+            }
         }
 
         // B — save and close settings
