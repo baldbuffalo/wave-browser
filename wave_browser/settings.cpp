@@ -545,18 +545,24 @@ static void draw_setup_test(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF
     s_setup_anim++;
     const char* pulses[] = {
         "Sending IR  |||||",
-        "Sending IR  |||||",
-        "Sending IR  |||||",
-        "Sending IR  |||||",
+        "Sending IR  ||||",
+        "Sending IR  |||",
+        "Sending IR  ||||",
     };
     const char* anim = pulses[(s_setup_anim/8) % 4];
 
+    // Before fired: tell user where the button is and to press A when done
+    // After fired: show animation and confirm to advance
     draw_setup_step(ren, fsm, fmd, flg, 3, 5,
-        "Press the TV button on the GamePad",
-        s_setup_test_fired ? anim : "The TV button is the small button above the right stick",
-        s_setup_test_fired ? "Watch your TV \xe2\x80\x94 it should turn on or off" : "",
-        "Press the TV button to fire IR",
-        nullptr, nullptr);
+        "Fire IR at your TV",
+        s_setup_test_fired
+            ? anim
+            : "Press the TV button (bottom-left of GamePad face, beside \xe2\x96\xbc)",
+        s_setup_test_fired
+            ? "Watch your TV \xe2\x80\x94 it should turn on or off"
+            : "Then press A to continue",
+        "TV button fires IR  |  A: continue",
+        "A  Done, next", nullptr);
 }
 
 static void draw_setup_result(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -803,12 +809,22 @@ bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y
         break;
 
     case PAGE_SETUP_TEST: {
-        // TV button fires IR and moves to result screen
-        if (btn & VPAD_BUTTON_TV) {
+        // VPAD_BUTTON_TV is often consumed by the OS before the app sees it in
+        // trigger, so we accept either the TV button OR A to advance.
+        // If TV button fires first it marks s_setup_test_fired; A confirms and moves on.
+        bool tv_pressed = (btn & VPAD_BUTTON_TV) != 0;
+        bool a_pressed  = (btn & VPAD_BUTTON_A)  != 0;
+
+        if (tv_pressed) {
+            // Mark fired — user will see the animation, then press A to confirm
             const TVRemoteModel* m = tv_remote_get_model();
-            if (m && m->ir[TVBTN_POWER].code) {
+            if (m && m->ir[TVBTN_POWER].code)
                 s_setup_test_fired = true;
-            }
+            // If TV button is visible to us, advance immediately to result
+            s_page = PAGE_SETUP_RESULT;
+        } else if (a_pressed) {
+            // User says "I pressed the TV button" — treat as fired and advance
+            s_setup_test_fired = true;
             s_page = PAGE_SETUP_RESULT;
         }
         break;
