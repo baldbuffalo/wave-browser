@@ -41,4 +41,8 @@ void settings_draw(SDL_Renderer* renderer,
                    TTF_Font* font_lg);
 
 // Returns true while settings should stay open.
-bool settings_handle_input(VPADStatus* vpad);
+// tp_pressed/tp_x/tp_y: touch-down event from this frame (main.cpp s_tp_* vars).
+bool settings_handle_input(VPADStatus* vpad,
+                            bool tp_pressed = false,
+                            int  tp_x = 0,
+                            int  tp_y = 0);
