@@ -20,7 +20,6 @@ WUPS_PLUGIN_VERSION("2.0.0");
 WUPS_PLUGIN_AUTHOR("GameBuster");
 WUPS_PLUGIN_LICENSE("MIT");
 WUPS_USE_WUT_DEVOPTAB();
-WUPS_USE_STORAGE("WaveBrowserRemote");
 
 #define CEC_INITIATOR   0x40   // (4 << 4) | 0  Playback Device -> TV
 #define CEC_STANDBY     0x36   // Power toggle (works on all CEC TVs)
