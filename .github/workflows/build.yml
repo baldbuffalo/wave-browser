@@ -52,20 +52,15 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
-      - name: Fetch WebKit-WiiU library
+      - name: Check WebKit-WiiU library
         run: |
-          echo "Attempting to fetch libWebKitWKC.a from webkit-wiiu nightly..."
-          mkdir -p vendor/webkit-wiiu/lib
-          # Try to download from the webkit-wiiu repo's latest CI artifact
-          # Falls back gracefully — build continues in stub mode if not available
-          curl -fsSL \
-            "https://nightly.link/baldbuffalo/webkit-wiiu/workflows/build.yml/main/webkit-wiiu-lib.zip" \
-            -o /tmp/webkit-wiiu-lib.zip 2>/dev/null && \
-          unzip -q /tmp/webkit-wiiu-lib.zip -d /tmp/webkit-wiiu-lib 2>/dev/null && \
-          find /tmp/webkit-wiiu-lib -name "*.a" -exec cp {} vendor/webkit-wiiu/lib/libWebKitWKC.a \; 2>/dev/null && \
-          echo "WebKit-WiiU lib: FOUND ($(ls -lh vendor/webkit-wiiu/lib/libWebKitWKC.a 2>/dev/null | awk '{print $5}'))" || \
-          echo "WebKit-WiiU lib: not available — building in stub mode"
+          if [ -f vendor/webkit-wiiu/lib/libWebKitWKC.a ]; then
+            echo "WebKit-WiiU lib: FOUND ($(ls -lh vendor/webkit-wiiu/lib/libWebKitWKC.a | awk '{print $5}')) — full engine build"
+          else
+            echo "WebKit-WiiU lib: not in repo — building in stub mode"
+          fi
 
+      - name: Vendor minizip source
         run: |
           mkdir -p vendor/minizip
           BASE="https://raw.githubusercontent.com/madler/zlib/v1.3.1/contrib/minizip"
