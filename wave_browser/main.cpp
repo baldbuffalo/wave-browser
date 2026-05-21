@@ -14,28 +14,28 @@
 #include "ui_common.h"
 #include "webkit_engine.h"
 
-// WiiU Pro Controller extension type (WPAD_EXT_PRO_CONTROLLER = 31)
-// Buttons live in kpad.classic (same struct as Classic Controller)
+// WiiU Pro Controller — extensionType value and button masks.
+// Values from devkitPro WUT padscore/kpad.h (Classic Controller Pro layout).
+// Pro Controller data lives in kpad.classic (same KPADClassicStatus struct).
 #ifndef WPAD_EXT_PRO_CONTROLLER
-#  define WPAD_EXT_PRO_CONTROLLER 31
+#  define WPAD_EXT_PRO_CONTROLLER    31
 #endif
-// Pro Controller / Classic button masks (in kpad.classic.trigger)
-#ifndef WPAD_CLASSIC_BUTTON_A
-#  define WPAD_CLASSIC_BUTTON_A      0x1000
-#  define WPAD_CLASSIC_BUTTON_B      0x4000
-#  define WPAD_CLASSIC_BUTTON_X      0x0800
-#  define WPAD_CLASSIC_BUTTON_Y      0x2000
-#  define WPAD_CLASSIC_BUTTON_UP     0x0100
-#  define WPAD_CLASSIC_BUTTON_DOWN   0x0400
-#  define WPAD_CLASSIC_BUTTON_LEFT   0x0200
-#  define WPAD_CLASSIC_BUTTON_RIGHT  0x8000
+#ifndef WPAD_CLASSIC_BUTTON_UP
+#  define WPAD_CLASSIC_BUTTON_UP     0x0001
+#  define WPAD_CLASSIC_BUTTON_LEFT   0x0002
+#  define WPAD_CLASSIC_BUTTON_ZR     0x0004
+#  define WPAD_CLASSIC_BUTTON_X      0x0008
+#  define WPAD_CLASSIC_BUTTON_A      0x0010
+#  define WPAD_CLASSIC_BUTTON_Y      0x0020
+#  define WPAD_CLASSIC_BUTTON_B      0x0040
 #  define WPAD_CLASSIC_BUTTON_ZL     0x0080
-#  define WPAD_CLASSIC_BUTTON_ZR     0x0040
-#  define WPAD_CLASSIC_BUTTON_L      0x0020
-#  define WPAD_CLASSIC_BUTTON_R      0x0002
+#  define WPAD_CLASSIC_BUTTON_R      0x0200
 #  define WPAD_CLASSIC_BUTTON_PLUS   0x0400
-#  define WPAD_CLASSIC_BUTTON_MINUS  0x0100
-#  define WPAD_CLASSIC_BUTTON_HOME   0x0008
+#  define WPAD_CLASSIC_BUTTON_HOME   0x0800
+#  define WPAD_CLASSIC_BUTTON_MINUS  0x1000
+#  define WPAD_CLASSIC_BUTTON_L      0x2000
+#  define WPAD_CLASSIC_BUTTON_DOWN   0x4000
+#  define WPAD_CLASSIC_BUTTON_RIGHT  0x8000
 #endif
 
 #include <SDL.h>
@@ -888,11 +888,12 @@ int main(int, char**)
                     }
 
                     // ── WiiU Pro Controller (extensionType == 31) ────────────
-                    // Buttons live in kpad.classic; sticks in kpad.classic.leftStick/rightStick
+                    // Button data lives in kpad.classic (KPADClassicStatus).
+                    // Sticks: kpad.classic.leftStick / rightStick (range -1..1).
                     if (kpad.extensionType == WPAD_EXT_PRO_CONTROLLER)
                     {
                         uint32_t c = kpad.classic.trigger;
-                        // Face buttons
+                        // Face buttons → GamePad face buttons
                         if (c & WPAD_CLASSIC_BUTTON_A)     vpad.trigger |= VPAD_BUTTON_A;
                         if (c & WPAD_CLASSIC_BUTTON_B)     vpad.trigger |= VPAD_BUTTON_B;
                         if (c & WPAD_CLASSIC_BUTTON_X)     vpad.trigger |= VPAD_BUTTON_X;
@@ -902,7 +903,7 @@ int main(int, char**)
                         if (c & WPAD_CLASSIC_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
                         if (c & WPAD_CLASSIC_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
                         if (c & WPAD_CLASSIC_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
-                        // Shoulder / trigger buttons
+                        // Triggers / shoulders
                         if (c & WPAD_CLASSIC_BUTTON_ZL)    vpad.trigger |= VPAD_BUTTON_ZL;
                         if (c & WPAD_CLASSIC_BUTTON_ZR)    vpad.trigger |= VPAD_BUTTON_ZR;
                         if (c & WPAD_CLASSIC_BUTTON_L)     vpad.trigger |= VPAD_BUTTON_L;
@@ -910,16 +911,19 @@ int main(int, char**)
                         // Menu buttons
                         if (c & WPAD_CLASSIC_BUTTON_PLUS)  vpad.trigger |= VPAD_BUTTON_PLUS;
                         if (c & WPAD_CLASSIC_BUTTON_MINUS) vpad.trigger |= VPAD_BUTTON_MINUS;
-                        // Left stick
+                        // Left stick → GamePad left stick (navigation, scrolling)
                         float lx = kpad.classic.leftStick.x;
                         float ly = kpad.classic.leftStick.y;
-                        if (fabsf(lx) > fabsf(vpad.leftStick.x)) vpad.leftStick.x = lx;
-                        if (fabsf(ly) > fabsf(vpad.leftStick.y)) vpad.leftStick.y = ly;
-                        // Right stick (Pro Controller right stick → GamePad right stick)
+                        if (fabsf(lx) > fabsf(vpad.leftStick.x))  vpad.leftStick.x = lx;
+                        if (fabsf(ly) > fabsf(vpad.leftStick.y))  vpad.leftStick.y = ly;
+                        // Right stick → GamePad right stick
                         float rx = kpad.classic.rightStick.x;
                         float ry = kpad.classic.rightStick.y;
                         if (fabsf(rx) > fabsf(vpad.rightStick.x)) vpad.rightStick.x = rx;
                         if (fabsf(ry) > fabsf(vpad.rightStick.y)) vpad.rightStick.y = ry;
+                        // Pro Controller has no Wii Remote-specific buttons —
+                        // all inputs already merged into vpad above, skip wii handler.
+                        continue;
                     }
 
                     if (!s_in_settings && !s_show_tab_switcher)
