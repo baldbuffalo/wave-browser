@@ -20,11 +20,29 @@ CXX  := $(DEVKITPPC)/bin/powerpc-eabi-g++
 LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
+# WebKit-WiiU (WKC) — optional; drop libWebKitWKC.a into vendor/webkit-wiiu/lib/
+#---------------------------------------------------------------------------------
+WEBKIT_LIB  := vendor/webkit-wiiu/lib/libWebKitWKC.a
+WEBKIT_INC  := vendor/webkit-wiiu/include
+
+WEBKIT_FLAGS :=
+WEBKIT_LIBS  :=
+ifneq ($(wildcard $(WEBKIT_LIB)),)
+    WEBKIT_FLAGS := -DWKC_AVAILABLE -I$(WEBKIT_INC)
+    WEBKIT_LIBS  := -L$(dir $(WEBKIT_LIB)) -lWebKitWKC
+    $(info WebKit-WiiU: ENABLED ($(WEBKIT_LIB) found))
+else
+    WEBKIT_FLAGS := -I$(WEBKIT_INC)
+    $(info WebKit-WiiU: stub mode ($(WEBKIT_LIB) not found — drop .a to enable))
+endif
+
+#---------------------------------------------------------------------------------
 # Source files
 #---------------------------------------------------------------------------------
 
 # Core wave_browser sources (exclude plugin/ subdir)
-WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp
+WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp \
+               wave_browser/webkit_engine.cpp
 
 # Vendored minizip
 MINIZIP_CFILES := vendor/minizip/ioapi.c vendor/minizip/unzip.c
@@ -54,7 +72,8 @@ COMMON_FLAGS := \
     -I$(DEVKITPRO)/portlibs/ppc/include \
     -Ivendor/minizip \
     -Iwave_browser \
-    -Iwave_browser/tv_remotes
+    -Iwave_browser/tv_remotes \
+    $(WEBKIT_FLAGS)
 
 CFLAGS   := $(COMMON_FLAGS) -DUSE_FILE32API
 CXXFLAGS := $(COMMON_FLAGS) -std=c++17 -fno-exceptions -fno-rtti
@@ -70,6 +89,7 @@ LDFLAGS := \
     -L$(DEVKITPRO)/portlibs/ppc/lib
 
 LIBS := \
+    $(WEBKIT_LIBS) \
     -lSDL2 -lSDL2_ttf -lharfbuzz \
     -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
     -lbrotlidec -lbrotlicommon \

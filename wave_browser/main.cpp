@@ -12,6 +12,31 @@
 #include "font_data.h"
 #include "settings.h"
 #include "ui_common.h"
+#include "webkit_engine.h"
+
+// WiiU Pro Controller extension type (WPAD_EXT_PRO_CONTROLLER = 31)
+// Buttons live in kpad.classic (same struct as Classic Controller)
+#ifndef WPAD_EXT_PRO_CONTROLLER
+#  define WPAD_EXT_PRO_CONTROLLER 31
+#endif
+// Pro Controller / Classic button masks (in kpad.classic.trigger)
+#ifndef WPAD_CLASSIC_BUTTON_A
+#  define WPAD_CLASSIC_BUTTON_A      0x1000
+#  define WPAD_CLASSIC_BUTTON_B      0x4000
+#  define WPAD_CLASSIC_BUTTON_X      0x0800
+#  define WPAD_CLASSIC_BUTTON_Y      0x2000
+#  define WPAD_CLASSIC_BUTTON_UP     0x0100
+#  define WPAD_CLASSIC_BUTTON_DOWN   0x0400
+#  define WPAD_CLASSIC_BUTTON_LEFT   0x0200
+#  define WPAD_CLASSIC_BUTTON_RIGHT  0x8000
+#  define WPAD_CLASSIC_BUTTON_ZL     0x0080
+#  define WPAD_CLASSIC_BUTTON_ZR     0x0040
+#  define WPAD_CLASSIC_BUTTON_L      0x0020
+#  define WPAD_CLASSIC_BUTTON_R      0x0002
+#  define WPAD_CLASSIC_BUTTON_PLUS   0x0400
+#  define WPAD_CLASSIC_BUTTON_MINUS  0x0100
+#  define WPAD_CLASSIC_BUTTON_HOME   0x0008
+#endif
 
 #include <SDL.h>
 #include <SDL_ttf.h>
@@ -376,6 +401,8 @@ static void open_url_keyboard()
         memcpy(s_tabs[s_active_tab].title, result, 63);
         s_tabs[s_active_tab].url[MAX_URL-1] = '\0';
         s_tabs[s_active_tab].title[63] = '\0';
+        // Tell the WebKit engine to load this URL
+        webkit_engine_navigate(result);
     }
 }
 
@@ -810,6 +837,10 @@ int main(int, char**)
     WPADEnableURCC(true);
     WPADEnableWiiRemote(true);
     KPADInit();
+
+    // Init WebKit engine (stub if libWebKitWKC.a not present)
+    webkit_engine_init(TV_W, TV_H);
+
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
@@ -838,14 +869,15 @@ int main(int, char**)
                     int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
                     if (nread <= 0) continue;
 
+                    // ── Wii Remote buttons ───────────────────────────────────
                     if (kpad.trigger & WPAD_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
                     if (kpad.trigger & WPAD_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
                     if (kpad.trigger & WPAD_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
                     if (kpad.trigger & WPAD_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
-
                     if (kpad.trigger & WPAD_BUTTON_A) vpad.trigger |= VPAD_BUTTON_A;
                     if (kpad.trigger & WPAD_BUTTON_B) vpad.trigger |= VPAD_BUTTON_B;
 
+                    // ── Nunchuk stick ────────────────────────────────────────
                     if (kpad.extensionType == WPAD_EXT_NUNCHUK ||
                         kpad.extensionType == WPAD_EXT_MPLUS_NUNCHUK)
                     {
@@ -855,11 +887,49 @@ int main(int, char**)
                         if (fabsf(ny) > fabsf(vpad.leftStick.y)) vpad.leftStick.y = ny;
                     }
 
+                    // ── WiiU Pro Controller (extensionType == 31) ────────────
+                    // Buttons live in kpad.classic; sticks in kpad.classic.leftStick/rightStick
+                    if (kpad.extensionType == WPAD_EXT_PRO_CONTROLLER)
+                    {
+                        uint32_t c = kpad.classic.trigger;
+                        // Face buttons
+                        if (c & WPAD_CLASSIC_BUTTON_A)     vpad.trigger |= VPAD_BUTTON_A;
+                        if (c & WPAD_CLASSIC_BUTTON_B)     vpad.trigger |= VPAD_BUTTON_B;
+                        if (c & WPAD_CLASSIC_BUTTON_X)     vpad.trigger |= VPAD_BUTTON_X;
+                        if (c & WPAD_CLASSIC_BUTTON_Y)     vpad.trigger |= VPAD_BUTTON_Y;
+                        // D-pad
+                        if (c & WPAD_CLASSIC_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
+                        if (c & WPAD_CLASSIC_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
+                        if (c & WPAD_CLASSIC_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
+                        if (c & WPAD_CLASSIC_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
+                        // Shoulder / trigger buttons
+                        if (c & WPAD_CLASSIC_BUTTON_ZL)    vpad.trigger |= VPAD_BUTTON_ZL;
+                        if (c & WPAD_CLASSIC_BUTTON_ZR)    vpad.trigger |= VPAD_BUTTON_ZR;
+                        if (c & WPAD_CLASSIC_BUTTON_L)     vpad.trigger |= VPAD_BUTTON_L;
+                        if (c & WPAD_CLASSIC_BUTTON_R)     vpad.trigger |= VPAD_BUTTON_R;
+                        // Menu buttons
+                        if (c & WPAD_CLASSIC_BUTTON_PLUS)  vpad.trigger |= VPAD_BUTTON_PLUS;
+                        if (c & WPAD_CLASSIC_BUTTON_MINUS) vpad.trigger |= VPAD_BUTTON_MINUS;
+                        // Left stick
+                        float lx = kpad.classic.leftStick.x;
+                        float ly = kpad.classic.leftStick.y;
+                        if (fabsf(lx) > fabsf(vpad.leftStick.x)) vpad.leftStick.x = lx;
+                        if (fabsf(ly) > fabsf(vpad.leftStick.y)) vpad.leftStick.y = ly;
+                        // Right stick (Pro Controller right stick → GamePad right stick)
+                        float rx = kpad.classic.rightStick.x;
+                        float ry = kpad.classic.rightStick.y;
+                        if (fabsf(rx) > fabsf(vpad.rightStick.x)) vpad.rightStick.x = rx;
+                        if (fabsf(ry) > fabsf(vpad.rightStick.y)) vpad.rightStick.y = ry;
+                    }
+
                     if (!s_in_settings && !s_show_tab_switcher)
                         handle_wii_remote_input(&kpad);
                 }
             }
             poll_touch(&vpad);
+
+            // WebKit engine tick (timers, layout, JS)
+            webkit_engine_tick();
 
             if (s_in_settings) {
                 if (!settings_handle_input(&vpad, s_tp_pressed, s_tp_x, s_tp_y)) s_in_settings = false;
@@ -877,6 +947,7 @@ int main(int, char**)
     }
 
     if (g_settings.improved_multitasking) save_session();
+    webkit_engine_shutdown();
     curl_global_cleanup();
 
     TTF_CloseFont(s_font_sm); TTF_CloseFont(s_font_md);
