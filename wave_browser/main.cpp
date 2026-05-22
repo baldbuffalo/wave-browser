@@ -352,7 +352,13 @@ static void draw_browser_ui()
     if (fn) sdl_outline(ntx+2, TOOLBAR_H+2, 28, TAB_H, COL_FOCUS_RING, 2);
 
     sdl_rect(0, TOOLBAR_H+TAB_BAR_H-1, TV_W, 1, COL_TOOLBAR_LINE);
-    sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y+CONTENT_H/2+24, COL_GRAY, 1);
+
+    // Draw engine framebuffer into content area (or "New Tab" if no URL loaded)
+    if (s_tabs[s_active_tab].url[0]) {
+        webkit_engine_draw(0, CONTENT_Y, TV_W, CONTENT_H);
+    } else {
+        sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y+CONTENT_H/2+24, COL_GRAY, 1);
+    }
 
     const char* hint = g_settings.improved_multitasking
         ? "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  Y: close tab  SELECT: tab view"
@@ -838,8 +844,9 @@ int main(int, char**)
     WPADEnableWiiRemote(true);
     KPADInit();
 
-    // Init WebKit engine (stub if libWebKitWKC.a not present)
+    // Init WebKit engine and give it the SDL renderer for blitting
     webkit_engine_init(TV_W, TV_H);
+    webkit_engine_set_renderer(s_renderer);
 
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
