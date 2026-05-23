@@ -37,7 +37,7 @@ $(TARGET).elf: $(OFILES)
 	$(CXX) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
 $(TARGET).wps: $(TARGET).elf
-	elf2rpl $< $@
+	$(DEVKITPPC)/bin/powerpc-eabi-strip $< -o $@
 
 clean:
 	rm -rf $(BUILD) $(TARGET).elf $(TARGET).wps
