@@ -1,14 +1,8 @@
 // webkit_engine.cpp — WKC peer implementations + SDL integration
-//
-// Implements all WKC peer callbacks (timer, thread, memory, file, font,
-// offscreen, SSL, system, etc.) so the partial libWebKitWKC.a links cleanly.
-//
-// webkit_engine_draw() blits the engine's framebuffer into the SDL content area.
-// Once WKCWebKitInitialize / WKCWebView are exposed by the .a, flip
-// s_available = true and uncomment the WKCWebView call blocks.
+// All signatures match vendor/webkit-wiiu/include/wkc/wkc*.h exactly.
 
 #include "webkit_engine.h"
-#include "font_data.h"   // embedded Roboto font
+#include "font_data.h"
 
 #include <SDL.h>
 #include <SDL_ttf.h>
@@ -20,8 +14,8 @@ extern "C" {
 }
 
 #include <wkc/wkcbase.h>
-#include <wkc/wkcpeer.h>
-#include <wkc/wkcgpeer.h>
+#include <wkc/wkcpeer.h>   // defines wkcTimeoutProc, wkc_uint64, wkc_int64, all file/timer/thread peers
+#include <wkc/wkcgpeer.h>  // defines fontPeerMalloc, fontPeerFree, wkcFontDrawTextPeer
 #include <wkc/wkcmpeer.h>
 
 #include <stdlib.h>
@@ -35,17 +29,16 @@ extern "C" {
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
-static bool            s_available  = false;
-static int             s_w = 1280, s_h = 720;
-static unsigned char*  s_pixels     = nullptr;  // ARGB8888 w*h*4
-static SDL_Renderer*   s_renderer   = nullptr;
-static SDL_Texture*    s_texture    = nullptr;  // GPU texture for blit
-static bool            s_dirty      = false;
-static char            s_url[512]   = {};
+static bool           s_available = false;
+static int            s_w = 1280, s_h = 720;
+static unsigned char* s_pixels   = nullptr;
+static SDL_Renderer*  s_renderer = nullptr;
+static SDL_Texture*   s_texture  = nullptr;
+static bool           s_dirty    = false;
+static char           s_url[512] = {};
 
 // ─── Timer ───────────────────────────────────────────────────────────────────
-
-typedef void(*wkcTimeoutProc)(void*);
+// wkcTimeoutProc returns bool (from wkcpeer.h)
 
 struct WKCTimer {
     wkcTimeoutProc proc;
@@ -63,7 +56,7 @@ static unsigned int now_ms() {
     return (unsigned int)OSTicksToMilliseconds(OSGetTick());
 }
 
-// ─── Thread helpers ──────────────────────────────────────────────────────────
+// ─── Thread ──────────────────────────────────────────────────────────────────
 
 struct WKCThread {
     OSThread  ost;
@@ -73,8 +66,11 @@ struct WKCThread {
     void*     result;
 };
 
+// Use OSThreadSpecificID slot 0 to store WKCThread pointer
+#define WKC_THREAD_SLOT ((OSThreadSpecificID)0)
+
 static int thread_trampoline(int, const char**) {
-    WKCThread* t = (WKCThread*)OSGetThreadSpecific(OSGetCurrentThread(), 0);
+    WKCThread* t = (WKCThread*)OSGetThreadSpecific(WKC_THREAD_SLOT);
     if (t) t->result = t->fn(t->arg);
     return 0;
 }
@@ -97,22 +93,28 @@ static ThrTLS* tls_get(void* thr) {
     return nullptr;
 }
 
-// ─── Font ────────────────────────────────────────────────────────────────────
+// ─── Font / Offscreen ────────────────────────────────────────────────────────
 
 struct WKCFont { TTF_Font* f; int size; };
-
-// ─── Offscreen ───────────────────────────────────────────────────────────────
-
-struct WKCOff { unsigned char* bmp; int rb, w, h; bool owned; };
-
-// ─── 1×1 white stub ──────────────────────────────────────────────────────────
-
+struct WKCOff  { unsigned char* bmp; int rb, w, h; bool owned; };
 static const unsigned char k_white[4] = {0xFF,0xFF,0xFF,0xFF};
 
-// =============================================================================
-// extern "C" peers
+// ─── UTF-16 → UTF-8 ──────────────────────────────────────────────────────────
+
+static int u16_to_u8(const unsigned short* in, int len, char* out, int max) {
+    int j=0;
+    for (int i=0; i<len && j<max-4; i++) {
+        unsigned short c=in[i];
+        if      (c<0x80)  { out[j++]=(char)c; }
+        else if (c<0x800) { out[j++]=0xC0|(c>>6); out[j++]=0x80|(c&0x3F); }
+        else               { out[j++]=0xE0|(c>>12); out[j++]=0x80|((c>>6)&0x3F); out[j++]=0x80|(c&0x3F); }
+    }
+    out[j]='\0'; return j;
+}
+
 // =============================================================================
 extern "C" {
+// =============================================================================
 
 // ── Timer ────────────────────────────────────────────────────────────────────
 
@@ -156,9 +158,9 @@ bool wkcTimerStartPeriodicPeer(void* p, unsigned int ms, wkcTimeoutProc cb, void
     OSUnlockMutex(&s_timer_mtx);
     return true;
 }
-void wkcTimerCancelPeer(void* p)      { if (p) ((WKCTimer*)p)->active=false; }
-void wkcTimerWakeUpPeer(void*)        {}
-unsigned int wkcGetTickCountPeer(void){ return now_ms(); }
+void wkcTimerCancelPeer(void* p)       { if (p) ((WKCTimer*)p)->active=false; }
+void wkcTimerWakeUpPeer(void*)         {}
+unsigned int wkcGetTickCountPeer(void) { return now_ms(); }
 
 // ── Thread ───────────────────────────────────────────────────────────────────
 
@@ -176,50 +178,51 @@ void* wkcThreadCreatePeer(void*(*fn)(void*), void* arg) {
     if (!t) return nullptr;
     t->fn=fn; t->arg=arg;
     t->stack=(uint8_t*)malloc(64*1024);
-    if (!t->stack){free(t);return nullptr;}
-    OSSetThreadSpecific(&t->ost,0,t);
-    OSCreateThread(&t->ost,thread_trampoline,0,nullptr,t->stack+64*1024,64*1024,16,OS_THREAD_ATTRIB_AFFINITY_ANY);
+    if (!t->stack) { free(t); return nullptr; }
+    OSCreateThread(&t->ost, thread_trampoline, 0, nullptr,
+                   t->stack+64*1024, 64*1024, 16, OS_THREAD_ATTRIB_AFFINITY_ANY);
+    OSSetThreadSpecific(WKC_THREAD_SLOT, t);
     OSResumeThread(&t->ost);
     return t;
 }
-void* wkcThreadCreateForMultiCorePeer(void*(*fn)(void*),void* a){ return wkcThreadCreatePeer(fn,a); }
+void* wkcThreadCreateForMultiCorePeer(void*(*fn)(void*), void* a) { return wkcThreadCreatePeer(fn,a); }
 
 int wkcThreadJoinPeer(void* p, void** res) {
     if (!p) return -1;
     auto* t=(WKCThread*)p;
-    OSJoinThread(&t->ost,nullptr);
+    OSJoinThread(&t->ost, nullptr);
     if (res) *res=t->result;
     free(t->stack); free(t);
     return 0;
 }
-void wkcThreadDetachPeer(void* p) { if (p) OSDetachThread(&((WKCThread*)p)->ost); }
+void wkcThreadDetachPeer(void* p)             { if (p) OSDetachThread(&((WKCThread*)p)->ost); }
 void wkcThreadSetCurrentThreadNamePeer(const char* n) { if(n) OSSetThreadName(OSGetCurrentThread(),n); }
-void* wkcThreadCurrentThreadPeer(void)                { return OSGetCurrentThread(); }
-void* wkcThreadGetStackBasePeer(void* t)              { return t?((OSThread*)t)->stackTop:nullptr; }
-unsigned int wkcThreadGetStackSizePeer(void*)         { return 64*1024; }
-void wkcThreadSetStackSizePeer(void*,unsigned int)    {}
-int  wkcThreadEqualPeer(void* a,void* b)              { return a==b?1:0; }
-void wkcThreadSuspendPeer(void* t)  { if(t) OSSuspendThread((OSThread*)t); }
-void wkcThreadResumePeer(void* t)   { if(t) OSResumeThread((OSThread*)t); }
-void wkcThreadSuspendAllThreadsPeer(void) {}
-bool wkcThreadTimedSleepPeer(unsigned int ms){ OSSleepTicks(OSMillisecondsToTicks(ms)); return true; }
-void wkcThreadYieldPeer(void)               { OSSwitchThread(nullptr); }
+void* wkcThreadCurrentThreadPeer(void)        { return OSGetCurrentThread(); }
+void* wkcThreadGetStackBasePeer(void*)        { return nullptr; }  // not accessible via WUT
+unsigned int wkcThreadGetStackSizePeer(void*) { return 64*1024; }
+void wkcThreadSetStackSizePeer(void*,unsigned int) {}
+int  wkcThreadEqualPeer(void* a, void* b)     { return a==b ? 1 : 0; }
+void wkcThreadSuspendPeer(void* t)            { if(t) OSSuspendThread((OSThread*)t); }
+void wkcThreadResumePeer(void* t)             { if(t) OSResumeThread((OSThread*)t); }
+void wkcThreadSuspendAllThreadsPeer(void)     {}
+bool wkcThreadTimedSleepPeer(unsigned int ms) { OSSleepTicks(OSMillisecondsToTicks(ms)); return true; }
+void wkcThreadYieldPeer(void)                 { OSYieldThread(); }
 void wkcThreadSetMainThreadInfoPeer(void*,void*) {}
-void* wkcThreadGetMainThreadPeer(void)      { return nullptr; }
-bool wkcThreadIsSuspendedPeer(void*)        { return false; }
-void wkcThreadSetMutexPeer(void*,void*)     {}
-void* wkcThreadGetMutexPeer(void*)          { return nullptr; }
-void wkcThreadSetCondPeer(void*,void*)      {}
-void* wkcThreadGetCondPeer(void*)           { return nullptr; }
-void wkcThreadStoreRegistersPeer(void*,int) {}
-int  wkcThreadStoreThreadRegistersPeer(void*,void*,int){ return 0; }
-void* wkcThreadGetStackPointerPeer(const void*){ return nullptr; }
-int  wkcThreadAtomicIncrementPeer(int volatile* v){ return ++(*v); }
-int  wkcThreadAtomicDecrementPeer(int volatile* v){ return --(*v); }
+void* wkcThreadGetMainThreadPeer(void)        { return nullptr; }
+bool wkcThreadIsSuspendedPeer(void*)          { return false; }
+void wkcThreadSetMutexPeer(void*,void*)       {}
+void* wkcThreadGetMutexPeer(void*)            { return nullptr; }
+void wkcThreadSetCondPeer(void*,void*)        {}
+void* wkcThreadGetCondPeer(void*)             { return nullptr; }
+void wkcThreadStoreRegistersPeer(void*,int)   {}
+int  wkcThreadStoreThreadRegistersPeer(void*,void*,int) { return 0; }
+void* wkcThreadGetStackPointerPeer(const void*) { return nullptr; }
+int  wkcThreadAtomicIncrementPeer(int volatile* v) { return ++(*v); }
+int  wkcThreadAtomicDecrementPeer(int volatile* v) { return --(*v); }
 
 int wkcThreadKeyNewPeer(void** out, void(*dtor)(void*)) {
     OSLockMutex(&s_tls_mtx);
-    for (int i=0;i<TLS_KEYS;i++) {
+    for (int i=0; i<TLS_KEYS; i++) {
         if (!s_tls_keys[i].used) {
             s_tls_keys[i]={true,dtor};
             *out=(void*)(uintptr_t)(i+1);
@@ -232,7 +235,7 @@ int wkcThreadKeyNewPeer(void** out, void(*dtor)(void*)) {
 }
 void wkcThreadKeyDeletePeer(void* k) {
     int i=(int)(uintptr_t)k-1;
-    if (i>=0&&i<TLS_KEYS){ OSLockMutex(&s_tls_mtx); s_tls_keys[i]={false,nullptr}; OSUnlockMutex(&s_tls_mtx); }
+    if (i>=0&&i<TLS_KEYS) { OSLockMutex(&s_tls_mtx); s_tls_keys[i]={false,nullptr}; OSUnlockMutex(&s_tls_mtx); }
 }
 void wkcThreadKeySetSpecificPeer(void* k, void* v) {
     int i=(int)(uintptr_t)k-1;
@@ -243,79 +246,76 @@ void* wkcThreadKeyGetSpecificPeer(void* k) {
     int i=(int)(uintptr_t)k-1;
     if (i<0||i>=TLS_KEYS) return nullptr;
     auto* t=tls_get(OSGetCurrentThread());
-    return t?t->val[i]:nullptr;
+    return t ? t->val[i] : nullptr;
 }
 
 // ── Memory ───────────────────────────────────────────────────────────────────
 
 bool wkcMemoryInitializePeer(wkcPeerMallocProc,wkcPeerFreeProc,wkcPeerReallocProc){ return true; }
-bool wkcMemoryIsInitializedPeer(void)   { return true; }
-void wkcMemoryFinalizePeer(void)        {}
-void wkcMemoryForceTerminatePeer(void)  {}
+bool wkcMemoryIsInitializedPeer(void)    { return true; }
+void wkcMemoryFinalizePeer(void)         {}
+void wkcMemoryForceTerminatePeer(void)   {}
 void wkcMemorySetNotifyNoMemoryProcPeer(void*(*)(unsigned int)){}
 void wkcMemorySetNotifyMemoryAllocationErrorProcPeer(void(*)(unsigned int,int)){}
 void wkcMemorySetNotifyCrashProcPeer(void(*)(const char*,int,const char*,const char*)){}
 void wkcMemorySetNotifyStackOverflowProcPeer(void(*)(bool,unsigned int,unsigned int,unsigned int,void*,void*,void*,const char*,int,const char*)){}
 void wkcMemorySetCheckAvailabilityProcPeer(bool(*)(unsigned int,bool)){}
 void wkcMemorySetCheckMemoryAllocatableProcPeer(bool(*)(unsigned int,int)){}
-void* wkcMemoryNotifyNoMemoryPeer(unsigned int){ return nullptr; }
+void* wkcMemoryNotifyNoMemoryPeer(unsigned int)    { return nullptr; }
 void  wkcMemorySetCrashReasonPeer(const char*,int,const char*,const char*){}
-void  wkcMemoryNotifyCrashPeer(void){}
+void  wkcMemoryNotifyCrashPeer(void)               {}
 void  wkcMemoryNotifyStackOverflowPeer(bool,unsigned int,unsigned int,void*,const char*,int,const char*){}
-bool  wkcMemoryIsStackOverflowPeer(unsigned int,unsigned int*,void**)  { return false; }
-bool  wkcMemoryCheckAvailabilityPeer(unsigned int)     { return true; }
-void  wkcMemorySetAllocatingForSVGPeer(bool)           {}
-void  wkcMemorySetAllocatingForImagesPeer(bool)        {}
-void  wkcMemorySetAllocationForAnimatedImage(bool)     {}
-bool  wkcMemoryIsAllocatingForSVGPeer(void)            { return false; }
-int   wkcMemoryGetAllocationStatePeer(void)            { return 0; }
-bool  wkcMemoryIsCrashingPeer(void)                    { return false; }
+bool  wkcMemoryIsStackOverflowPeer(unsigned int,unsigned int*,void**) { return false; }
+bool  wkcMemoryCheckAvailabilityPeer(unsigned int)  { return true; }
+void  wkcMemorySetAllocatingForSVGPeer(bool)        {}
+void  wkcMemorySetAllocatingForImagesPeer(bool)     {}
+void  wkcMemorySetAllocationForAnimatedImage(bool)  {}
+bool  wkcMemoryIsAllocatingForSVGPeer(void)         { return false; }
+int   wkcMemoryGetAllocationStatePeer(void)         { return 0; }
+bool  wkcMemoryIsCrashingPeer(void)                 { return false; }
 bool  wkcMemoryCheckMemoryAllocatablePeer(unsigned int,int){ return true; }
 void  wkcMemoryNotifyMemoryAllocationErrorPeer(unsigned int,int){}
 void  wkcMemoryRegisterGlobalObjPeer(volatile void*,int){}
-size_t wkcMemoryGetPageSizePeer(void)                  { return 4096; }
-void  wkcMemorySetExecutablePeer(void*,size_t,bool)    {}
-void  wkcMemoryCacheFlushPeer(void*,size_t)            {}
-
+size_t wkcMemoryGetPageSizePeer(void)               { return 4096; }
+void  wkcMemorySetExecutablePeer(void*,size_t,bool) {}
+void  wkcMemoryCacheFlushPeer(void*,size_t)         {}
 void* wkcMemoryFillMem16Peer(void* d,unsigned short v,unsigned int n){
     auto* p=(unsigned short*)d; for(unsigned int i=0;i<n/2;i++) p[i]=v; return d;
 }
 unsigned short* wkcMemoryFillRange16Peer(unsigned short* d,unsigned short s,unsigned int x,unsigned int y,unsigned int w,unsigned int h,unsigned int v){
-    for(unsigned int r=0;r<h;r++){auto* row=d+(y+r)*s+x; for(unsigned int c=0;c<w;c++) row[c]=(unsigned short)v;} return d;
+    for(unsigned int r=0;r<h;r++){auto* row=d+(y+r)*s+x;for(unsigned int c=0;c<w;c++)row[c]=(unsigned short)v;}return d;
 }
 void* wkcMemoryFillMem32Peer(void* d,unsigned int v,unsigned int n){
     auto* p=(unsigned int*)d; for(unsigned int i=0;i<n/4;i++) p[i]=v; return d;
 }
 unsigned int* wkcMemoryFillRange32Peer(unsigned int* d,unsigned int s,unsigned int x,unsigned int y,unsigned int w,unsigned int h,unsigned int v){
-    for(unsigned int r=0;r<h;r++){auto* row=d+(y+r)*s+x; for(unsigned int c=0;c<w;c++) row[c]=v;} return d;
+    for(unsigned int r=0;r<h;r++){auto* row=d+(y+r)*s+x;for(unsigned int c=0;c<w;c++)row[c]=v;}return d;
 }
-void* wkcMemoryMoveMemPeer(void* d,void* s,unsigned int n) { return memmove(d,s,n); }
-void* wkcMemoryCopyAlignedMemPeer(void* d,void* s,unsigned int n){ return memcpy(d,s,n); }
+void* wkcMemoryMoveMemPeer(void* d,void* s,unsigned int n)        { return memmove(d,s,n); }
+void* wkcMemoryCopyAlignedMemPeer(void* d,void* s,unsigned int n) { return memcpy(d,s,n); }
 
 // ── File ─────────────────────────────────────────────────────────────────────
+// Signatures match wkcpeer.h exactly: int usage, wkc_uint64, wkc_int64
 
-bool wkcFileInitializePeer(void)     { return true; }
-void wkcFileFinalizePeer(void)       {}
-void wkcFileForceTerminatePeer(void) {}
+void*      wkcFileFOpenPeer(int /*usage*/, const char* p, const char* m) { return fopen(p,m); }
+int        wkcFileFClosePeer(void* f)                    { return fclose((FILE*)f); }
+wkc_uint64 wkcFileFReadPeer(void* b, wkc_uint64 s, wkc_uint64 n, void* f) { return (wkc_uint64)fread(b,(size_t)s,(size_t)n,(FILE*)f); }
+wkc_uint64 wkcFileFWritePeer(const void* b, wkc_uint64 s, wkc_uint64 n, void* f) { return (wkc_uint64)fwrite(b,(size_t)s,(size_t)n,(FILE*)f); }
+int        wkcFileFSeekPeer(void* f, wkc_int64 o, int w) { return fseek((FILE*)f,(long)o,w); }
+wkc_int64  wkcFileFTellPeer(void* f)                     { return (wkc_int64)ftell((FILE*)f); }
+bool       wkcFileFEofPeer(void* f)                      { return feof((FILE*)f)!=0; }
+char*      wkcFileFGetsPeer(char* s, int n, void* f)     { return fgets(s,n,(FILE*)f); }
+int        wkcFileFPutsPeer(const char* s, void* f)      { return fputs(s,(FILE*)f); }
+int        wkcFileFFlushPeer(void* f)                    { return fflush((FILE*)f); }
+int        wkcFileFErrorPeer(void* f)                    { return ferror((FILE*)f); }
+int        wkcFileAccessPeer(const char* p, int m)       { return access(p,m); }
+bool       wkcFileUnlinkPeer(const char* p)              { return remove(p)==0; }
+int        wkcFileStatPeer(const char* p, struct stat* s){ return stat(p,s); }
+int        wkcFileErrnoPeer(void)                        { return errno; }
 
-void*  wkcFileFOpenPeer(const char* p,const char* m)  { return fopen(p,m); }
-int    wkcFileFClosePeer(void* f)                     { return fclose((FILE*)f); }
-size_t wkcFileFReadPeer(void* b,size_t s,size_t n,void* f){ return fread(b,s,n,(FILE*)f); }
-size_t wkcFileFWritePeer(const void* b,size_t s,size_t n,void* f){ return fwrite(b,s,n,(FILE*)f); }
-int    wkcFileFSeekPeer(void* f,long o,int w)         { return fseek((FILE*)f,o,w); }
-long   wkcFileFTellPeer(void* f)                      { return ftell((FILE*)f); }
-bool   wkcFileFEofPeer(void* f)                       { return feof((FILE*)f)!=0; }
-char*  wkcFileFGetsPeer(char* s,int n,void* f)        { return fgets(s,n,(FILE*)f); }
-int    wkcFileFPutsPeer(const char* s,void* f)        { return fputs(s,(FILE*)f); }
-int    wkcFileFFlushPeer(void* f)                     { return fflush((FILE*)f); }
-int    wkcFileFErrorPeer(void* f)                     { return ferror((FILE*)f); }
-int    wkcFileAccessPeer(const char* p,int m)         { return access(p,m); }
-bool   wkcFileUnlinkPeer(const char* p)               { return remove(p)==0; }
-int    wkcFileStatPeer(const char* p,struct stat* s)  { return stat(p,s); }
-int    wkcFileErrnoPeer(void)                         { return errno; }
-bool   wkcFileMakeAllDirectoriesPeer(const char* path){
+bool wkcFileMakeAllDirectoriesPeer(const char* path) {
     char t[512]; strncpy(t,path,511);
-    for(char* p=t+1;*p;p++) if(*p=='/'){*p='\0';mkdir(t,0777);*p='/';}
+    for (char* p=t+1;*p;p++) if(*p=='/'){*p='\0';mkdir(t,0777);*p='/';}
     return mkdir(t,0777)==0||errno==EEXIST;
 }
 int wkcFilePathGetFileNamePeer(const char* p,char* out,int mx){
@@ -328,35 +328,39 @@ int wkcFilePathByAppendingComponentPeer(const char* p,const char* c,char* out,in
 int wkcFileHomeDirectoryPathPeer(char* out,int mx){
     strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser",mx-1); return (int)strlen(out);
 }
-int wkcFileListDirectoryPeer(const char*,const char*,char**,int,int){ return 0; }
-int wkcFileDirectoryNamePeer(const char* p,char* out,int mx){
+int  wkcFileListDirectoryPeer(const char*,const char*,char**,int,int){ return 0; }
+int  wkcFileDirectoryNamePeer(const char* p,char* out,int mx){
     const char* s=strrchr(p,'/');
     if(!s){strncpy(out,".",mx-1);return 1;}
-    int n=(int)(s-p); if(n>=mx)n=mx-1;
-    strncpy(out,p,n); out[n]='\0'; return n;
+    int n=(int)(s-p);if(n>=mx)n=mx-1;
+    strncpy(out,p,n);out[n]='\0';return n;
 }
 void* wkcFileOpenTemporaryFilePeer(const char*,char* out,int mx){
-    strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser/tmp",mx-1); return nullptr;
+    strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser/tmp",mx-1);return nullptr;
 }
 void* wkcFileOpenDirectoryPeer(int,const char*,const char*){ return nullptr; }
 void  wkcFileCloseDirectoryPeer(void*)      {}
 int   wkcFileReadDirectoryPeer(void*,char*,int){ return 0; }
+
+bool wkcFileInitializePeer(void)     { return true; }
+void wkcFileFinalizePeer(void)       {}
+void wkcFileForceTerminatePeer(void) {}
 
 // ── Debug ────────────────────────────────────────────────────────────────────
 
 bool wkcDebugPrintInitializePeer(void)     { return true; }
 void wkcDebugPrintFinalizePeer(void)       {}
 void wkcDebugPrintForceTerminatePeer(void) {}
-void wkcDebugPrintfPeer(const char* fmt,...){ va_list v; va_start(v,fmt); vprintf(fmt,v); va_end(v); }
+void wkcDebugPrintfPeer(const char* fmt,...){ va_list v;va_start(v,fmt);vprintf(fmt,v);va_end(v); }
 void wkcDebugPutsPeer(const char* s)       { puts(s); }
 int  wkcDebugGetBacktracePeer(void**,int)  { return 0; }
 void wkcDebugPrintBacktracePeer(void**,int){}
-void peerDebugPrintf(const char* fmt,...)  { va_list v; va_start(v,fmt); vprintf(fmt,v); va_end(v); }
+void peerDebugPrintf(const char* fmt,...)  { va_list v;va_start(v,fmt);vprintf(fmt,v);va_end(v); }
 
 // ── System ───────────────────────────────────────────────────────────────────
 
-bool wkcSystemInitializePeer(void) { return true; }
-void wkcSystemFinalizePeer(void)   {}
+bool wkcSystemInitializePeer(void)  { return true; }
+void wkcSystemFinalizePeer(void)    {}
 
 static const unsigned short kPlatform[]={'W','i','i','U',0};
 static const unsigned short kProduct[] ={'G','e','c','k','o',0};
@@ -390,9 +394,9 @@ const unsigned char* wkcSystemGetSystemStringPeer(const unsigned char*)     { re
 
 // ── SSL ──────────────────────────────────────────────────────────────────────
 
-bool wkcSSLInitializePeer(void)            { return true; }
-void wkcSSLFinalizePeer(void)              {}
-void wkcSSLForceTerminatePeer(void)        {}
+bool  wkcSSLInitializePeer(void)           { return true; }
+void  wkcSSLFinalizePeer(void)             {}
+void  wkcSSLForceTerminatePeer(void)       {}
 void* wkcSSLRegisterRootCAPeer(const char*,int)  { return (void*)1; }
 int   wkcSSLUnregisterRootCAPeer(void*)    { return 0; }
 void  wkcSSLRootCADeleteAllPeer(void)      {}
@@ -400,26 +404,26 @@ void* wkcSSLRegisterCRLPeer(const char*,int)     { return (void*)1; }
 int   wkcSSLUnregisterCRLPeer(void*)       { return 0; }
 void  wkcSSLCRLDeleteAllPeer(void)         {}
 
-FILE* wkcOsslCertfOpenPeer(const char* p,const char* m)       { return fopen(p,m); }
-int   wkcOsslCertfClosePeer(FILE* f)                          { return fclose(f); }
-size_t wkcOsslCertfReadPeer(void* b,size_t s,size_t n,FILE* f){ return fread(b,s,n,f); }
+FILE* wkcOsslCertfOpenPeer(const char* p,const char* m)        { return fopen(p,m); }
+int   wkcOsslCertfClosePeer(FILE* f)                           { return fclose(f); }
+size_t wkcOsslCertfReadPeer(void* b,size_t s,size_t n,FILE* f) { return fread(b,s,n,f); }
 size_t wkcOsslCertfWritePeer(const void* b,size_t s,size_t n,FILE* f){ return fwrite(b,s,n,f); }
-char*  wkcOsslCertfGetsPeer(char* s,int n,FILE* f)            { return fgets(s,n,f); }
-size_t wkcOsslCertfFlushPeer(FILE* f)                         { return fflush(f); }
-int    wkcOsslCertfSeekPeer(FILE* f,long o,int w)             { return fseek(f,o,w); }
-long   wkcOsslCertfTellPeer(FILE* f)                          { return ftell(f); }
-bool   wkcOsslCertfIsRegistPeer(void)                         { return false; }
-bool   wkcOsslCRLIsRegistPeer(void)                           { return false; }
+char*  wkcOsslCertfGetsPeer(char* s,int n,FILE* f)             { return fgets(s,n,f); }
+size_t wkcOsslCertfFlushPeer(FILE* f)                          { return fflush(f); }
+int    wkcOsslCertfSeekPeer(FILE* f,long o,int w)              { return fseek(f,o,w); }
+long   wkcOsslCertfTellPeer(FILE* f)                           { return ftell(f); }
+bool   wkcOsslCertfIsRegistPeer(void)                          { return false; }
+bool   wkcOsslCRLIsRegistPeer(void)                            { return false; }
 
-FILE* wkcOsslRandFilefOpenPeer(const char* p,const char* m)   { return fopen(p,m); }
-int   wkcOsslRandFilefClosePeer(FILE* f)                      { return fclose(f); }
-int   wkcOsslRandFileStatPeer(const char* p,struct stat* s)   { return stat(p,s); }
-size_t wkcOsslRandFilefReadPeer(void* b,size_t s,size_t n,FILE* f){ return fread(b,s,n,f); }
-size_t wkcOsslRandFilefWritePeer(void* b,size_t s,size_t n,FILE* f){ return fwrite(b,s,n,f); }
+FILE*  wkcOsslRandFilefOpenPeer(const char* p,const char* m)         { return fopen(p,m); }
+int    wkcOsslRandFilefClosePeer(FILE* f)                            { return fclose(f); }
+int    wkcOsslRandFileStatPeer(const char* p,struct stat* s)         { return stat(p,s); }
+size_t wkcOsslRandFilefReadPeer(void* b,size_t s,size_t n,FILE* f)  { return fread(b,s,n,f); }
+size_t wkcOsslRandFilefWritePeer(const void* b,size_t s,size_t n,FILE* f){ return fwrite(b,s,n,f); }
 
-int  wkcNetCheckCorrectIPAddressPeer(const char*) { return 1; }
+int          wkcNetCheckCorrectIPAddressPeer(const char*) { return 1; }
 unsigned int wkcRandomNumberPeer(void)            { return (unsigned int)rand(); }
-int wkcRandomNumbersPeer(unsigned char* b,int n)  { for(int i=0;i<n;i++) b[i]=(unsigned char)rand(); return n; }
+int          wkcRandomNumbersPeer(unsigned char* b,int n){ for(int i=0;i<n;i++)b[i]=(unsigned char)rand();return n; }
 unsigned int wkcRandomMaxPeer(void)               { return RAND_MAX; }
 
 // ── PCAP ─────────────────────────────────────────────────────────────────────
@@ -446,9 +450,7 @@ bool wkcPasteboardIsFormatAvailablePeer(int)     { return false; }
 const char* wkcGuessMIMETypeByContentPeer(const unsigned char*,size_t){ return "application/octet-stream"; }
 
 // ── Font engine ──────────────────────────────────────────────────────────────
-
-typedef void* (*fontPeerMalloc)(unsigned int);
-typedef void  (*fontPeerFree)(void*);
+// fontPeerMalloc/fontPeerFree already typedef'd in wkcgpeer.h — do NOT redefine
 
 bool wkcFontEngineInitializePeer(void*,int,fontPeerMalloc,fontPeerFree,bool){ return true; }
 void wkcFontEngineFinalizePeer(void)       {}
@@ -461,12 +463,12 @@ int  wkcFontEngineRegisterSystemFontPeer(int,const unsigned char*,unsigned int){
 int  wkcFontEngineRegisterFontPeer(int,const unsigned char*,unsigned int)      { return 1; }
 void wkcFontEngineUnregisterFontPeer(int)  {}
 void wkcFontEngineUnregisterFontsPeer()    {}
-bool wkcFontEngineGetFamilyNamePeer(int,char* out,int mx){ strncpy(out,"Roboto",mx-1); return true; }
+bool wkcFontEngineGetFamilyNamePeer(int,char* out,int mx){ strncpy(out,"Roboto",mx-1);return true; }
 bool wkcFontEngineSetPrimaryFontPeer(int)  { return true; }
 int  wkcFontEngineHeapSizePeer(void)       { return 0; }
 bool wkcFontEngineSetFontScalePeer(int,float){ return true; }
 
-void* wkcFontNewPeer(int size,int weight,bool italic,bool,bool,int,const char*){
+void* wkcFontNewPeer(int size,int,bool,bool,bool,int,const char*){
     auto* f=(WKCFont*)malloc(sizeof(WKCFont));
     if (!f) return nullptr;
     f->size=size;
@@ -474,10 +476,9 @@ void* wkcFontNewPeer(int size,int weight,bool italic,bool,bool,int,const char*){
     return f;
 }
 void* wkcFontNewCopyPeer(void* p){
-    if (!p) return nullptr;
-    return wkcFontNewPeer(((WKCFont*)p)->size,0,false,false,false,0,nullptr);
+    return p ? wkcFontNewPeer(((WKCFont*)p)->size,0,false,false,false,0,nullptr) : nullptr;
 }
-void wkcFontDeletePeer(void* p){ if(p){auto* f=(WKCFont*)p; TTF_CloseFont(f->f); free(f);} }
+void wkcFontDeletePeer(void* p){ if(p){auto*f=(WKCFont*)p;TTF_CloseFont(f->f);free(f);} }
 int  wkcFontSizeOfFontInstancePeer(void*)    { return sizeof(WKCFont); }
 bool wkcFontCanScalePeer(void*)              { return true; }
 bool wkcFontCanSupportDrawComplexPeer(void*) { return false; }
@@ -487,54 +488,49 @@ bool wkcFontIsEqualPeer(void* a,void* b){
     return ((WKCFont*)a)->size==((WKCFont*)b)->size;
 }
 void wkcFontSetMatrixPeer(void*,float,float,float,float,float,float){}
-int  wkcFontGetSizePeer(void* p)         { return p?((WKCFont*)p)->size:0; }
-int  wkcFontGetAscentPeer(void* p)       { return (p&&((WKCFont*)p)->f)?TTF_FontAscent(((WKCFont*)p)->f):0; }
-int  wkcFontGetDescentPeer(void* p)      { return (p&&((WKCFont*)p)->f)?-TTF_FontDescent(((WKCFont*)p)->f):0; }
-int  wkcFontGetLineSpacingPeer(void* p)  { return (p&&((WKCFont*)p)->f)?TTF_FontLineSkip(((WKCFont*)p)->f):0; }
-int  wkcFontGetLineGapPeer(void* p)      {
+int  wkcFontGetSizePeer(void* p)     { return p?((WKCFont*)p)->size:0; }
+int  wkcFontGetAscentPeer(void* p)   { return (p&&((WKCFont*)p)->f)?TTF_FontAscent(((WKCFont*)p)->f):0; }
+int  wkcFontGetDescentPeer(void* p)  { return (p&&((WKCFont*)p)->f)?-TTF_FontDescent(((WKCFont*)p)->f):0; }
+int  wkcFontGetLineSpacingPeer(void* p){ return (p&&((WKCFont*)p)->f)?TTF_FontLineSkip(((WKCFont*)p)->f):0; }
+int  wkcFontGetLineGapPeer(void* p)  {
     if(!p||!((WKCFont*)p)->f) return 0;
     return TTF_FontLineSkip(((WKCFont*)p)->f)-TTF_FontHeight(((WKCFont*)p)->f);
 }
-int  wkcFontGetXHeightPeer(void* p)      { int w,h=0; if(p&&((WKCFont*)p)->f) TTF_SizeUTF8(((WKCFont*)p)->f,"x",&w,&h); return h; }
-int  wkcFontGetAverageCharWidthPeer(void* p){ int w=0,h; if(p&&((WKCFont*)p)->f) TTF_SizeUTF8(((WKCFont*)p)->f,"M",&w,&h); return w; }
-int  wkcFontGetMaxCharWidthPeer(void* p) { int w=0,h; if(p&&((WKCFont*)p)->f) TTF_SizeUTF8(((WKCFont*)p)->f,"W",&w,&h); return w; }
-bool wkcFontIsFixedFontPeer(void*)       { return false; }
-
-// UTF-16 → UTF-8 helper
-static int utf16_to_utf8(const unsigned short* in,int len,char* out,int max){
-    int j=0;
-    for(int i=0;i<len&&j<max-3;i++){
-        unsigned short c=in[i];
-        if(c<0x80){out[j++]=(char)c;}
-        else if(c<0x800){out[j++]=0xC0|(c>>6);out[j++]=0x80|(c&0x3F);}
-        else{out[j++]=0xE0|(c>>12);out[j++]=0x80|((c>>6)&0x3F);out[j++]=0x80|(c&0x3F);}
-    }
-    out[j]='\0'; return j;
-}
+int wkcFontGetXHeightPeer(void* p)        { int w,h=0;if(p&&((WKCFont*)p)->f)TTF_SizeUTF8(((WKCFont*)p)->f,"x",&w,&h);return h; }
+int wkcFontGetAverageCharWidthPeer(void* p){ int w=0,h;if(p&&((WKCFont*)p)->f)TTF_SizeUTF8(((WKCFont*)p)->f,"M",&w,&h);return w; }
+int wkcFontGetMaxCharWidthPeer(void* p)   { int w=0,h;if(p&&((WKCFont*)p)->f)TTF_SizeUTF8(((WKCFont*)p)->f,"W",&w,&h);return w; }
+bool wkcFontIsFixedFontPeer(void*)        { return false; }
 
 int wkcFontGetTextWidthPeer(void* p,int,const unsigned short* str,int len,int* clip){
     if(!p||!str||!((WKCFont*)p)->f) return 0;
-    char buf[512]; utf16_to_utf8(str,len,buf,512);
+    char buf[512]; u16_to_u8(str,len,buf,512);
     int w=0,h; TTF_SizeUTF8(((WKCFont*)p)->f,buf,&w,&h);
     if(clip) *clip=w;
     return w;
 }
 
-int wkcFontDrawTextPeer(void* p,int,const unsigned short* str,int len,
-                        void* bmp,int rb,const WKCFloatPoint* pt,
-                        const WKCRect*,unsigned int col,int asc,int,const WKCRect*){
-    if(!p||!str||!bmp||!((WKCFont*)p)->f) return 0;
-    char buf[512]; utf16_to_utf8(str,len,buf,512);
-    SDL_Color sc={(uint8_t)((col>>16)&0xFF),(uint8_t)((col>>8)&0xFF),(uint8_t)(col&0xFF),0xFF};
-    SDL_Surface* surf=TTF_RenderUTF8_Blended(((WKCFont*)p)->f,buf,sc);
-    if(!surf) return 0;
-    int dx=pt?(int)pt->fX:0, dy=pt?(int)pt->fY-asc:0;
+// Exact signature from wkcgpeer.h line 460
+int wkcFontDrawTextPeer(void* in_font, int /*flags*/,
+                        const unsigned short* in_str, int in_strlen,
+                        void* in_offscreen, const WKCSize* /*in_offscreensize*/,
+                        int in_rowbytes, int /*in_fmt*/,
+                        const WKCFloatRect* in_textbox, const WKCFloatRect* /*in_clip*/,
+                        int /*in_drawingmode*/, unsigned int in_color, unsigned int /*strokecolor*/,
+                        int /*strokestyle*/, float /*strokethickness*/, float /*zoomlevel*/)
+{
+    if (!in_font||!in_str||!in_offscreen||!((WKCFont*)in_font)->f) return 0;
+    char buf[512]; u16_to_u8(in_str,in_strlen,buf,512);
+    SDL_Color sc={(uint8_t)((in_color>>16)&0xFF),(uint8_t)((in_color>>8)&0xFF),(uint8_t)(in_color&0xFF),0xFF};
+    SDL_Surface* surf=TTF_RenderUTF8_Blended(((WKCFont*)in_font)->f,buf,sc);
+    if (!surf) return 0;
+    int dx=in_textbox?(int)in_textbox->fPoint.fX:0;
+    int dy=in_textbox?(int)in_textbox->fPoint.fY:0;
     SDL_LockSurface(surf);
-    for(int y=0;y<surf->h;y++){
+    for (int y=0;y<surf->h;y++) {
         int by=dy+y; if(by<0||by>=s_h) continue;
         auto* sr=(uint8_t*)surf->pixels+y*surf->pitch;
-        auto* dr=(uint8_t*)bmp+by*rb+dx*4;
-        for(int x=0;x<surf->w;x++){
+        auto* dr=(uint8_t*)in_offscreen+by*in_rowbytes+dx*4;
+        for (int x=0;x<surf->w;x++) {
             auto* s=sr+x*4; auto* d=dr+x*4;
             uint8_t a=s[3];
             d[0]=(uint8_t)(s[0]*a/255+d[0]*(255-a)/255);
@@ -545,10 +541,10 @@ int wkcFontDrawTextPeer(void* p,int,const unsigned short* str,int len,
     }
     SDL_UnlockSurface(surf);
     SDL_FreeSurface(surf);
-    return len;
+    return in_strlen;
 }
 
-// ── Stock image / skin ───────────────────────────────────────────────────────
+// ── Stock image ───────────────────────────────────────────────────────────────
 
 const unsigned char* wkcStockImageGetBitmapPeer(int)               { return k_white; }
 void wkcStockImageGetSizePeer(int,unsigned int* w,unsigned int* h)  { *w=1;*h=1; }
@@ -563,12 +559,12 @@ const unsigned char* wkcStockImageGetPlatformResourceImagePeer(const char*,unsig
 { *w=1;*h=1; return k_white; }
 
 // ── Offscreen ────────────────────────────────────────────────────────────────
+// WKCRect: { WKCPoint fPoint{fX,fY}; WKCSize fSize{fWidth,fHeight}; }
 
 void* wkcOffscreenNewPeer(int,void* bmp,int rb,const WKCSize* sz){
     auto* o=(WKCOff*)calloc(1,sizeof(WKCOff));
     if(!o) return nullptr;
-    o->w=sz?sz->fWidth:s_w; o->h=sz?sz->fHeight:s_h;
-    o->rb=rb?rb:o->w*4;
+    o->w=sz?sz->fWidth:s_w; o->h=sz?sz->fHeight:s_h; o->rb=rb?rb:o->w*4;
     if(bmp){o->bmp=(unsigned char*)bmp;o->owned=false;}
     else{o->bmp=(unsigned char*)malloc(o->rb*o->h);o->owned=true;if(o->bmp)memset(o->bmp,0xFF,o->rb*o->h);}
     return o;
@@ -592,11 +588,14 @@ void wkcOffscreenGetSizePeer(void* p,WKCSize* sz){
     if(p&&sz){sz->fWidth=((WKCOff*)p)->w;sz->fHeight=((WKCOff*)p)->h;}
 }
 void wkcOffscreenScrollPeer(void* p,const WKCRect* r,const WKCSize* d){
+    // WKCRect uses fPoint.fX/fY and fSize.fWidth/fHeight
     if(!p||!r||!d) return;
     auto*o=(WKCOff*)p;
-    memmove(o->bmp+(r->fY+d->fHeight)*o->rb+(r->fX+d->fWidth)*4,
-            o->bmp+r->fY*o->rb+r->fX*4,
-            (size_t)(r->fHeight-abs(d->fHeight))*o->rb);
+    int rx=r->fPoint.fX, ry=r->fPoint.fY, rh=r->fSize.fHeight;
+    int dx=d->fWidth,    dy=d->fHeight;
+    memmove(o->bmp+(ry+dy)*o->rb+(rx+dx)*4,
+            o->bmp+ry*o->rb+rx*4,
+            (size_t)(rh-abs(dy))*o->rb);
 }
 void wkcOffscreenSetOpticalZoomPeer(void*,float,const WKCFloatPoint*){}
 void wkcOffscreenSetUseInterpolationForImagePeer(void*,bool){}
@@ -605,7 +604,6 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
     if(!p) return nullptr;
     auto*o=(WKCOff*)p;
     if(rb) *rb=o->rb;
-    // Copy into main framebuffer when sizes match, mark dirty
     if(s_pixels&&o->w==s_w&&o->h==s_h){
         memcpy(s_pixels,o->bmp,(size_t)o->rb*o->h);
         s_dirty=true;
@@ -613,10 +611,8 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
     return o->bmp;
 }
 
-} // extern "C"
-
 // =============================================================================
-// Public engine API
+} // extern "C"
 // =============================================================================
 
 bool webkit_engine_init(int w, int h)
@@ -643,12 +639,9 @@ bool webkit_engine_init(int w, int h)
 void webkit_engine_set_renderer(SDL_Renderer* ren)
 {
     s_renderer=ren;
-    if(s_renderer && !s_texture){
-        s_texture=SDL_CreateTexture(s_renderer,
-            SDL_PIXELFORMAT_ARGB8888,
-            SDL_TEXTUREACCESS_STREAMING,
-            s_w, s_h);
-    }
+    if(s_renderer&&!s_texture)
+        s_texture=SDL_CreateTexture(s_renderer,SDL_PIXELFORMAT_ARGB8888,
+                                    SDL_TEXTUREACCESS_STREAMING,s_w,s_h);
 }
 
 void webkit_engine_navigate(const char* url)
@@ -659,12 +652,12 @@ void webkit_engine_navigate(const char* url)
         // TODO: s_webview->loadURL(url);
         return;
     }
-    // Placeholder: light grey with a blue top stripe
+    // Placeholder: light grey with blue top stripe
     if(s_pixels){
         memset(s_pixels,0xF4,s_w*s_h*4);
         for(int x=0;x<s_w;x++){
             uint8_t*p=s_pixels+x*4;
-            p[0]=0xFF;p[1]=0x42;p[2]=0x85;p[3]=0xF4;  // ARGB blue bar (top row)
+            p[0]=0xFF;p[1]=0x42;p[2]=0x85;p[3]=0xF4;
         }
         s_dirty=true;
     }
@@ -672,7 +665,6 @@ void webkit_engine_navigate(const char* url)
 
 void webkit_engine_tick(void)
 {
-    // Fire pending timers
     if(!s_timer_init) return;
     unsigned int now=now_ms();
     OSLockMutex(&s_timer_mtx);
@@ -686,24 +678,22 @@ void webkit_engine_tick(void)
         OSLockMutex(&s_timer_mtx);
     }
     OSUnlockMutex(&s_timer_mtx);
-    // TODO: WKCWebKit::timerFired()
 }
 
-void webkit_engine_draw(int cx, int cy, int cw, int ch)
+void webkit_engine_draw(int cx,int cy,int cw,int ch)
 {
     if(!s_renderer||!s_texture||!s_pixels) return;
     if(s_dirty||s_available){
         SDL_UpdateTexture(s_texture,nullptr,s_pixels,s_w*4);
         s_dirty=false;
     }
-    // Blit the engine framebuffer cropped to content area
     SDL_Rect src={0,0,s_w,s_h};
     SDL_Rect dst={cx,cy,cw,ch};
     SDL_RenderCopy(s_renderer,s_texture,&src,&dst);
 }
 
-void webkit_engine_input_text(const char* utf8){ (void)utf8; }
-void webkit_engine_scroll(int dx,int dy){ (void)dx;(void)dy; }
+void webkit_engine_input_text(const char* u){ (void)u; }
+void webkit_engine_scroll(int x,int y){ (void)x;(void)y; }
 void webkit_engine_touch_down(int x,int y){ (void)x;(void)y; }
 void webkit_engine_touch_up(int x,int y){ (void)x;(void)y; }
 bool webkit_engine_available(void){ return s_available; }
@@ -719,6 +709,6 @@ void webkit_engine_shutdown(void)
     wkcMemoryFinalizePeer();
     wkcThreadFinalizePeer();
     wkcTimerFinalizePeer();
-    free(s_pixels); s_pixels=nullptr;
+    free(s_pixels);s_pixels=nullptr;
     s_available=false;
 }
