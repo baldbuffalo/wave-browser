@@ -43,15 +43,24 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # devkitpro/devkitppc container registers apt.devkitpro.org, which
-          # returns 522 (Cloudflare timeout) intermittently in CI.  We only
-          # need standard Debian packages here, so remove that source first.
+          # devkitpro/devkitppc registers apt.devkitpro.org which returns 522
+          # (Cloudflare timeout) intermittently. Only standard Debian packages
+          # are needed here, so drop that source before updating.
           rm -f /etc/apt/sources.list.d/devkitpro*.list \
                 /etc/apt/sources.list.d/devkitpro*.sources
           apt-get update && apt-get install -y zip libxml2-utils python3
 
       - name: Install devkitPro WiiU libraries
-        run: dkp-pacman -Sy --noconfirm wiiu-dev
+        run: |
+          # pkg.devkitpro.org can stall in CI — retry up to 5 times.
+          for attempt in 1 2 3 4 5; do
+            echo "→ dkp-pacman attempt $attempt / 5"
+            dkp-pacman -Sy --noconfirm wiiu-dev && exit 0
+            echo "Failed. Sleeping 60s before next attempt..."
+            sleep 60
+          done
+          echo "All dkp-pacman attempts failed."
+          exit 1
 
       - name: Add devkitPro tools to PATH
         run: |
