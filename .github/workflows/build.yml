@@ -42,7 +42,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: apt-get update && apt-get install -y zip libxml2-utils python3
+        run: |
+          # devkitpro/devkitppc container registers apt.devkitpro.org, which
+          # returns 522 (Cloudflare timeout) intermittently in CI.  We only
+          # need standard Debian packages here, so remove that source first.
+          rm -f /etc/apt/sources.list.d/devkitpro*.list \
+                /etc/apt/sources.list.d/devkitpro*.sources
+          apt-get update && apt-get install -y zip libxml2-utils python3
 
       - name: Install devkitPro WiiU libraries
         run: dkp-pacman -Sy --noconfirm wiiu-dev
