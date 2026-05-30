@@ -43,23 +43,46 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # devkitpro/devkitppc registers apt.devkitpro.org which returns 522
-          # (Cloudflare timeout) intermittently. Only standard Debian packages
-          # are needed here, so drop that source before updating.
+          # Remove the devkitpro apt source — it returns 522 from GH Actions
+          # runners. zip/libxml2-utils/python3 are in standard Debian repos.
           rm -f /etc/apt/sources.list.d/devkitpro*.list \
                 /etc/apt/sources.list.d/devkitpro*.sources
           apt-get update && apt-get install -y zip libxml2-utils python3
 
+      # Cache the installed portlibs so dkp-pacman only runs on a cache miss.
+      # Bump the key suffix (v1 → v2 etc.) to force a fresh install if needed.
+      - name: Cache devkitPro WiiU portlibs
+        id: dkp-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/devkitpro/portlibs/wiiu
+            /opt/devkitpro/portlibs/ppc
+            /opt/devkitpro/wut
+          key: dkp-wiiu-dev-${{ runner.os }}-v1
+
       - name: Install devkitPro WiiU libraries
+        if: steps.dkp-cache.outputs.cache-hit != 'true'
         run: |
-          # pkg.devkitpro.org can stall in CI — retry up to 5 times.
-          for attempt in 1 2 3 4 5; do
-            echo "→ dkp-pacman attempt $attempt / 5"
+          # pkg.devkitpro.org is heavily throttled from GitHub Actions IP
+          # ranges. Pacman's internal libcurl kills transfers below 1 byte/sec
+          # for 10 s — that threshold is hardcoded and can't be tuned via
+          # pacman.conf directly. Setting XferCommand replaces the internal
+          # downloader with a plain curl invocation that has no speed floor.
+          CONF=/etc/pacman.conf
+          if ! grep -q '^XferCommand' "$CONF" 2>/dev/null; then
+            sed -i '/^\[options\]/a XferCommand = /usr/bin/curl \
+              --retry 5 --retry-delay 10 \
+              --max-time 600 \
+              -L -C - -f -o %o %u' "$CONF" || true
+          fi
+
+          for attempt in 1 2 3; do
+            echo "→ dkp-pacman attempt $attempt / 3"
             dkp-pacman -Sy --noconfirm wiiu-dev && exit 0
-            echo "Failed. Sleeping 60s before next attempt..."
-            sleep 60
+            echo "  failed — sleeping 30 s..."
+            sleep 30
           done
-          echo "All dkp-pacman attempts failed."
           exit 1
 
       - name: Add devkitPro tools to PATH
