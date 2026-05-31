@@ -45,7 +45,7 @@ jobs:
         run: |
           rm -f /etc/apt/sources.list.d/devkitpro*.list \
                 /etc/apt/sources.list.d/devkitpro*.sources
-          apt-get update && apt-get install -y zip libxml2-utils python3 wget
+          apt-get update && apt-get install -y zip libxml2-utils python3 wget fonts-roboto
 
       - name: Cache devkitPro WiiU portlibs
         id: dkp-cache
@@ -92,11 +92,10 @@ jobs:
             curl -fsSL "$BASE/$f" -o "vendor/minizip/$f"
           done
 
-      - name: Download font
+      - name: Prepare font
         run: |
-          curl -fsSL \
-            "https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Bold.ttf" \
-            -o wave_browser/font.ttf
+          find /usr/share/fonts -name "Roboto-Bold.*" | head -1 | xargs -I{} cp {} wave_browser/font.ttf
+          test -s wave_browser/font.ttf
           python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\nstatic const unsigned int font_data_len='+str(len(data))+';\n')"
 
       - name: Build Wave Browser
