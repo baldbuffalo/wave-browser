@@ -19,7 +19,7 @@ jobs:
           docker run --rm \
             -v "$PWD/wave_browser:/wave_browser" \
             wavebrowser-plugin-builder \
-            sh -c "which elf2rpl && cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
+            sh -c "cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
@@ -43,14 +43,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Remove the devkitpro apt source — it returns 522 from GH Actions
-          # runners. zip/libxml2-utils/python3 are in standard Debian repos.
           rm -f /etc/apt/sources.list.d/devkitpro*.list \
                 /etc/apt/sources.list.d/devkitpro*.sources
-          apt-get update && apt-get install -y zip libxml2-utils python3
+          apt-get update && apt-get install -y zip libxml2-utils python3 wget
 
-      # Cache the installed portlibs so dkp-pacman only runs on a cache miss.
-      # Bump the key suffix (v1 → v2 etc.) to force a fresh install if needed.
       - name: Cache devkitPro WiiU portlibs
         id: dkp-cache
         uses: actions/cache@v4
@@ -59,16 +55,11 @@ jobs:
             /opt/devkitpro/portlibs/wiiu
             /opt/devkitpro/portlibs/ppc
             /opt/devkitpro/wut
-          key: dkp-wiiu-dev-${{ runner.os }}-v1
+          key: dkp-wiiu-dev-${{ runner.os }}-v2
 
       - name: Install devkitPro WiiU libraries
         if: steps.dkp-cache.outputs.cache-hit != 'true'
         run: |
-          # pkg.devkitpro.org is heavily throttled from GitHub Actions IP
-          # ranges. Pacman's internal libcurl kills transfers below 1 byte/sec
-          # for 10 s — that threshold is hardcoded and can't be tuned via
-          # pacman.conf directly. Setting XferCommand replaces the internal
-          # downloader with a plain curl invocation that has no speed floor.
           CONF=/etc/pacman.conf
           if ! grep -q '^XferCommand' "$CONF" 2>/dev/null; then
             sed -i '/^\[options\]/a XferCommand = /usr/bin/curl \
@@ -76,14 +67,12 @@ jobs:
               --max-time 600 \
               -L -C - -f -o %o %u' "$CONF" || true
           fi
-
           for attempt in 1 2 3; do
-            echo "→ dkp-pacman attempt $attempt / 3"
-            dkp-pacman -Sy --noconfirm wiiu-dev && exit 0
-            echo "  failed — sleeping 30 s..."
+            echo "-> dkp-pacman attempt $attempt / 3"
+            dkp-pacman -Sy --noconfirm wiiu-dev && break
+            echo "  failed - sleeping 30s..."
             sleep 30
           done
-          exit 1
 
       - name: Add devkitPro tools to PATH
         run: |
@@ -93,9 +82,9 @@ jobs:
       - name: Check WebKit-WiiU library
         run: |
           if [ -f vendor/webkit-wiiu/lib/libWebKitWKC.a ]; then
-            echo "WebKit-WiiU lib: FOUND ($(ls -lh vendor/webkit-wiiu/lib/libWebKitWKC.a | awk '{print $5}')) — full engine build"
+            echo "WebKit-WiiU lib: FOUND ($(ls -lh vendor/webkit-wiiu/lib/libWebKitWKC.a | awk '{print $5}')) - full engine build"
           else
-            echo "WebKit-WiiU lib: not in repo — building in stub mode"
+            echo "WebKit-WiiU lib: not in repo - stub mode"
           fi
 
       - name: Vendor minizip source
@@ -108,9 +97,22 @@ jobs:
 
       - name: Download font
         run: |
-          FONT_URL=$(curl -s -A "Mozilla/4.0" "https://fonts.googleapis.com/css?family=Roboto:700" | grep -o 'https://[^)]*' | head -1)
-          wget -q "$FONT_URL" -O wave_browser/font.ttf
-          python3 -c "data=open('wave_browser/font.ttf','rb').read(); open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\nstatic const unsigned int font_data_len='+str(len(data))+';\n')"
+          FONT_URL=$(curl -s -A "Mozilla/5.0" \
+            "https://fonts.googleapis.com/css2?family=Roboto:wght@700" \
+            | grep -o 'https://[^)]*\.ttf' | head -1)
+          if [ -z "$FONT_URL" ]; then
+            FONT_URL="https://fonts.bunny.net/roboto/files/roboto-latin-700-normal.woff2"
+          fi
+          wget -q "$FONT_URL" -O wave_browser/font.ttf || \
+            curl -fsSL "$FONT_URL" -o wave_browser/font.ttf
+          python3 -c "
+data = open('wave_browser/font.ttf','rb').read()
+open('wave_browser/font_data.h','w').write(
+  'static const unsigned char font_data[]={' +
+  ','.join(str(b) for b in data) +
+  '};\nstatic const unsigned int font_data_len=' +
+  str(len(data)) + ';\n'
+)"
 
       - name: Build Wave Browser
         run: make clean && make -j$(nproc)
