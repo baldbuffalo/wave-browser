@@ -594,8 +594,8 @@ static void draw_setup_installing(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fm
     s_setup_anim++;
     const char* spin[] = {"|", "/", "-", "\\"};
 
-    // Show download progress if available, otherwise generic spinner
-    char buf[64];
+    // FIX: buf must fit s_install_msg (up to 63 chars) plus the appended suffix
+    char buf[128];
     if (s_install_msg[0] && s_install_pct > 0.0)
         snprintf(buf, sizeof(buf), "%s  %.0f%%", s_install_msg, s_install_pct);
     else if (s_install_msg[0])
