@@ -62,10 +62,7 @@ jobs:
         run: |
           CONF=/etc/pacman.conf
           if ! grep -q '^XferCommand' "$CONF" 2>/dev/null; then
-            sed -i '/^\[options\]/a XferCommand = /usr/bin/curl \
-              --retry 5 --retry-delay 10 \
-              --max-time 600 \
-              -L -C - -f -o %o %u' "$CONF" || true
+            sed -i '/^\[options\]/a XferCommand = /usr/bin/curl --retry 5 --retry-delay 10 --max-time 600 -L -C - -f -o %o %u' "$CONF" || true
           fi
           for attempt in 1 2 3; do
             echo "-> dkp-pacman attempt $attempt / 3"
@@ -97,22 +94,10 @@ jobs:
 
       - name: Download font
         run: |
-          FONT_URL=$(curl -s -A "Mozilla/5.0" \
-            "https://fonts.googleapis.com/css2?family=Roboto:wght@700" \
-            | grep -o 'https://[^)]*\.ttf' | head -1)
-          if [ -z "$FONT_URL" ]; then
-            FONT_URL="https://fonts.bunny.net/roboto/files/roboto-latin-700-normal.woff2"
-          fi
-          wget -q "$FONT_URL" -O wave_browser/font.ttf || \
-            curl -fsSL "$FONT_URL" -o wave_browser/font.ttf
-          python3 -c "
-data = open('wave_browser/font.ttf','rb').read()
-open('wave_browser/font_data.h','w').write(
-  'static const unsigned char font_data[]={' +
-  ','.join(str(b) for b in data) +
-  '};\nstatic const unsigned int font_data_len=' +
-  str(len(data)) + ';\n'
-)"
+          curl -fsSL \
+            "https://raw.githubusercontent.com/google/fonts/main/apache/roboto/static/Roboto-Bold.ttf" \
+            -o wave_browser/font.ttf
+          python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\nstatic const unsigned int font_data_len='+str(len(data))+';\n')"
 
       - name: Build Wave Browser
         run: make clean && make -j$(nproc)
