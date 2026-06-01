@@ -13,6 +13,7 @@ CXXFLAGS := \
     -std=c++17 -fno-exceptions -fno-rtti \
     -I$(WUPS_ROOT)/include \
     -I$(DEVKITPRO)/wut/include \
+    -I$(DEVKITPRO)/portlibs/wiiu/include \
     -I.. \
     -DWUPS_PLUGIN
 
@@ -20,9 +21,10 @@ LDFLAGS := \
     -specs=$(WUPS_ROOT)/share/wups.specs \
     -Wl,--gc-sections \
     -L$(WUPS_ROOT)/lib \
-    -L$(DEVKITPRO)/wut/lib
+    -L$(DEVKITPRO)/wut/lib \
+    -L$(DEVKITPRO)/portlibs/wiiu/lib
 
-LIBS := -lwups -lwut
+LIBS := -lwups -lwut -lacp
 
 CXXFILES := WaveBrowserRemote.cpp
 OFILES   := $(patsubst %.cpp,$(BUILD)/%.o,$(CXXFILES))
