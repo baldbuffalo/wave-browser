@@ -27,7 +27,6 @@ WUPS_USE_WUT_DEVOPTAB();
 #define CEC_GIVE_POWER  0x8F   // Give Device Power Status
 #define CEC_REPORT_PWR  0x90   // Report Power Status
 #define CEC_PWR_ON      0x00   // Power status: On
-#define CEC_PWR_STANDBY 0x01   // Power status: Standby
 
 #if __has_include(<acp/acp.h>)
 #  include <acp/acp.h>
@@ -36,47 +35,47 @@ WUPS_USE_WUT_DEVOPTAB();
 #  define HAVE_ACP 0
 #endif
 
-// FIX 2: Fail loudly at compile time if ACP is unavailable.
-// Without it the plugin compiles but does nothing.
-// Add wiiu-acp via dkp-pacman or add -I$(DEVKITPRO)/portlibs/wiiu/include
-// to CXXFLAGS in the plugin Makefile if this fires.
 #if !HAVE_ACP
-#error "acp/acp.h not found — CEC plugin will be a no-op. Install wiiu-acp or fix include path."
+#warning "acp/acp.h not found — CEC will be disabled. Install wiiu-acp or fix portlibs include path."
 #endif
 
 static bool cec_send(const uint8_t* msg, int len)
 {
+#if HAVE_ACP
     return ACPSendCECCommand((uint8_t*)msg, (uint32_t)len) == 0;
+#else
+    (void)msg; (void)len; return false;
+#endif
 }
 
 static int cec_recv(uint8_t* buf, int maxlen, uint32_t timeout_ms)
 {
+#if HAVE_ACP
     return ACPReceiveCECCommand(buf, maxlen, timeout_ms);
+#else
+    (void)buf; (void)maxlen; (void)timeout_ms; return 0;
+#endif
 }
 
-// FIX 1: Query TV power state, then send the appropriate command.
-// CEC_STANDBY alone is a one-way command that can only turn the TV off.
-// To turn it on you need Image View On (0x04).
-// We query first with Give Device Power Status (0x8F), wait for the
-// Report Power Status response (0x90), then branch.
-// If the query times out (TV off / no CEC response) we assume standby
-// and send Image View On.
+// Query TV power state first, then send the appropriate CEC command.
+// CEC_STANDBY (0x36) can only turn the TV off — it does nothing if already off.
+// CEC_IMAGE_ON (0x04) wakes it up from standby.
+// We send Give Device Power Status (0x8F) and wait up to 300ms for the
+// Report Power Status (0x90) response. If no response (TV off / CEC not
+// active yet) we assume standby and send wake.
 static void cec_power_toggle()
 {
+#if HAVE_ACP
     uint8_t query[2] = { CEC_INITIATOR, CEC_GIVE_POWER };
     cec_send(query, 2);
 
-    // Wait up to 300 ms for Report Power Status (0x90)
     uint8_t resp[4] = {};
     int n = cec_recv(resp, sizeof(resp), 300);
 
     bool tv_is_on = false;
-    if (n >= 3 && resp[1] == CEC_REPORT_PWR) {
-        // resp[2] = power status byte
+    if (n >= 3 && resp[1] == CEC_REPORT_PWR)
         tv_is_on = (resp[2] == CEC_PWR_ON);
-    }
-    // If query timed out or no response, TV is likely in standby —
-    // treat as off and attempt to wake it.
+    // No response → assume standby, attempt wake
 
     if (tv_is_on) {
         uint8_t standby[2] = { CEC_INITIATOR, CEC_STANDBY };
@@ -85,6 +84,7 @@ static void cec_power_toggle()
         uint8_t wake[2] = { CEC_INITIATOR, CEC_IMAGE_ON };
         cec_send(wake, 2);
     }
+#endif
 }
 
 static TVPluginConfig s_cfg        = {};
@@ -116,7 +116,7 @@ DECL_FUNCTION(int32_t, VPADRead,
             load_config();
             if (s_cfg_loaded) {
                 cec_power_toggle();
-                // Suppress system IR blast — we handled it via CEC
+                // Suppress system IR blast — handled via CEC
                 buffers[0].trigger &= ~VPAD_BUTTON_TV;
                 buffers[0].hold    &= ~VPAD_BUTTON_TV;
             }
@@ -126,6 +126,6 @@ DECL_FUNCTION(int32_t, VPADRead,
 }
 WUPS_MUST_REPLACE(VPADRead, WUPS_LOADER_LIBRARY_VPAD, VPADRead);
 
-INITIALIZE_PLUGIN()  { OSInitMutex(&s_mutex); load_config(); }
-DEINITIALIZE_PLUGIN() {}
+INITIALIZE_PLUGIN()    { OSInitMutex(&s_mutex); load_config(); }
+DEINITIALIZE_PLUGIN()  {}
 ON_APPLICATION_START() { load_config(); }
