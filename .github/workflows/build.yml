@@ -55,7 +55,7 @@ jobs:
             /opt/devkitpro/portlibs/wiiu
             /opt/devkitpro/portlibs/ppc
             /opt/devkitpro/wut
-          key: dkp-wiiu-dev-${{ runner.os }}-v2
+          key: dkp-wiiu-dev-${{ runner.os }}-v3
 
       - name: Install devkitPro WiiU libraries
         if: steps.dkp-cache.outputs.cache-hit != 'true'
