@@ -13,6 +13,7 @@
 #include "settings.h"
 #include "ui_common.h"
 #include "webkit_engine.h"
+#include "gamepad_keyboard.h"
 
 // WiiU Pro Controller — extensionType value and button masks.
 // Values from devkitPro WUT padscore/kpad.h (Classic Controller Pro layout).
@@ -356,6 +357,8 @@ static void draw_browser_ui()
     // Draw engine framebuffer into content area (or "New Tab" if no URL loaded)
     if (s_tabs[s_active_tab].url[0]) {
         webkit_engine_draw(0, CONTENT_Y, TV_W, CONTENT_H);
+        // Overlay game-key mode indicator
+        gamepad_keyboard_draw_hud(s_renderer, s_font_sm, TV_W, CONTENT_Y);
     } else {
         sdl_text(s_font_xl, "New Tab", TV_W/2, CONTENT_Y+CONTENT_H/2+24, COL_GRAY, 1);
     }
@@ -848,6 +851,9 @@ int main(int, char**)
     webkit_engine_init(TV_W, TV_H);
     webkit_engine_set_renderer(s_renderer);
 
+    // Init gamepad-to-keyboard mapper for browser games
+    gamepad_keyboard_init();
+
     memset(s_tabs, 0, sizeof(s_tabs));
     strncpy(s_tabs[0].title, "New Tab", 63);
 
@@ -941,6 +947,15 @@ int main(int, char**)
 
             // WebKit engine tick (timers, layout, JS)
             webkit_engine_tick();
+
+            // Gamepad → keyboard mapping for browser games
+            // ZL/ZR hold state from vpad.hold (not trigger — we need sustained press)
+            gamepad_keyboard_update(
+                vpad.leftStick.x,  vpad.leftStick.y,
+                vpad.rightStick.x, vpad.rightStick.y,
+                (vpad.hold & VPAD_BUTTON_ZL) != 0,
+                (vpad.hold & VPAD_BUTTON_ZR) != 0,
+                SDL_GetTicks());
 
             if (s_in_settings) {
                 if (!settings_handle_input(&vpad, s_tp_pressed, s_tp_x, s_tp_y)) s_in_settings = false;

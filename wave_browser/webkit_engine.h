@@ -39,6 +39,10 @@ void webkit_engine_scroll(int dx, int dy);
 void webkit_engine_touch_down(int x, int y);
 void webkit_engine_touch_up(int x, int y);
 
+// Synthetic key events (keyCode = standard browser keyCode value)
+void webkit_engine_key_down(int keycode);
+void webkit_engine_key_up(int keycode);
+
 // True if WKC was successfully initialised and can render pages.
 bool webkit_engine_available(void);
 

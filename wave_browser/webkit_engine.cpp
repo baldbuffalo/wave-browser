@@ -712,3 +712,20 @@ void webkit_engine_shutdown(void)
     free(s_pixels);s_pixels=nullptr;
     s_available=false;
 }
+
+void webkit_engine_key_down(int keycode)
+{
+    if (!s_available) return;
+    // TODO: create WKC keyboard event and dispatch to s_webview
+    // WKCKeyEvent ev = {}; ev.m_type = WKC_KEYEVENT_KEYDOWN; ev.m_keyIdentity = keycode;
+    // s_webview->notifyKeyPress(&ev);
+    (void)keycode;
+}
+
+void webkit_engine_key_up(int keycode)
+{
+    if (!s_available) return;
+    // TODO: WKCKeyEvent ev = {}; ev.m_type = WKC_KEYEVENT_KEYUP; ev.m_keyIdentity = keycode;
+    // s_webview->notifyKeyPress(&ev);
+    (void)keycode;
+}
