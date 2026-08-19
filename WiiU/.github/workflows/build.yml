@@ -1,0 +1,119 @@
+name: Build Wave Browser (WiiU)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build plugin via Docker
+        run: |
+          docker build -t wavebrowser-plugin-builder wave_browser/plugin/
+          docker run --rm \
+            -v "$PWD/wave_browser:/wave_browser" \
+            wavebrowser-plugin-builder \
+            sh -c "cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-wps
+          path: wave_browser/plugin/WaveBrowserRemote.wps
+
+  build:
+    runs-on: ubuntu-latest
+    needs: build-plugin
+    container:
+      image: devkitpro/devkitppc:latest
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITPPC: /opt/devkitpro/devkitPPC
+      WUT_ROOT: /opt/devkitpro/wut
+      PORTLIBS: /opt/devkitpro/portlibs/wiiu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          rm -f /etc/apt/sources.list.d/devkitpro*.list \
+                /etc/apt/sources.list.d/devkitpro*.sources
+          apt-get update && apt-get install -y zip libxml2-utils python3 wget fonts-roboto
+
+      - name: Cache devkitPro WiiU portlibs
+        id: dkp-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/devkitpro/portlibs/wiiu
+            /opt/devkitpro/portlibs/ppc
+            /opt/devkitpro/wut
+          key: dkp-wiiu-dev-${{ runner.os }}-v3
+
+      - name: Install devkitPro WiiU libraries
+        if: steps.dkp-cache.outputs.cache-hit != 'true'
+        run: |
+          CONF=/etc/pacman.conf
+          if ! grep -q '^XferCommand' "$CONF" 2>/dev/null; then
+            sed -i '/^\[options\]/a XferCommand = /usr/bin/curl --retry 5 --retry-delay 10 --max-time 600 -L -C - -f -o %o %u' "$CONF" || true
+          fi
+          for attempt in 1 2 3; do
+            echo "-> dkp-pacman attempt $attempt / 3"
+            dkp-pacman -Sy --noconfirm wiiu-dev && break
+            echo "  failed - sleeping 30s..."
+            sleep 30
+          done
+
+      - name: Add devkitPro tools to PATH
+        run: |
+          echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
+          echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
+
+      - name: Check WebKit-WiiU library
+        run: |
+          if [ -f vendor/webkit-wiiu/lib/libWebKitWKC.a ]; then
+            echo "WebKit-WiiU lib: FOUND ($(ls -lh vendor/webkit-wiiu/lib/libWebKitWKC.a | awk '{print $5}')) - full engine build"
+          else
+            echo "WebKit-WiiU lib: not in repo - stub mode"
+          fi
+
+      - name: Vendor minizip source
+        run: |
+          mkdir -p vendor/minizip
+          BASE="https://raw.githubusercontent.com/madler/zlib/v1.3.1/contrib/minizip"
+          for f in ioapi.h ioapi.c unzip.h unzip.c; do
+            curl -fsSL "$BASE/$f" -o "vendor/minizip/$f"
+          done
+
+      - name: Prepare font
+        run: |
+          find /usr/share/fonts -name "Roboto-Bold.*" | head -1 | xargs -I{} cp {} wave_browser/font.ttf
+          test -s wave_browser/font.ttf
+          python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\nstatic const unsigned int font_data_len='+str(len(data))+';\n')"
+
+      - name: Build Wave Browser
+        run: make clean && make -j$(nproc)
+
+      - name: Validate meta.xml
+        run: |
+          if [ ! -f meta.xml ]; then echo "meta.xml missing!" && exit 1; fi
+          xmllint --noout meta.xml
+
+      - name: Prepare release folder
+        run: |
+          mkdir -p WaveBrowser
+          cp WaveBrowser.wuhb WaveBrowser/
+          cp meta.xml WaveBrowser/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveBrowser
+          path: WaveBrowser/
