@@ -1,20 +1,21 @@
 # Wave Browser — Android
 
-Minimal Android browser implementation using **Chromium via AndroidX WebKit/WebView**.
+Minimal Android browser frontend designed around a Chromium engine.
+
+## Architecture
+
+`Wave UI → Chromium engine → websites`
+
+Wave does **not** embed Chrome's UI or Chrome content. Google is only the default search engine.
+
+The current Android implementation uses Android's Chromium-based WebView engine. It does not vendor the full Chromium source tree. A privately bundled Chromium engine would require integrating Chromium's Android build/dependency system (GN/Ninja, DEPS, native libraries, and packaging) and is a substantially larger engine-integration task.
 
 ## Features
 
 - Address/search bar
+- Google search for plain-text queries
+- Direct URL navigation
 - Back / forward
 - Reload
-- Basic page loading and navigation
-- HTTPS support through Chromium's Android WebView
-- Simple native Android UI
-
-This is intentionally a small Android port of Wave Browser. Platform-specific code lives under `android/` so the existing platform implementations remain separate.
-
-## Build
-
-Open the repository in Android Studio and build the `android` module/project. The Android system WebView provides the Chromium-based rendering engine.
-
-> This implementation uses the Android WebView/AndroidX WebKit API rather than bundling a full Chromium build. A bundled Chromium engine would require a substantially larger Android-specific build system and Chromium source/dependencies.
+- Chromium-backed web rendering
+- Native Wave UI
