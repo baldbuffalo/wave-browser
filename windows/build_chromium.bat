@@ -28,6 +28,10 @@ if errorlevel 1 exit /b 1
 call gclient runhooks
 if errorlevel 1 exit /b 1
 
+rem Apply Wave's desktop UI directly to the fetched Chromium source.
+python "%~dp0apply_wave_chromium_patch.py"
+if errorlevel 1 exit /b 1
+
 if not exist out\WaveWin mkdir out\WaveWin
 
 gn gen out\WaveWin --args="is_debug=false is_component_build=false target_cpu=\"x64\""
