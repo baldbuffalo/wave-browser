@@ -1,0 +1,22 @@
+name: Wave Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-build.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Wave Windows
+        shell: cmd
+        run: windows\build_chromium.bat
+      - name: Upload WaveBrowser.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveBrowser-Windows
+          path: windows/out/WaveBrowser.exe
