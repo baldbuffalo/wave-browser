@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           latest=$(git ls-remote https://chromium.googlesource.com/chromium/src.git refs/heads/main | awk '{print $1}')
-          current=$(tr -d '[:space:]' < chromium_revision.txt 2>/dev/null || true)
+          current=$(grep -v '^#' chromium_revision.txt | tr -d '[:space:]' || true)
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
           echo "current=$current" >> "$GITHUB_OUTPUT"
           if [ "$latest" = "$current" ]; then
@@ -42,35 +42,17 @@ jobs:
         if: steps.chromium.outputs.changed == 'false'
         run: echo "Chromium is already up to date."
 
-      - name: Sync Chromium
+      - name: Build WaveBrowser.apk with Chromium
         if: steps.chromium.outputs.changed == 'true'
         working-directory: android
         run: |
           set -euo pipefail
-          mkdir -p chromium-checkout
-          cd chromium-checkout
-          if [ ! -d .git ]; then
-            fetch --nohooks https://chromium.googlesource.com/chromium/src.git src
-          fi
-          cd src
-          git fetch origin main
-          git checkout "${{ steps.chromium.outputs.latest }}"
-          gclient sync --nohooks --revision src@${{ steps.chromium.outputs.latest }}
-
-      - name: Build WaveBrowser.apk
-        if: steps.chromium.outputs.changed == 'true'
-        working-directory: android
-        run: |
-          set -euo pipefail
-          echo "Chromium revision updated to ${{ steps.chromium.outputs.latest }}."
-          echo "Wave's Chromium build integration will compile WaveBrowser.apk here."
-          echo "A failed compilation intentionally fails this workflow so the failure can be inspected manually."
-          # The full Chromium Android GN/Ninja build command will be wired here
-          # once Wave's Chromium UI integration is implemented.
+          bash ./build_chromium.sh
 
       - name: Commit Chromium revision
         if: steps.chromium.outputs.changed == 'true' && success()
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add android/chromium_revision.txt
