@@ -11,6 +11,9 @@ permissions:
 jobs:
   update-chromium:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [android, windows]
     steps:
       - name: Checkout Wave Browser
         uses: actions/checkout@v4
@@ -22,39 +25,40 @@ jobs:
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
           echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 
-      - name: Fetch latest Chromium revision
+      - name: Check Chromium revision
         id: chromium
-        working-directory: android
+        shell: bash
         run: |
           set -euo pipefail
           latest=$(git ls-remote https://chromium.googlesource.com/chromium/src.git refs/heads/main | awk '{print $1}')
-          current=$(grep -v '^#' chromium_revision.txt | tr -d '[:space:]' || true)
+          file="${{ matrix.platform }}/chromium_revision.txt"
+          current=$(grep -v '^#' "$file" | tr -d '[:space:]' || true)
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
           echo "current=$current" >> "$GITHUB_OUTPUT"
           if [ "$latest" = "$current" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            printf '%s\n' "$latest" > chromium_revision.txt
+            printf '%s\n' "$latest" > "$file"
           fi
 
-      - name: Stop when Chromium has not changed
-        if: steps.chromium.outputs.changed == 'false'
-        run: echo "Chromium is already up to date."
-
-      - name: Build WaveBrowser.apk with Chromium
-        if: steps.chromium.outputs.changed == 'true'
+      - name: Build updated Android browser
+        if: matrix.platform == 'android' && steps.chromium.outputs.changed == 'true'
         working-directory: android
-        run: |
-          set -euo pipefail
-          bash ./build_chromium.sh
+        run: bash ./build_chromium.sh
+
+      - name: Build updated Windows browser
+        if: matrix.platform == 'windows' && steps.chromium.outputs.changed == 'true'
+        shell: cmd
+        run: windows\build_chromium.bat
 
       - name: Commit Chromium revision
         if: steps.chromium.outputs.changed == 'true' && success()
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add android/chromium_revision.txt
-          git diff --cached --quiet || git commit -m "android: update Chromium revision"
+          git add "${{ matrix.platform }}/chromium_revision.txt"
+          git diff --cached --quiet || git commit -m "${{ matrix.platform }}: update Chromium revision"
           git push
