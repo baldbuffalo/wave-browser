@@ -1,0 +1,23 @@
+name: Wave Android Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-build.yml'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Wave Android
+        run: |
+          chmod +x android/build_chromium.sh
+          android/build_chromium.sh
+      - name: Upload WaveBrowser.apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveBrowser-Android
+          path: android/WaveBrowser.apk
