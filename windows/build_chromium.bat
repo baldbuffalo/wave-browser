@@ -8,24 +8,29 @@ if "%CHROMIUM_SRC%"=="" set "CHROMIUM_SRC=%CD%\..\..\chromium"
 if "%DEPOT_TOOLS%"=="" set "DEPOT_TOOLS=%CD%\..\..\depot_tools"
 if "%WAVE_OUT%"=="" set "WAVE_OUT=%CD%\out"
 
-if not exist "%DEPOT_TOOLS%\gclient.bat" (
-  echo depot_tools was not found. Set DEPOT_TOOLS to the depot_tools directory.
-  exit /b 1
-)
+rem On GitHub Actions, depot_tools is installed by update-chromium.yml.
+rem Always verify the environment variable first, then fall back to a local checkout.
+if defined DEPOT_TOOLS if exist "%DEPOT_TOOLS%\gclient.bat" goto depot_tools_ready
+if exist "%RUNNER_TEMP%\depot_tools\gclient.bat" set "DEPOT_TOOLS=%RUNNER_TEMP%\depot_tools"
+if exist "%DEPOT_TOOLS%\gclient.bat" goto depot_tools_ready
 
+echo depot_tools was not found. Set DEPOT_TOOLS to the depot_tools directory.
+exit /b 1
+
+:depot_tools_ready
 set "PATH=%DEPOT_TOOLS%;%PATH%"
 
 if not exist "%CHROMIUM_SRC%\.gclient" (
   echo Fetching Chromium source...
   cd /d "%CHROMIUM_SRC%\.."
-  call fetch.bat chromium
+  call "%DEPOT_TOOLS%\fetch.bat" chromium
   if errorlevel 1 exit /b 1
 )
 
 cd /d "%CHROMIUM_SRC%"
-call gclient sync --nohooks
+call "%DEPOT_TOOLS%\gclient.bat" sync --nohooks
 if errorlevel 1 exit /b 1
-call gclient runhooks
+call "%DEPOT_TOOLS%\gclient.bat" runhooks
 if errorlevel 1 exit /b 1
 
 rem Apply Wave's desktop UI directly to the fetched Chromium source.
