@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  DEPOT_TOOLS: ${{ runner.temp }}/depot_tools
+
 jobs:
   update-chromium:
     runs-on: ubuntu-latest
@@ -21,9 +24,15 @@ jobs:
           fetch-depth: 0
 
       - name: Install depot_tools
+        shell: bash
         run: |
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
-          echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
+          set -euo pipefail
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS"
+          echo "$DEPOT_TOOLS" >> "$GITHUB_PATH"
+          echo "DEPOT_TOOLS=$DEPOT_TOOLS" >> "$GITHUB_ENV"
+          export PATH="$DEPOT_TOOLS:$PATH"
+          command -v gclient
+          gclient --version
 
       - name: Check Chromium revision
         id: chromium
@@ -44,12 +53,19 @@ jobs:
       - name: Build updated Android browser
         if: matrix.platform == 'android' && steps.chromium.outputs.changed == 'true'
         working-directory: android
-        run: bash ./build_chromium.sh
+        shell: bash
+        run: |
+          export DEPOT_TOOLS="$DEPOT_TOOLS"
+          export PATH="$DEPOT_TOOLS:$PATH"
+          bash ./build_chromium.sh
 
       - name: Build updated Windows browser
         if: matrix.platform == 'windows' && steps.chromium.outputs.changed == 'true'
-        shell: cmd
-        run: windows\build_chromium.bat
+        shell: bash
+        run: |
+          export DEPOT_TOOLS="$DEPOT_TOOLS"
+          export PATH="$DEPOT_TOOLS:$PATH"
+          cmd.exe /c windows\\build_chromium.bat
 
       - name: Commit Chromium revision
         if: steps.chromium.outputs.changed == 'true' && success()
