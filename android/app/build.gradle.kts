@@ -14,6 +14,13 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+
+    // Wave Android always produces the browser APK with this name.
+    applicationVariants.all {
+        outputs.all {
+            outputFileName = "WaveBrowser.apk"
+        }
+    }
 }
 
 dependencies {
