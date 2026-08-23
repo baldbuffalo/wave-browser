@@ -1,0 +1,2 @@
+# Pin the Chromium source revision used to build Wave for Windows.
+# Replace this with a known Chromium commit/revision when the Windows build is initialized.
