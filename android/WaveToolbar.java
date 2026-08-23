@@ -2,18 +2,20 @@ package com.wavebrowser.android;
 
 import android.content.Context;
 import android.graphics.Color;
+import android.net.Uri;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 
-/** Minimal Wave toolbar intended to sit above Chromium's content surface. */
+/** Minimal Wave toolbar for Chromium-backed Android browsing. */
 public final class WaveToolbar extends LinearLayout {
     public interface NavigationListener {
-        void navigate(String text);
-        void bookmarkCurrentPage();
+        void navigate(String url);
     }
 
     public final EditText addressBar;
@@ -29,9 +31,14 @@ public final class WaveToolbar extends LinearLayout {
         addressBar.setSingleLine(true);
         addressBar.setHint("Search or enter address");
         addressBar.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         addressBar.setOnEditorActionListener((v, actionId, event) -> {
-            listener.navigate(addressBar.getText().toString());
-            return true;
+            if (actionId == EditorInfo.IME_ACTION_GO ||
+                    (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER)) {
+                listener.navigate(toNavigationUrl(addressBar.getText().toString()));
+                return true;
+            }
+            return false;
         });
         addView(addressBar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -39,7 +46,15 @@ public final class WaveToolbar extends LinearLayout {
         bookmark.setContentDescription("Bookmark current page");
         bookmark.setImageResource(android.R.drawable.btn_star_big_off);
         bookmark.setBackgroundColor(Color.TRANSPARENT);
-        bookmark.setOnClickListener(v -> listener.bookmarkCurrentPage());
         addView(bookmark, new LinearLayout.LayoutParams(56, 56));
+    }
+
+    private static String toNavigationUrl(String input) {
+        String text = input.trim();
+        if (text.isEmpty()) return "https://www.google.com/";
+        Uri parsed = Uri.parse(text);
+        if (parsed.getScheme() != null) return text;
+        if (text.contains(".") && !text.contains(" ")) return "https://" + text;
+        return "https://www.google.com/search?q=" + Uri.encode(text);
     }
 }
