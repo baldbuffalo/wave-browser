@@ -7,90 +7,36 @@ on:
       - 'windows/**'
       - '.github/workflows/windows-build.yml'
 
+permissions:
+  actions: read
+
 jobs:
-  prepare-chromium:
-    runs-on: windows-latest
-    env:
-      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Restore Chromium cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ runner.temp }}\depot_tools
-            D:\a\src
-          key: wave-chromium-windows-${{ hashFiles('windows/chromium_revision.txt') }}
-          restore-keys: |
-            wave-chromium-windows-
-
-      - name: Prepare depot_tools
-        shell: pwsh
-        run: |
-          $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
-          if (-not (Test-Path (Join-Path $depot 'gclient.bat'))) {
-            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $depot
-          }
-          "DEPOT_TOOLS=$depot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "$depot" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Fetch Chromium source
-        shell: cmd
-        env:
-          DEPOT_TOOLS: ${{ runner.temp }}\depot_tools
-          DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-        run: windows\build_chromium.bat --fetch-only
-
-      - name: Save Chromium cache after clone
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ runner.temp }}\depot_tools
-            D:\a\src
-          key: wave-chromium-windows-${{ hashFiles('windows/chromium_revision.txt') }}
-
-      - name: Sync Chromium src and run hooks
-        shell: cmd
-        env:
-          DEPOT_TOOLS: ${{ runner.temp }}\depot_tools
-          DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-        run: |
-          cd /d D:\a\src
-          call "%DEPOT_TOOLS%\gclient.bat" sync --nohooks
-          if errorlevel 1 exit /b 1
-          call "%DEPOT_TOOLS%\gclient.bat" runhooks
-          if errorlevel 1 exit /b 1
-
   build-windows:
-    needs: prepare-chromium
     runs-on: windows-latest
-    env:
-      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore Chromium cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ runner.temp }}\depot_tools
-            D:\a\src
-          key: wave-chromium-windows-${{ hashFiles('windows/chromium_revision.txt') }}
+      - name: Find latest successful Chromium updater run
+        id: updater
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $runs = gh run list --workflow update-chromium.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId'
+          if (-not $runs) { throw 'No successful Chromium updater run with a Windows artifact was found.' }
+          "run_id=$runs" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Prepare depot_tools
+      - name: Download WaveBrowser.exe from Chromium updater
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ steps.updater.outputs.run_id }} --workflow update-chromium.yml --name WaveBrowser-Windows --dir windows/out
+
+      - name: Verify WaveBrowser.exe
         shell: pwsh
         run: |
-          $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
-          "DEPOT_TOOLS=$depot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "$depot" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Build Wave Windows
-        shell: cmd
-        env:
-          DEPOT_TOOLS: ${{ runner.temp }}\depot_tools
-          DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-        run: windows\build_chromium.bat --build-only
+          if (-not (Test-Path windows/out/WaveBrowser.exe)) { throw 'WaveBrowser.exe was not produced by the Chromium updater.' }
 
       - name: Upload WaveBrowser.exe
         uses: actions/upload-artifact@v4
