@@ -18,12 +18,12 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}\depot_tools
-            ..\chromium
-          key: wave-windows-chromium-${{ hashFiles('windows/chromium_revision.txt') }}
+            ${{ github.workspace }}\..\chromium
+          key: wave-chromium-windows-${{ hashFiles('windows/chromium_revision.txt') }}
           restore-keys: |
-            wave-windows-chromium-
+            wave-chromium-windows-
 
-      - name: Install or reuse depot_tools
+      - name: Prepare depot_tools
         shell: pwsh
         run: |
           $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
@@ -32,7 +32,6 @@ jobs:
           }
           "DEPOT_TOOLS=$depot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "$depot" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          if (-not (Test-Path (Join-Path $depot 'gclient.bat'))) { throw 'depot_tools installation failed' }
 
       - name: Build Wave Windows
         shell: cmd
