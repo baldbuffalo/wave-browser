@@ -8,22 +8,18 @@ on:
       - '.github/workflows/windows-build.yml'
 
 jobs:
-  prepare-chromium:
+  build-windows:
     runs-on: windows-latest
     env:
       DEPOT_TOOLS_WIN_TOOLCHAIN: 0
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore Chromium cache
-        uses: actions/cache@v4
+      - name: Restore Chromium source cache
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ${{ runner.temp }}\depot_tools
-            D:\a\src
-          key: wave-chromium-windows-${{ hashFiles('windows/chromium_revision.txt') }}
-          restore-keys: |
-            wave-chromium-windows-
+          path: D:\a\src
+          key: wave-chromium-windows-source-${{ hashFiles('windows/chromium_revision.txt') }}
 
       - name: Prepare depot_tools
         shell: pwsh
@@ -35,46 +31,20 @@ jobs:
           "DEPOT_TOOLS=$depot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "$depot" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Sync Chromium
+      - name: Fetch Chromium source
         shell: cmd
         env:
           DEPOT_TOOLS: ${{ runner.temp }}\depot_tools
           DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-        run: windows\build_chromium.bat --sync-only
+        run: windows\build_chromium.bat --fetch-only
 
-      - name: Save Chromium cache
-        if: always()
+      - name: Save Chromium source cache after clone
         uses: actions/cache/save@v4
         with:
-          path: |
-            ${{ runner.temp }}\depot_tools
-            D:\a\src
-          key: wave-chromium-windows-${{ hashFiles('windows/chromium_revision.txt') }}
+          path: D:\a\src
+          key: wave-chromium-windows-source-${{ hashFiles('windows/chromium_revision.txt') }}
 
-  build-windows:
-    needs: prepare-chromium
-    runs-on: windows-latest
-    env:
-      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Restore Chromium cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ runner.temp }}\depot_tools
-            D:\a\src
-          key: wave-chromium-windows-${{ hashFiles('windows/chromium_revision.txt') }}
-
-      - name: Prepare depot_tools
-        shell: pwsh
-        run: |
-          $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
-          "DEPOT_TOOLS=$depot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "$depot" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Build Wave Windows
+      - name: Continue Chromium sync and build
         shell: cmd
         env:
           DEPOT_TOOLS: ${{ runner.temp }}\depot_tools
