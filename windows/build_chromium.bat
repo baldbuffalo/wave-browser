@@ -8,8 +8,6 @@ if "%CHROMIUM_SRC%"=="" set "CHROMIUM_SRC=%CD%\..\..\chromium"
 if "%DEPOT_TOOLS%"=="" set "DEPOT_TOOLS=%CD%\..\..\depot_tools"
 if "%WAVE_OUT%"=="" set "WAVE_OUT=%CD%\out"
 
-rem On GitHub Actions, depot_tools is installed by update-chromium.yml.
-rem Always verify the environment variable first, then fall back to a local checkout.
 if defined DEPOT_TOOLS if exist "%DEPOT_TOOLS%\gclient.bat" goto depot_tools_ready
 if exist "%RUNNER_TEMP%\depot_tools\gclient.bat" set "DEPOT_TOOLS=%RUNNER_TEMP%\depot_tools"
 if exist "%DEPOT_TOOLS%\gclient.bat" goto depot_tools_ready
@@ -20,6 +18,23 @@ exit /b 1
 :depot_tools_ready
 set "PATH=%DEPOT_TOOLS%;%PATH%"
 
+if /I "%1"=="--fetch-only" goto fetch_only
+if /I "%1"=="--build-only" goto build_only
+
+goto sync_and_build
+
+:fetch_only
+if not exist "%CHROMIUM_SRC%\.gclient" (
+  echo Fetching Chromium source...
+  cd /d "%CHROMIUM_SRC%\.."
+  call "%DEPOT_TOOLS%\fetch.bat" chromium
+  if errorlevel 1 exit /b 1
+) else (
+  echo Chromium source already exists.
+)
+exit /b 0
+
+:sync_and_build
 if not exist "%CHROMIUM_SRC%\.gclient" (
   echo Fetching Chromium source...
   cd /d "%CHROMIUM_SRC%\.."
@@ -27,13 +42,23 @@ if not exist "%CHROMIUM_SRC%\.gclient" (
   if errorlevel 1 exit /b 1
 )
 
+goto continue_build
+
+:build_only
+if not exist "%CHROMIUM_SRC%\.gclient" (
+  echo Chromium source cache was not restored.
+  exit /b 1
+)
+
+goto continue_build
+
+:continue_build
 cd /d "%CHROMIUM_SRC%"
 call "%DEPOT_TOOLS%\gclient.bat" sync --nohooks
 if errorlevel 1 exit /b 1
 call "%DEPOT_TOOLS%\gclient.bat" runhooks
 if errorlevel 1 exit /b 1
 
-rem Apply Wave's desktop UI directly to the fetched Chromium source.
 python "%~dp0apply_wave_chromium_patch.py"
 if errorlevel 1 exit /b 1
 
