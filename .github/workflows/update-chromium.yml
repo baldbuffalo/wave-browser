@@ -9,71 +9,91 @@ permissions:
   contents: write
 
 env:
-  DEPOT_TOOLS: ${{ runner.temp }}/depot_tools
+  CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
 
 jobs:
-  update-chromium:
+  check-chromium:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform: [android, windows]
+    outputs:
+      revision: ${{ steps.revision.outputs.revision }}
+      changed: ${{ steps.revision.outputs.changed }}
     steps:
-      - name: Checkout Wave Browser
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install depot_tools
+      - uses: actions/checkout@v4
+      - id: revision
         shell: bash
         run: |
           set -euo pipefail
-          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS"
-          echo "$DEPOT_TOOLS" >> "$GITHUB_PATH"
-          echo "DEPOT_TOOLS=$DEPOT_TOOLS" >> "$GITHUB_ENV"
-          export PATH="$DEPOT_TOOLS:$PATH"
-          command -v gclient
-          gclient --version
-
-      - name: Check Chromium revision
-        id: chromium
-        shell: bash
-        run: |
-          set -euo pipefail
-          latest=$(git ls-remote https://chromium.googlesource.com/chromium/src.git refs/heads/main | awk '{print $1}')
-          file="${{ matrix.platform }}/chromium_revision.txt"
-          current=$(grep -v '^#' "$file" | tr -d '[:space:]' || true)
-          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+          current=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]' || true)
+          echo "revision=$latest" >> "$GITHUB_OUTPUT"
           if [ "$latest" = "$current" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            printf '%s\n' "$latest" > "$file"
           fi
 
-      - name: Build updated Android browser
-        if: matrix.platform == 'android' && steps.chromium.outputs.changed == 'true'
-        working-directory: android
-        shell: bash
+  build-android:
+    needs: check-chromium
+    if: needs.check-chromium.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin Chromium revision
+        run: printf '%s\n' '${{ needs.check-chromium.outputs.revision }}' > android/chromium_revision.txt
+      - name: Build Chromium + Wave Android
         run: |
-          export DEPOT_TOOLS="$DEPOT_TOOLS"
-          export PATH="$DEPOT_TOOLS:$PATH"
-          bash ./build_chromium.sh
+          chmod +x android/build_chromium.sh
+          android/build_chromium.sh
+      - name: Upload Wave Android output
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveBrowser-Android
+          path: android/WaveBrowser.apk
+          retention-days: 90
 
-      - name: Build updated Windows browser
-        if: matrix.platform == 'windows' && steps.chromium.outputs.changed == 'true'
-        shell: bash
+  build-windows:
+    needs: check-chromium
+    if: needs.check-chromium.outputs.changed == 'true'
+    runs-on: windows-latest
+    env:
+      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin Chromium revision
+        shell: pwsh
+        run: Set-Content -Path windows/chromium_revision.txt -Value '${{ needs.check-chromium.outputs.revision }}'
+      - name: Install depot_tools
+        shell: pwsh
         run: |
-          export DEPOT_TOOLS="$DEPOT_TOOLS"
-          export PATH="$DEPOT_TOOLS:$PATH"
-          cmd.exe /c windows\\build_chromium.bat
+          $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $depot
+          "DEPOT_TOOLS=$depot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $depot | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Build Chromium + Wave Windows
+        shell: cmd
+        env:
+          DEPOT_TOOLS: ${{ runner.temp }}\depot_tools
+          DEPOT_TOOLS_WIN_TOOLCHAIN: 0
+        run: windows\build_chromium.bat
+      - name: Upload Wave Windows output
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveBrowser-Windows
+          path: windows/out/WaveBrowser.exe
+          retention-days: 90
 
+  commit-revision:
+    needs: [check-chromium, build-android, build-windows]
+    if: needs.check-chromium.outputs.changed == 'true' && needs.build-android.result == 'success' && needs.build-windows.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - name: Commit Chromium revision
-        if: steps.chromium.outputs.changed == 'true' && success()
-        shell: bash
         run: |
-          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${{ matrix.platform }}/chromium_revision.txt"
-          git diff --cached --quiet || git commit -m "${{ matrix.platform }}: update Chromium revision"
+          printf '%s\n' '${{ needs.check-chromium.outputs.revision }}' > android/chromium_revision.txt
+          printf '%s\n' '${{ needs.check-chromium.outputs.revision }}' > windows/chromium_revision.txt
+          git add android/chromium_revision.txt windows/chromium_revision.txt
+          git diff --cached --quiet || git commit -m "Update Chromium revision"
           git push
