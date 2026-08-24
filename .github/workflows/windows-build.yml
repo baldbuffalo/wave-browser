@@ -10,6 +10,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
     steps:
       - uses: actions/checkout@v4
 
@@ -37,6 +39,7 @@ jobs:
         shell: cmd
         env:
           DEPOT_TOOLS: ${{ runner.temp }}\depot_tools
+          DEPOT_TOOLS_WIN_TOOLCHAIN: 0
         run: windows\build_chromium.bat
 
       - name: Upload WaveBrowser.exe
