@@ -1,7 +1,17 @@
 from pathlib import Path
+import os
 
 ROOT = Path(__file__).resolve().parent
-CHROMIUM = Path(__import__('os').environ.get('CHROMIUM_SRC', str(ROOT / '..' / '..' / 'chromium'))).resolve()
+# GitHub Actions fetches Chromium into D:\a\src. Prefer the explicit
+# CHROMIUM_SRC value, then derive the same location from GITHUB_WORKSPACE.
+CHROMIUM = Path(
+    os.environ.get(
+        'CHROMIUM_SRC',
+        str(Path(os.environ['GITHUB_WORKSPACE']).parent.parent / 'src')
+        if os.environ.get('GITHUB_WORKSPACE')
+        else str(ROOT / '..' / '..' / 'src'),
+    )
+).resolve()
 
 
 def replace_once(path: Path, old: str, new: str) -> None:
@@ -29,4 +39,4 @@ replace_once(
     '''void BrowserViewLayout::LayoutTabStripRegion(gfx::Rect& available_bounds) {\n  TRACE_EVENT0("ui", "BrowserViewLayout::LayoutTabStripRegion");\n  // Wave uses a minimal desktop UI without a tab strip for now.\n  SetViewVisibility(tab_strip_region_view_, false);\n  tab_strip_region_view_->SetBounds(0, 0, 0, 0);\n  return;\n''',
 )
 
-print('Wave Chromium Windows UI patch applied.')
+print(f'Wave Chromium Windows UI patch applied to {CHROMIUM}.')
