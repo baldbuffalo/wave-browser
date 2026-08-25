@@ -2,10 +2,13 @@
 set -euo pipefail
 
 ANDROID_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECKOUT_DIR="${ANDROID_DIR}/chromium-checkout"
+CHECKOUT_DIR="${WAVE_CHROMIUM_ROOT:-${ANDROID_DIR}/chromium-checkout}"
 SRC_DIR="${CHECKOUT_DIR}/src"
 OUT_DIR="${SRC_DIR}/out/Wave"
 REVISION_FILE="${ANDROID_DIR}/chromium_revision.txt"
+
+export GIT_CACHE_PATH="${GIT_CACHE_PATH:-${CHECKOUT_DIR}/git-cache}"
+mkdir -p "${CHECKOUT_DIR}" "${GIT_CACHE_PATH}"
 
 REVISION="$(grep -v '^#' "${REVISION_FILE}" | tr -d '[:space:]')"
 if [[ ! "${REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
@@ -13,11 +16,11 @@ if [[ ! "${REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-mkdir -p "${CHECKOUT_DIR}"
 cd "${CHECKOUT_DIR}"
 
 if [[ ! -d "${SRC_DIR}/.git" ]]; then
-  fetch --nohooks https://chromium.googlesource.com/chromium/src.git src
+  echo "Creating persistent Chromium checkout using the shared Git cache..."
+  fetch --git-cache --nohooks chromium
 fi
 
 cd "${SRC_DIR}"
@@ -26,8 +29,6 @@ git checkout --detach "${REVISION}"
 gclient sync --nohooks --revision "src@${REVISION}"
 gclient runhooks
 
-# Wave currently uses Chromium's Android browser target as the engine/UI base.
-# Wave-specific UI patches will be applied here as they are added.
 cat > "${OUT_DIR}.args" <<'EOF'
 target_os = "android"
 target_cpu = "arm64"
