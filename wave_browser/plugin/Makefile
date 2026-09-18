@@ -24,7 +24,9 @@ LDFLAGS := \
     -L$(DEVKITPRO)/wut/lib \
     -L$(DEVKITPRO)/portlibs/wiiu/lib
 
-LIBS := -lwups -lwut -lacp
+# ACP is loaded at runtime from acp.rpl via OSDynLoad.
+# There is no static libacp in the current devkitPro Wii U environment.
+LIBS := -lwups -lwut
 
 CXXFILES := WaveBrowserRemote.cpp
 OFILES   := $(patsubst %.cpp,$(BUILD)/%.o,$(CXXFILES))
