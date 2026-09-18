@@ -11,7 +11,7 @@ jobs:
   build-plugin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Build plugin via Docker
         run: |
@@ -22,7 +22,7 @@ jobs:
             sh -c "cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
 
       - name: Upload plugin artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: plugin-wps
           path: wave_browser/plugin/WaveBrowserRemote.wps
