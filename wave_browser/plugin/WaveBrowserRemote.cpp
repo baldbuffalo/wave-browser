@@ -57,13 +57,13 @@ static bool acp_load()
     if (OSDynLoad_Acquire("acp.rpl", &s_acp_handle) != OS_DYNLOAD_OK)
         return false;
 
-    OSDynLoad_FindExport(s_acp_handle, FALSE, "ACPInitialize",
+    OSDynLoad_FindExport(s_acp_handle, OS_DYNLOAD_EXPORT_FUNC, "ACPInitialize",
                          (void**)&s_acp_init);
-    OSDynLoad_FindExport(s_acp_handle, FALSE, "ACPFinalize",
+    OSDynLoad_FindExport(s_acp_handle, OS_DYNLOAD_EXPORT_FUNC, "ACPFinalize",
                          (void**)&s_acp_fini);
-    OSDynLoad_FindExport(s_acp_handle, FALSE, "ACPSendCECCommand",
+    OSDynLoad_FindExport(s_acp_handle, OS_DYNLOAD_EXPORT_FUNC, "ACPSendCECCommand",
                          (void**)&s_acp_send);
-    OSDynLoad_FindExport(s_acp_handle, FALSE, "ACPReceiveCECCommand",
+    OSDynLoad_FindExport(s_acp_handle, OS_DYNLOAD_EXPORT_FUNC, "ACPReceiveCECCommand",
                          (void**)&s_acp_recv);
 
     if (!s_acp_send || !s_acp_recv) {
