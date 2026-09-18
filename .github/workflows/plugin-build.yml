@@ -4,7 +4,13 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'wave_browser/plugin/**'
+      - '.github/workflows/plugin-build.yml'
   pull_request:
+    paths:
+      - 'wave_browser/plugin/**'
+      - '.github/workflows/plugin-build.yml'
   workflow_dispatch:
 
 jobs:
