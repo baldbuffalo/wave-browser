@@ -497,7 +497,7 @@ static bool sha256_file(const char* path, char* out, size_t out_size)
 
     for (int i = 0; i < 32; i++)
         snprintf(out + i * 2, 3, "%02x", digest[i]);
-    out[64] = '\\0';
+    out[64] = '\0';
     return true;
 }
 
@@ -505,17 +505,17 @@ static bool extract_json_digest(const char* json, const char* asset_name, char* 
 {
     if (!json || !asset_name || !out || out_size < 65) return false;
     char needle[128];
-    snprintf(needle, sizeof(needle), "\\"name\\": \\"%s\\"", asset_name);
+    snprintf(needle, sizeof(needle), "\"name\": \"%s\"", asset_name);
     const char* p = strstr(json, needle);
     if (!p) return false;
-    const char* asset_end = strstr(p, "\\"browser_download_url\\"");
+    const char* asset_end = strstr(p, "\"browser_download_url\"");
     if (!asset_end) return false;
-    const char* d = strstr(p, "\\"digest\\": \\"sha256:");
+    const char* d = strstr(p, "\"digest\": \"sha256:");
     if (!d || d > asset_end) return false;
-    d += strlen("\\"digest\\": \\"sha256:");
+    d += strlen("\"digest\": \"sha256:");
     const char* end = strchr(d, '"');
     if (!end || (size_t)(end - d) != 64) return false;
-    memcpy(out, d, 64); out[64] = '\\0';
+    memcpy(out, d, 64); out[64] = '\0';
     return true;
 }
 
