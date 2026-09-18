@@ -513,7 +513,7 @@ static bool extract_json_digest(const char* json, const char* asset_name, char* 
     const char* d = strstr(p, "\\"digest\\": \\"sha256:");
     if (!d || d > asset_end) return false;
     d += strlen("\\"digest\\": \\"sha256:");
-    const char* end = strchr(d, '"'');
+    const char* end = strchr(d, '"');
     if (!end || (size_t)(end - d) != 64) return false;
     memcpy(out, d, 64); out[64] = '\\0';
     return true;
