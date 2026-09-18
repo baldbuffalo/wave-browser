@@ -59,7 +59,6 @@
 #define INSTALL_WUHB    "fs:/vol/external01/wiiu/apps/WaveBrowser/WaveBrowser.wuhb"
 #define INSTALL_META    "fs:/vol/external01/wiiu/apps/WaveBrowser/meta.xml"
 #define SESSION_PATH    "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-session.cfg"
-#define SESSION_PATH    "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-session.cfg"
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
 #define ZIP_FOLDER_PFX  "WaveBrowser/"
 
@@ -514,7 +513,7 @@ static bool extract_json_digest(const char* json, const char* asset_name, char* 
     const char* d = strstr(p, "\\"digest\\": \\"sha256:");
     if (!d || d > asset_end) return false;
     d += strlen("\\"digest\\": \\"sha256:");
-    const char* end = strchr(d, '\\"');
+    const char* end = strchr(d, '"'');
     if (!end || (size_t)(end - d) != 64) return false;
     memcpy(out, d, 64); out[64] = '\\0';
     return true;
@@ -541,9 +540,6 @@ static void mkdir_p(const char* path)
     char tmp[512]; strncpy(tmp,path,sizeof(tmp)-1); tmp[sizeof(tmp)-1]='\0';
     for (char* p=tmp+1;*p;p++){if(*p=='/'){*p='\0';mkdir(tmp,0777);*p='/';}} mkdir(tmp,0777);
 }
-
-static void remove_old_install()
-{ remove(INSTALL_WUHB); remove(INSTALL_META); remove(RUN_ID_PATH); remove(SESSION_PATH); rmdir(INSTALL_DIR); }
 
 // ─── ZIP extraction ───────────────────────────────────────────────────────────
 
