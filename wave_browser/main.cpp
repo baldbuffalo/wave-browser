@@ -581,7 +581,11 @@ static void run_splash_and_update()
     remove(ZIP_TMP_PATH); free(session_buf);
 
     if (!success) { draw_splash("Update failed. Starting anyway...", -1.0); usleep(16000*180); return; }
-    draw_splash("Update installed! Please restart Wave Browser.", 100.0); usleep(16000*300);
+    // The update is complete. Ask ProcUI/Wii U to exit this process and
+    // relaunch the same title automatically so the newly installed files load.
+    draw_splash("Update installed! Restarting...", 100.0);
+    usleep(1000000);
+    SYSRelaunchTitle(0, nullptr);
 }
 
 // ─── Touch hit test ───────────────────────────────────────────────────────────
