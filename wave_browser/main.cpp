@@ -565,8 +565,12 @@ static void run_splash_and_update()
             char rm[72]; snprintf(rm,sizeof(rm),"Retrying extraction... (%d/%d)",attempt,MAX_UPDATE_ATTEMPTS);
             draw_splash(rm, 100.0); usleep(2000000);
         }
-        draw_splash("Removing old version...", 100.0); remove_old_install();
-        draw_splash("Installing update...",    100.0);
+        // Do not delete the currently running installation. The Wii U has
+        // already loaded this executable into memory, but removing its files
+        // while the process is running can make the update extraction fail.
+        // Keep the app alive, show "Extracting...", and overwrite the installed
+        // files in place. The new executable is picked up after a restart.
+        draw_splash("Extracting...", 100.0);
         if (extract_zip_to_dir(ZIP_TMP_PATH, INSTALL_DIR) != 0) {
             draw_splash("Extraction failed.", -1.0); usleep(16000*60); continue;
         }
