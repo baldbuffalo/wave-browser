@@ -24,7 +24,7 @@ CFLAGS += $(INCLUDE) -D__WIIU__ -D__WUT__ -D__WUPS__
 CXXFLAGS := $(CFLAGS) -std=c++17 -fno-exceptions -fno-rtti
 ASFLAGS := $(ARCH)
 
-# RPXSPECS supplies the WUT memory layout; WUPSSPECS adds the WUPS sections.
+# WUT/WUPS rules provide the required linker specs and memory layout.
 LDFLAGS := $(ARCH) $(RPXSPECS) -Wl,--gc-sections $(WUPSSPECS)
 
 LIBS := -lwups -lwut
@@ -37,6 +37,10 @@ export OUTPUT := $(CURDIR)/$(TARGET)
 export TOPDIR := $(CURDIR)
 export VPATH := $(CURDIR)/$(SOURCES)
 export DEPSDIR := $(CURDIR)/$(BUILD)
+
+# WUT's default LD may invoke the raw linker. Use the C++ driver so
+# -specs=... from RPXSPECS/WUPSSPECS is handled by GCC before invoking ld.
+export LD := $(CXX)
 
 CPPFILES := $(notdir $(wildcard $(SOURCES)/*.cpp))
 export OFILES_SRC := $(CPPFILES:.cpp=.o)
