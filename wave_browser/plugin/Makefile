@@ -16,7 +16,8 @@ TARGET := WaveBrowserRemote
 BUILD := build_plugin
 SOURCES := .
 DATA :=
-INCLUDES := .
+# plugin_config.h lives in wave_browser/, one level above this plugin directory.
+INCLUDES := . ..
 
 CFLAGS := -O2 -Wall -ffunction-sections $(MACHDEP)
 CFLAGS += $(INCLUDE) -D__WIIU__ -D__WUT__ -D__WUPS__
