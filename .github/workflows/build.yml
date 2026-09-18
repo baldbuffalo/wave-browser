@@ -8,28 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-plugin:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build plugin via Docker
-        run: |
-          docker build -t wavebrowser-plugin-builder wave_browser/plugin/
-          docker run --rm \
-            -v "$PWD/wave_browser:/wave_browser" \
-            wavebrowser-plugin-builder \
-            sh -c "cd /wave_browser/plugin && make -j$(nproc) && ls -lh WaveBrowserRemote.wps"
-
-      - name: Upload plugin artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: plugin-wps
-          path: wave_browser/plugin/WaveBrowserRemote.wps
-
   build:
     runs-on: ubuntu-latest
-    needs: build-plugin
     container:
       image: devkitpro/devkitppc:latest
     env:
@@ -96,7 +76,7 @@ jobs:
         run: |
           find /usr/share/fonts -name "Roboto-Bold.*" | head -1 | xargs -I{} cp {} wave_browser/font.ttf
           test -s wave_browser/font.ttf
-          python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\nstatic const unsigned int font_data_len='+str(len(data))+';\n')"
+          python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\\nstatic const unsigned int font_data_len='+str(len(data))+';\\n')"
 
       - name: Build Wave Browser
         run: make clean && make -j$(nproc)
