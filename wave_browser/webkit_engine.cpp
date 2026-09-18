@@ -2,6 +2,7 @@
 // All signatures match vendor/webkit-wiiu/include/wkc/wkc*.h exactly.
 
 #include "webkit_engine.h"
+#ifdef WKC_AVAILABLE
 #include "font_data.h"
 
 #include <SDL.h>
@@ -729,3 +730,25 @@ void webkit_engine_key_up(int keycode)
     // s_webview->notifyKeyPress(&ev);
     (void)keycode;
 }
+
+#else
+
+// Stub implementation used when the optional WebKit-WiiU/WKC library is not
+// present. This keeps the main Wave Browser build working without WKC headers
+// or libWebKitWKC.a.
+
+bool webkit_engine_init(int, int) { return true; }
+void webkit_engine_set_renderer(SDL_Renderer*) {}
+void webkit_engine_navigate(const char*) {}
+void webkit_engine_tick(void) {}
+void webkit_engine_draw(int, int, int, int) {}
+void webkit_engine_input_text(const char*) {}
+void webkit_engine_scroll(int, int) {}
+void webkit_engine_touch_down(int, int) {}
+void webkit_engine_touch_up(int, int) {}
+bool webkit_engine_available(void) { return false; }
+void webkit_engine_shutdown(void) {}
+void webkit_engine_key_down(int) {}
+void webkit_engine_key_up(int) {}
+
+#endif
