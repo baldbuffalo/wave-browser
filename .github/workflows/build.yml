@@ -25,7 +25,7 @@ jobs:
         run: |
           rm -f /etc/apt/sources.list.d/devkitpro*.list \
                 /etc/apt/sources.list.d/devkitpro*.sources
-          apt-get update && apt-get install -y zip libxml2-utils python3 wget fonts-roboto
+          apt-get update && apt-get install -y zip libxml2-utils python3 wget fonts-roboto gh
 
       - name: Cache devkitPro WiiU portlibs
         id: dkp-cache
@@ -93,10 +93,12 @@ jobs:
           cp meta.xml WaveBrowser/
 
       - name: Create release archive
+        if: github.event_name != 'pull_request'
         run: |
           zip -j WaveBrowser.zip WaveBrowser/WaveBrowser.wuhb WaveBrowser/meta.xml
 
       - name: Publish latest release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
