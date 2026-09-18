@@ -8,6 +8,7 @@
 #include <nn/swkbd.h>
 #include <curl/curl.h>
 #include <sndcore2/core.h>
+#include <mbedtls/sha256.h>
 
 #include "font_data.h"
 #include "settings.h"
@@ -57,19 +58,18 @@
 #define INSTALL_DIR     "fs:/vol/external01/wiiu/apps/WaveBrowser"
 #define INSTALL_WUHB    "fs:/vol/external01/wiiu/apps/WaveBrowser/WaveBrowser.wuhb"
 #define INSTALL_META    "fs:/vol/external01/wiiu/apps/WaveBrowser/meta.xml"
-#define RUN_ID_PATH     "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-commit-sha.txt"
+#define SESSION_PATH    "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-session.cfg"
 #define SESSION_PATH    "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-session.cfg"
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
 #define ZIP_FOLDER_PFX  "WaveBrowser/"
 
 #define MAX_UPDATE_ATTEMPTS 3
 
-#define ACTIONS_API_URL \
-    "https://api.github.com/repos/baldbuffalo/wave-browser/actions/runs" \
-    "?branch=main&status=success&per_page=1"
+#define RELEASE_API_URL \
+    "https://api.github.com/repos/baldbuffalo/wave-browser/releases/tags/latest"
 
-#define ARTIFACT_ZIP_URL \
-    "https://nightly.link/baldbuffalo/wave-browser/workflows/build.yml/main/WaveBrowser.zip"
+#define RELEASE_ZIP_URL \
+    "https://github.com/baldbuffalo/wave-browser/releases/download/latest/WaveBrowser.zip"
 
 // ─── Tab constants ────────────────────────────────────────────────────────────
 
@@ -469,32 +469,59 @@ static int fetch_file(const char* url, const char* path)
     return (res == CURLE_OK) ? 0 : 1;
 }
 
-// ─── Commit SHA helpers ───────────────────────────────────────────────────────
+// ─── Release file SHA-256 helpers ─────────────────────────────────────────────
 
-static bool read_stored_commit_sha(char* out, size_t out_size)
+static bool sha256_file(const char* path, char* out, size_t out_size)
 {
-    if (!out || out_size == 0) return false;
-    out[0] = '\0';
-    FILE* f = fopen(RUN_ID_PATH, "r");
+    if (!path || !out || out_size < 65) return false;
+    FILE* f = fopen(path, "rb");
     if (!f) return false;
-    if (!fgets(out, (int)out_size, f)) { fclose(f); return false; }
+
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    if (mbedtls_sha256_starts_ret(&ctx, 0) != 0) {
+        mbedtls_sha256_free(&ctx); fclose(f); return false;
+    }
+
+    uint8_t buf[8192];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        if (mbedtls_sha256_update_ret(&ctx, buf, n) != 0) { ok = false; break; }
+    }
+    if (ferror(f)) ok = false;
+    uint8_t digest[32];
+    if (ok && mbedtls_sha256_finish_ret(&ctx, digest) != 0) ok = false;
+    mbedtls_sha256_free(&ctx);
     fclose(f);
-    size_t len = strlen(out);
-    while (len > 0 && (out[len - 1] == '\n' || out[len - 1] == '\r' || out[len - 1] == ' ' || out[len - 1] == '\t'))
-        out[--len] = '\0';
-    return len > 0;
+    if (!ok) return false;
+
+    for (int i = 0; i < 32; i++)
+        snprintf(out + i * 2, 3, "%02x", digest[i]);
+    out[64] = '\\0';
+    return true;
 }
 
-static void write_commit_sha(const char* sha)
+static bool extract_json_digest(const char* json, const char* asset_name, char* out, size_t out_size)
 {
-    if (!sha || !sha[0]) return;
-    FILE* f = fopen(RUN_ID_PATH, "w");
-    if (!f) return;
-    fprintf(f, "%s", sha);
-    fclose(f);
+    if (!json || !asset_name || !out || out_size < 65) return false;
+    char needle[128];
+    snprintf(needle, sizeof(needle), "\\"name\\": \\"%s\\"", asset_name);
+    const char* p = strstr(json, needle);
+    if (!p) return false;
+    const char* asset_end = strstr(p, "\\"browser_download_url\\"");
+    if (!asset_end) return false;
+    const char* d = strstr(p, "\\"digest\\": \\"sha256:");
+    if (!d || d > asset_end) return false;
+    d += strlen("\\"digest\\": \\"sha256:");
+    const char* end = strchr(d, '\\"');
+    if (!end || (size_t)(end - d) != 64) return false;
+    memcpy(out, d, 64); out[64] = '\\0';
+    return true;
 }
 
 // ─── File backup / restore ────────────────────────────────────────────────────
+
 
 static char* file_backup(const char* path, size_t* out_len)
 {
@@ -555,44 +582,53 @@ static void run_splash_and_update()
     curl_global_init(CURL_GLOBAL_ALL);
     draw_splash("Checking for updates...", -1.0);
 
-    char* json = fetch_string(ACTIONS_API_URL);
+    char* json = fetch_string(RELEASE_API_URL);
     if (!json) { draw_splash("No network. Starting...", -1.0); usleep(16000*90); return; }
 
-    char latest_commit_sha[64] = {};
-    const char* sha_ptr = strstr(json, "\"head_sha\":");
-    if (sha_ptr) {
-        sha_ptr += strlen("\"head_sha\":");
-        while (*sha_ptr == ' ' || *sha_ptr == '\t') sha_ptr++;
-        if (*sha_ptr == '\"') {
-            sha_ptr++;
-            const char* end = strchr(sha_ptr, '\"');
-            if (end) {
-                size_t len = (size_t)(end - sha_ptr);
-                if (len < sizeof(latest_commit_sha)) {
-                    memcpy(latest_commit_sha, sha_ptr, len);
-                    latest_commit_sha[len] = '\0';
-                }
-            }
-        }
-    }
-    free(json);
+    char remote_wuhb_sha[65] = {};
+    char remote_zip_sha[65] = {};
+    bool have_wuhb_sha = extract_json_digest(json, "WaveBrowser.wuhb", remote_wuhb_sha, sizeof(remote_wuhb_sha));
+    bool have_zip_sha  = extract_json_digest(json, "WaveBrowser.zip",  remote_zip_sha,  sizeof(remote_zip_sha));
 
-    if (!latest_commit_sha[0]) { draw_splash("Couldn't read commit SHA. Starting...", -1.0); usleep(16000*90); return; }
-    char stored_commit_sha[64] = {};
-    if (read_stored_commit_sha(stored_commit_sha, sizeof(stored_commit_sha)) &&
-        strcmp(latest_commit_sha, stored_commit_sha) == 0) {
-        draw_splash("You're up to date!", -1.0); usleep(16000*60); return;
+    if (!have_wuhb_sha) {
+        free(json);
+        draw_splash("Couldn't read release SHA. Starting...", -1.0);
+        usleep(16000*90);
+        return;
     }
 
-    char msg[96]; snprintf(msg,sizeof(msg),"New build %.7s found. Downloading...",latest_commit_sha);
-    draw_splash(msg, 0.0); usleep(800000);
+    char local_wuhb_sha[65] = {};
+    if (sha256_file(INSTALL_WUHB, local_wuhb_sha, sizeof(local_wuhb_sha)) &&
+        strcmp(remote_wuhb_sha, local_wuhb_sha) == 0) {
+        free(json);
+        draw_splash("You're up to date!", -1.0);
+        usleep(16000*60);
+        return;
+    }
+
+    draw_splash("New release found. Downloading...", 0.0);
+    usleep(800000);
 
     size_t session_len=0; char* session_buf=file_backup(SESSION_PATH,&session_len);
     remove(ZIP_TMP_PATH);
-    if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
+    if (fetch_file(RELEASE_ZIP_URL, ZIP_TMP_PATH) != 0) {
         draw_splash("Download failed. Starting anyway...", -1.0); usleep(16000*120);
-        free(session_buf); return;
+        free(json); free(session_buf); return;
     }
+
+    // Verify the downloaded release archive against GitHub's release asset digest.
+    if (have_zip_sha) {
+        char local_zip_sha[65] = {};
+        if (!sha256_file(ZIP_TMP_PATH, local_zip_sha, sizeof(local_zip_sha)) ||
+            strcmp(remote_zip_sha, local_zip_sha) != 0) {
+            remove(ZIP_TMP_PATH);
+            free(json); free(session_buf);
+            draw_splash("Update verification failed.", -1.0);
+            usleep(16000*120);
+            return;
+        }
+    }
+    free(json);
 
     bool success = false;
     for (int attempt=1; attempt<=MAX_UPDATE_ATTEMPTS&&!success; attempt++) {
@@ -600,24 +636,25 @@ static void run_splash_and_update()
             char rm[72]; snprintf(rm,sizeof(rm),"Retrying extraction... (%d/%d)",attempt,MAX_UPDATE_ATTEMPTS);
             draw_splash(rm, 100.0); usleep(2000000);
         }
-        // Do not delete the currently running installation. The Wii U has
-        // already loaded this executable into memory, but removing its files
-        // while the process is running can make the update extraction fail.
-        // Keep the app alive, show "Extracting...", and overwrite the installed
-        // files in place. The new executable is picked up after a restart.
         draw_splash("Extracting...", 100.0);
         if (extract_zip_to_dir(ZIP_TMP_PATH, INSTALL_DIR) != 0) {
             draw_splash("Extraction failed.", -1.0); usleep(16000*60); continue;
         }
-        write_commit_sha(latest_commit_sha);
+
+        char installed_sha[65] = {};
+        if (!sha256_file(INSTALL_WUHB, installed_sha, sizeof(installed_sha)) ||
+            strcmp(installed_sha, remote_wuhb_sha) != 0) {
+            draw_splash("Installed file verification failed.", -1.0);
+            usleep(16000*60);
+            continue;
+        }
+
         file_restore(SESSION_PATH, session_buf, session_len);
         success = true;
     }
     remove(ZIP_TMP_PATH); free(session_buf);
 
     if (!success) { draw_splash("Update failed. Starting anyway...", -1.0); usleep(16000*180); return; }
-    // The update is complete. Ask ProcUI/Wii U to exit this process and
-    // relaunch the same title automatically so the newly installed files load.
     draw_splash("Update installed! Restarting...", 100.0);
     usleep(1000000);
     SYSRelaunchTitle(0, nullptr);
