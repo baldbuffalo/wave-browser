@@ -15,30 +15,6 @@
 #include "webkit_engine.h"
 #include "gamepad_keyboard.h"
 
-// WiiU Pro Controller — extensionType value and button masks.
-// Values from devkitPro WUT padscore/kpad.h (Classic Controller Pro layout).
-// Pro Controller data lives in kpad.classic (same KPADClassicStatus struct).
-#ifndef WPAD_EXT_PRO_CONTROLLER
-#  define WPAD_EXT_PRO_CONTROLLER    31
-#endif
-#ifndef WPAD_CLASSIC_BUTTON_UP
-#  define WPAD_CLASSIC_BUTTON_UP     0x0001
-#  define WPAD_CLASSIC_BUTTON_LEFT   0x0002
-#  define WPAD_CLASSIC_BUTTON_ZR     0x0004
-#  define WPAD_CLASSIC_BUTTON_X      0x0008
-#  define WPAD_CLASSIC_BUTTON_A      0x0010
-#  define WPAD_CLASSIC_BUTTON_Y      0x0020
-#  define WPAD_CLASSIC_BUTTON_B      0x0040
-#  define WPAD_CLASSIC_BUTTON_ZL     0x0080
-#  define WPAD_CLASSIC_BUTTON_R      0x0200
-#  define WPAD_CLASSIC_BUTTON_PLUS   0x0400
-#  define WPAD_CLASSIC_BUTTON_HOME   0x0800
-#  define WPAD_CLASSIC_BUTTON_MINUS  0x1000
-#  define WPAD_CLASSIC_BUTTON_L      0x2000
-#  define WPAD_CLASSIC_BUTTON_DOWN   0x4000
-#  define WPAD_CLASSIC_BUTTON_RIGHT  0x8000
-#endif
-
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include "unzip.h"
@@ -908,42 +884,46 @@ int main(int, char**)
                         if (fabsf(ny) > fabsf(vpad.leftStick.y)) vpad.leftStick.y = ny;
                     }
 
-                    // ── WiiU Pro Controller (extensionType == 31) ────────────
-                    // Button data lives in kpad.classic (KPADClassicStatus).
-                    // Sticks: kpad.classic.leftStick / rightStick (range -1..1).
+                    // ── Wii U Pro Controller ─────────────────────────────
+                    // WUT exposes the Pro Controller as WPAD_EXT_PRO_CONTROLLER
+                    // and stores its data in KPADStatus::pro.
                     if (kpad.extensionType == WPAD_EXT_PRO_CONTROLLER)
                     {
-                        uint32_t c = kpad.classic.trigger;
-                        // Face buttons → GamePad face buttons
-                        if (c & WPAD_CLASSIC_BUTTON_A)     vpad.trigger |= VPAD_BUTTON_A;
-                        if (c & WPAD_CLASSIC_BUTTON_B)     vpad.trigger |= VPAD_BUTTON_B;
-                        if (c & WPAD_CLASSIC_BUTTON_X)     vpad.trigger |= VPAD_BUTTON_X;
-                        if (c & WPAD_CLASSIC_BUTTON_Y)     vpad.trigger |= VPAD_BUTTON_Y;
-                        // D-pad
-                        if (c & WPAD_CLASSIC_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
-                        if (c & WPAD_CLASSIC_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
-                        if (c & WPAD_CLASSIC_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
-                        if (c & WPAD_CLASSIC_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
-                        // Triggers / shoulders
-                        if (c & WPAD_CLASSIC_BUTTON_ZL)    vpad.trigger |= VPAD_BUTTON_ZL;
-                        if (c & WPAD_CLASSIC_BUTTON_ZR)    vpad.trigger |= VPAD_BUTTON_ZR;
-                        if (c & WPAD_CLASSIC_BUTTON_L)     vpad.trigger |= VPAD_BUTTON_L;
-                        if (c & WPAD_CLASSIC_BUTTON_R)     vpad.trigger |= VPAD_BUTTON_R;
-                        // Menu buttons
-                        if (c & WPAD_CLASSIC_BUTTON_PLUS)  vpad.trigger |= VPAD_BUTTON_PLUS;
-                        if (c & WPAD_CLASSIC_BUTTON_MINUS) vpad.trigger |= VPAD_BUTTON_MINUS;
-                        // Left stick → GamePad left stick (navigation, scrolling)
-                        float lx = kpad.classic.leftStick.x;
-                        float ly = kpad.classic.leftStick.y;
+                        uint32_t held = kpad.pro.hold;
+                        uint32_t trig = kpad.pro.trigger;
+
+                        if (trig & WPAD_CLASSIC_BUTTON_A) vpad.trigger |= VPAD_BUTTON_A;
+                        if (trig & WPAD_CLASSIC_BUTTON_B) vpad.trigger |= VPAD_BUTTON_B;
+                        if (trig & WPAD_CLASSIC_BUTTON_X) vpad.trigger |= VPAD_BUTTON_X;
+                        if (trig & WPAD_CLASSIC_BUTTON_Y) vpad.trigger |= VPAD_BUTTON_Y;
+
+                        if (trig & WPAD_CLASSIC_BUTTON_UP)    vpad.trigger |= VPAD_BUTTON_UP;
+                        if (trig & WPAD_CLASSIC_BUTTON_DOWN)  vpad.trigger |= VPAD_BUTTON_DOWN;
+                        if (trig & WPAD_CLASSIC_BUTTON_LEFT)  vpad.trigger |= VPAD_BUTTON_LEFT;
+                        if (trig & WPAD_CLASSIC_BUTTON_RIGHT) vpad.trigger |= VPAD_BUTTON_RIGHT;
+
+                        if (trig & WPAD_CLASSIC_BUTTON_ZL)    vpad.trigger |= VPAD_BUTTON_ZL;
+                        if (trig & WPAD_CLASSIC_BUTTON_ZR)    vpad.trigger |= VPAD_BUTTON_ZR;
+                        if (trig & WPAD_CLASSIC_BUTTON_L)     vpad.trigger |= VPAD_BUTTON_L;
+                        if (trig & WPAD_CLASSIC_BUTTON_R)     vpad.trigger |= VPAD_BUTTON_R;
+                        if (trig & WPAD_CLASSIC_BUTTON_PLUS)  vpad.trigger |= VPAD_BUTTON_PLUS;
+                        if (trig & WPAD_CLASSIC_BUTTON_MINUS) vpad.trigger |= VPAD_BUTTON_MINUS;
+
+                        // Preserve held ZL/ZR so the browser-game key toggle works.
+                        if (held & WPAD_CLASSIC_BUTTON_ZL) vpad.hold |= VPAD_BUTTON_ZL;
+                        if (held & WPAD_CLASSIC_BUTTON_ZR) vpad.hold |= VPAD_BUTTON_ZR;
+
+                        float lx = kpad.pro.leftStick.x;
+                        float ly = kpad.pro.leftStick.y;
                         if (fabsf(lx) > fabsf(vpad.leftStick.x))  vpad.leftStick.x = lx;
                         if (fabsf(ly) > fabsf(vpad.leftStick.y))  vpad.leftStick.y = ly;
-                        // Right stick → GamePad right stick
-                        float rx = kpad.classic.rightStick.x;
-                        float ry = kpad.classic.rightStick.y;
+
+                        float rx = kpad.pro.rightStick.x;
+                        float ry = kpad.pro.rightStick.y;
                         if (fabsf(rx) > fabsf(vpad.rightStick.x)) vpad.rightStick.x = rx;
                         if (fabsf(ry) > fabsf(vpad.rightStick.y)) vpad.rightStick.y = ry;
-                        // Pro Controller has no Wii Remote-specific buttons —
-                        // all inputs already merged into vpad above, skip wii handler.
+
+                        // Already merged into the GamePad-compatible state.
                         continue;
                     }
 
