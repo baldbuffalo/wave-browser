@@ -1,60 +1,80 @@
-TARGET  := WaveBrowserRemote
-BUILD   := build_plugin
+#-------------------------------------------------------------------------------
+.SUFFIXES:
+#-------------------------------------------------------------------------------
 
-DEVKITPRO  ?= /opt/devkitpro
-DEVKITPPC  := $(DEVKITPRO)/devkitPPC
-WUPS_ROOT  := $(DEVKITPRO)/wups
-WUT_ROOT   := $(DEVKITPRO)/wut
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>/devkitpro")
+endif
 
-CXX := $(DEVKITPPC)/bin/powerpc-eabi-g++
+TOPDIR ?= $(CURDIR)
 
-CXXFLAGS := \
-    -O2 -Wall -mcpu=750 -meabi -mhard-float \
-    -ffunction-sections -fdata-sections \
-    -std=c++17 -fno-exceptions -fno-rtti \
-    -I$(WUPS_ROOT)/include \
-    -I$(WUT_ROOT)/include \
-    -I$(DEVKITPRO)/portlibs/wiiu/include \
-    -I.. \
-    -DWUPS_PLUGIN
+# Use the official WUPS rules. This includes WUT's build rules, which define
+# RPXSPECS and the loadmem/datamem linker regions required by wups.ld.
+include $(DEVKITPRO)/wups/share/wups_rules
 
-# The WUPS linker script only defines the WUPS-specific sections and relies
-# on the WUT linker environment for loadmem/datamem. WUPSSPECS provides both
-# the WUPS linker script and the WUT specs needed to define those regions.
-LDFLAGS := \
-    -Wl,--gc-sections \
-    -L$(WUPS_ROOT)/lib \
-    -L$(WUT_ROOT)/lib \
-    -L$(DEVKITPRO)/portlibs/wiiu/lib
+TARGET := WaveBrowserRemote
+BUILD := build_plugin
+SOURCES := .
+DATA :=
+INCLUDES := .
 
-WUPSSPECS := -T$(WUPS_ROOT)/share/wups.ld -specs=$(WUPS_ROOT)/share/wups.specs
+CFLAGS := -O2 -Wall -ffunction-sections $(MACHDEP)
+CFLAGS += $(INCLUDE) -D__WIIU__ -D__WUT__ -D__WUPS__
+CXXFLAGS := $(CFLAGS) -std=c++17 -fno-exceptions -fno-rtti
+ASFLAGS := $(ARCH)
 
-# ACP is loaded at runtime from acp.rpl via OSDynLoad.
-# There is no static libacp in the current devkitPro Wii U environment.
+# RPXSPECS supplies the WUT memory layout; WUPSSPECS adds the WUPS sections.
+LDFLAGS := $(ARCH) $(RPXSPECS) -Wl,--gc-sections $(WUPSSPECS)
+
 LIBS := -lwups -lwut
 
-CXXFILES := WaveBrowserRemote.cpp
-OFILES   := $(patsubst %.cpp,$(BUILD)/%.o,$(CXXFILES))
+LIBDIRS := $(PORTLIBS) $(WUPS_ROOT) $(WUT_ROOT)
 
-.PHONY: all clean
+ifneq ($(BUILD),$(notdir $(CURDIR)))
 
-all: $(TARGET).wps
+export OUTPUT := $(CURDIR)/$(TARGET)
+export TOPDIR := $(CURDIR)
+export VPATH := $(CURDIR)/$(SOURCES)
+export DEPSDIR := $(CURDIR)/$(BUILD)
 
-$(BUILD)/%.o: %.cpp
+CPPFILES := $(notdir $(wildcard $(SOURCES)/*.cpp))
+export OFILES_SRC := $(CPPFILES:.cpp=.o)
+export OFILES := $(OFILES_SRC)
+
+export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+-I$(CURDIR)/$(BUILD)
+
+export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+
+.PHONY: $(BUILD) clean all
+
+all: $(BUILD)
+
+$(BUILD):
 	@mkdir -p $(BUILD)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-$(TARGET).elf: $(OFILES)
-	$(CXX) $(OFILES) $(WUPSSPECS) $(LDFLAGS) $(LIBS) -o $@
-
-$(TARGET).wps: $(TARGET).elf
-	@cp $< $*.strip.elf
-	@$(DEVKITPPC)/bin/powerpc-eabi-strip -g $*.strip.elf
-	@elf2rpl $*.strip.elf $@
-	@printf 'PL' | dd of=$@ bs=1 seek=9 count=2 conv=notrunc status=none
-	@rm $*.strip.elf
-	@echo "built ... $@"
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 clean:
-	rm -rf $(BUILD) $(TARGET).elf $(TARGET).wps $(TARGET).strip.elf
+	@echo clean ...
+	@rm -fr $(BUILD) $(TARGET).wps $(TARGET).elf
 
+else
+
+.PHONY: all
+
+DEPENDS := $(OFILES:.o=.d)
+
+all: $(OUTPUT).wps
+
+$(OUTPUT).wps: $(OUTPUT).elf
+
+$(OUTPUT).elf: $(OFILES)
+
+%.o: %.cpp
+	@echo $(notdir $<)
+	@$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+-include $(DEPENDS)
+
+endif
