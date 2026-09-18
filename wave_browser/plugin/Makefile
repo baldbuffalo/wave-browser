@@ -6,10 +6,6 @@ DEVKITPPC  := $(DEVKITPRO)/devkitPPC
 WUPS_ROOT  := $(DEVKITPRO)/wups
 WUT_ROOT   := $(DEVKITPRO)/wut
 
-# Use the official WUPS build rules so the plugin linker script and WPS
-# packaging format are applied correctly.
-include $(WUPS_ROOT)/share/wups_rules
-
 CXX := $(DEVKITPPC)/bin/powerpc-eabi-g++
 
 CXXFLAGS := \
@@ -22,13 +18,16 @@ CXXFLAGS := \
     -I.. \
     -DWUPS_PLUGIN
 
+# The WUPS linker script only defines the WUPS-specific sections and relies
+# on the WUT linker environment for loadmem/datamem. WUPSSPECS provides both
+# the WUPS linker script and the WUT specs needed to define those regions.
 LDFLAGS := \
-    -T$(WUPS_ROOT)/share/wups.ld \
-    -specs=$(WUPS_ROOT)/share/wups.specs \
     -Wl,--gc-sections \
     -L$(WUPS_ROOT)/lib \
     -L$(WUT_ROOT)/lib \
     -L$(DEVKITPRO)/portlibs/wiiu/lib
+
+WUPSSPECS := -T$(WUPS_ROOT)/share/wups.ld -specs=$(WUPS_ROOT)/share/wups.specs
 
 # ACP is loaded at runtime from acp.rpl via OSDynLoad.
 # There is no static libacp in the current devkitPro Wii U environment.
@@ -46,10 +45,16 @@ $(BUILD)/%.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(TARGET).elf: $(OFILES)
-	$(CXX) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
+	$(CXX) $(OFILES) $(WUPSSPECS) $(LDFLAGS) $(LIBS) -o $@
 
-# The %.wps rule is supplied by wups_rules and uses elf2rpl to create
-# a valid WUPS plugin file instead of simply stripping the ELF.
+$(TARGET).wps: $(TARGET).elf
+	@cp $< $*.strip.elf
+	@$(DEVKITPPC)/bin/powerpc-eabi-strip -g $*.strip.elf
+	@elf2rpl $*.strip.elf $@
+	@printf 'PL' | dd of=$@ bs=1 seek=9 count=2 conv=notrunc status=none
+	@rm $*.strip.elf
+	@echo "built ... $@"
 
 clean:
-	rm -rf $(BUILD) $(TARGET).elf $(TARGET).wps
+	rm -rf $(BUILD) $(TARGET).elf $(TARGET).wps $(TARGET).strip.elf
+
