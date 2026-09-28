@@ -87,9 +87,19 @@ jobs:
           set -euo pipefail
           archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
           checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
-          if rclone lsf "$archive" >/dev/null 2>&1 && rclone lsf "$checksum" >/dev/null 2>&1; then
+          archive_exists=false
+          checksum_exists=false
+          rclone lsf "$archive" >/dev/null 2>&1 && archive_exists=true || true
+          rclone lsf "$checksum" >/dev/null 2>&1 && checksum_exists=true || true
+          if $archive_exists && $checksum_exists; then
             echo "already=true" >> "$GITHUB_OUTPUT"
-            echo "Chromium $REVISION is already packaged in OneDrive."
+            echo "Chromium $REVISION archive and checksum already exist. Nothing will be uploaded."
+          elif $archive_exists && ! $checksum_exists; then
+            echo "Final archive exists but checksum is missing; keeping the archive and creating only the checksum."
+            hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
+            printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum"
+            rclone lsf "$checksum" >/dev/null
+            echo "already=true" >> "$GITHUB_OUTPUT"
           else
             echo "already=false" >> "$GITHUB_OUTPUT"
             echo "Chromium $REVISION still needs to be packaged."
@@ -109,12 +119,24 @@ jobs:
           checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
           ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
 
-          if rclone lsf "$ready" >/dev/null 2>&1 && rclone lsf "$checkpoint" >/dev/null 2>&1; then
-            echo "Restoring Chromium checkpoint from OneDrive..."
+          ready_exists=false
+          checkpoint_exists=false
+          manifest_exists=false
+          rclone lsf "$ready" >/dev/null 2>&1 && ready_exists=true || true
+          rclone lsf "$checkpoint" >/dev/null 2>&1 && checkpoint_exists=true || true
+          rclone lsf "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 && manifest_exists=true || true
+          if $ready_exists && $checkpoint_exists && $manifest_exists; then
+            echo "All checkpoint files exist; restoring the checkpoint."
             rclone cat "$checkpoint" | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
             echo "Checkpoint restored."
+          elif ! $ready_exists && ! $checkpoint_exists && ! $manifest_exists; then
+            echo "No checkpoint files exist. Starting a new Chromium checkout."
           else
-            echo "No completed checkpoint exists. Starting a new Chromium checkout."
+            echo "Incomplete checkpoint detected. Removing incomplete checkpoint files."
+            rclone deletefile "$ready" >/dev/null 2>&1 || true
+            rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
+            rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 || true
+            rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
           fi
 
       - name: Prepare depot_tools
@@ -237,9 +259,11 @@ jobs:
           printf '{"revision":"%s","format":"tar.zst","checkpoint_slot":"%s"}\n' "$REVISION" "${{ matrix.slot }}" |
             rclone rcat "$manifest"
 
+          rclone lsf "$checkpoint" >/dev/null
+          rclone lsf "$manifest" >/dev/null
           printf 'ready\n' | rclone rcat "$ready"
-
-          echo "Checkpoint saved to OneDrive. The next GitHub-hosted runner will restore it and continue."
+          rclone lsf "$ready" >/dev/null
+          echo "Checkpoint saved with all required files. The next GitHub-hosted runner will restore it and continue."
 
       - name: Create final Chromium package directly in OneDrive
         if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
@@ -251,14 +275,23 @@ jobs:
           archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
           checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
 
-          echo "Chromium is complete. Streaming the final package directly to OneDrive..."
-          tar --exclude='src/out' --exclude='src/.cipd' -czf - .gclient .gclient_entries src |
-            rclone rcat "$archive" --progress
-
+          if rclone lsf "$archive" >/dev/null 2>&1 && rclone lsf "$checksum" >/dev/null 2>&1; then
+            echo "Final archive and checksum already exist. Skipping upload."
+            exit 0
+          fi
+          if rclone lsf "$archive" >/dev/null 2>&1; then
+            echo "Final archive already exists; creating only the missing checksum."
+          else
+            echo "Chromium is complete. Streaming the final package directly to OneDrive..."
+            tar --exclude='src/out' --exclude='src/.cipd' -czf - .gclient .gclient_entries src |
+              rclone rcat "$archive" --progress
+            rclone lsf "$archive" >/dev/null
+          fi
           hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
           printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum"
-
-          echo "Final Chromium package and checksum are now in OneDrive."
+          rclone lsf "$archive" >/dev/null
+          rclone lsf "$checksum" >/dev/null
+          echo "Final Chromium package and checksum are present in OneDrive."
 
       - name: Remove checkpoint after final package succeeds
         if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
