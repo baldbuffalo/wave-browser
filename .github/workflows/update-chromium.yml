@@ -329,3 +329,8 @@ jobs:
         run: |
           echo "Chromium $REVISION is fully packaged in OneDrive."
           echo "The source download used serial GitHub-hosted runners with OneDrive checkpoints."
+
+      - name: Build next step
+        run: |
+          echo "Chromium packaging is complete."
+          echo "You can now run the Android or Windows build workflow to compile Chromium into WaveBrowser."
