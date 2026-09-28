@@ -7,11 +7,6 @@ on:
       - 'windows/**'
       - '.github/workflows/windows-build.yml'
 
-# Windows Chromium is built on the persistent wave-windows runner.
-# The Chromium checkout and Git cache live outside GITHUB_WORKSPACE, so
-# UI-only changes reuse the existing Chromium checkout/build state instead
-# of downloading Chromium again.
-
 jobs:
   build-windows:
     runs-on: [self-hosted, wave-windows]
@@ -21,29 +16,81 @@ jobs:
       GIT_CACHE_PATH: D:\\wave-build\\git-cache
       DEPOT_TOOLS: D:\\wave-build\\depot_tools
       WAVE_OUT: D:\\wave-build\\outputs
+      WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify persistent Chromium checkout
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not (Test-Path (Join-Path $env:CHROMIUM_SRC '.gclient'))) {
-            throw 'Persistent Chromium checkout is missing. Run update-chromium.yml successfully once to initialize it.'
-          }
-
-      - name: Prepare persistent Chromium tooling
+      - name: Prepare persistent tooling
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path 'D:\\wave-build', 'D:\\wave-build\\chromium', 'D:\\wave-build\\git-cache', 'D:\\wave-build\\outputs' | Out-Null
           if (-not (Test-Path (Join-Path $env:DEPOT_TOOLS 'gclient.bat'))) {
-            throw "Persistent depot_tools is missing at $env:DEPOT_TOOLS. Run update-chromium.yml successfully once to initialize it."
+            New-Item -ItemType Directory -Force -Path $env:DEPOT_TOOLS | Out-Null
+            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $env:DEPOT_TOOLS
           }
           $env:DEPOT_TOOLS | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Build Wave Windows using existing Chromium checkout
+      - name: Install rclone
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command rclone -ErrorAction SilentlyContinue)) {
+            winget install --id Rclone.Rclone --exact --accept-package-agreements --accept-source-agreements
+          }
+          if (-not (Get-Command rclone -ErrorAction SilentlyContinue)) {
+            $rcloneDir = Join-Path $env:RUNNER_TEMP 'rclone'
+            New-Item -ItemType Directory -Force -Path $rcloneDir | Out-Null
+            Invoke-WebRequest -Uri 'https://downloads.rclone.org/rclone-current-windows-amd64.zip' -OutFile (Join-Path $env:RUNNER_TEMP 'rclone.zip')
+            Expand-Archive -Path (Join-Path $env:RUNNER_TEMP 'rclone.zip') -DestinationPath $rcloneDir -Force
+            $exe = Get-ChildItem $rcloneDir -Filter rclone.exe -Recurse | Select-Object -First 1
+            $exe.DirectoryName | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+            $env:Path = "$($exe.DirectoryName);$env:Path"
+          }
+
+      - name: Configure OneDrive
+        shell: pwsh
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.WAVE_ONEDRIVE_RCLONE_CONFIG_B64 }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:RCLONE_CONFIG_B64)) {
+            throw 'Missing WAVE_ONEDRIVE_RCLONE_CONFIG_B64 repository secret.'
+          }
+          $configDir = Join-Path $env:RUNNER_TEMP 'rclone-config'
+          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+          $configPath = Join-Path $configDir 'rclone.conf'
+          [IO.File]::WriteAllBytes($configPath, [Convert]::FromBase64String($env:RCLONE_CONFIG_B64))
+          "RCLONE_CONFIG=$configPath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Get Chromium package from OneDrive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $revision = (Get-Content 'windows/chromium_revision.txt' | Where-Object { $_ -notmatch '^#' } | Out-String).Trim()
+          if ($revision -notmatch '^[0-9a-f]{40}$') {
+            throw "Invalid Chromium revision: $revision"
+          }
+
+          $root = 'D:\\wave-build\\chromium'
+          $marker = Join-Path $root '.wave_revision'
+          if ((Test-Path (Join-Path $root 'src\\.git')) -and (Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $revision)) {
+            Write-Host "Chromium $revision is already present locally; skipping OneDrive download."
+            exit 0
+          }
+
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $archive = Join-Path $env:RUNNER_TEMP "chromium-$revision.tar.gz"
+          & rclone copyto "onedrive:$env:WAVE_ONEDRIVE_PATH/chromium-$revision.tar.gz" $archive --progress
+          tar -xzf $archive -C $root
+          Set-Content -Path $marker -Value $revision
+          Remove-Item -Force $archive
+
+      - name: Build Wave Windows
         shell: cmd
+        env:
+          WAVE_CHROMIUM_PREPARED: "1"
         run: windows\\build_chromium.bat
 
       - name: Upload WaveBrowser.exe
