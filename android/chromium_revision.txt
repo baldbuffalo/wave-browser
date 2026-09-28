@@ -1,3 +1,3 @@
 # Pinned Chromium revision used by the Android Wave build.
-# This file is automatically updated by .github/workflows/update-chromium-android.yml.
+# This file is automatically updated by .github/workflows/update-chromium.yml.
 # The current value is intentionally populated by the updater on its first run.
