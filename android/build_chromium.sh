@@ -18,15 +18,18 @@ fi
 
 cd "${CHECKOUT_DIR}"
 
-if [[ ! -d "${SRC_DIR}/.git" ]]; then
-  echo "Creating persistent Chromium checkout using the shared Git cache..."
-  fetch --git-cache --nohooks chromium
+if [[ "${WAVE_CHROMIUM_PREPARED:-0}" != "1" ]]; then
+  if [[ ! -d "${SRC_DIR}/.git" ]]; then
+    echo "Chromium checkout is missing. Run the Chromium package workflow first." >&2
+    exit 1
+  fi
+  cd "${SRC_DIR}"
+  git fetch origin main
+  git checkout --detach "${REVISION}"
+  gclient sync --nohooks --revision "src@${REVISION}"
 fi
 
 cd "${SRC_DIR}"
-git fetch origin main
-git checkout --detach "${REVISION}"
-gclient sync --nohooks --revision "src@${REVISION}"
 gclient runhooks
 
 cat > "${OUT_DIR}.args" <<'EOF'
