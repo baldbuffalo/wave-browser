@@ -9,25 +9,30 @@ on:
 
 jobs:
   build-android:
-    runs-on: [self-hosted, wave-android]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
     env:
-      WAVE_CHROMIUM_ROOT: /opt/wave-build/chromium
-      GIT_CACHE_PATH: /opt/wave-build/git-cache
-      WAVE_DEPOT_TOOLS: /opt/wave-build/depot_tools
       WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
+      WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android
+      WAVE_WORK_ROOT: chromium-checkout
+      WAVE_DISK_LIMIT_GIB: "13"
+      WAVE_DISK_SAFETY_GIB: "1"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare persistent tooling
+      - name: Prepare Chromium tooling
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /opt/wave-build/chromium /opt/wave-build/git-cache /opt/wave-build/depot_tools
-          if [ ! -x "$WAVE_DEPOT_TOOLS/gclient" ]; then
-            rm -rf "$WAVE_DEPOT_TOOLS"
-            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$WAVE_DEPOT_TOOLS"
-          fi
-          echo "$WAVE_DEPOT_TOOLS" >> "$GITHUB_PATH"
+          sudo apt-get update -qq
+          sudo apt-get install -y zstd
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
+          echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 
       - name: Install rclone
         shell: bash
@@ -38,53 +43,100 @@ jobs:
       - name: Configure OneDrive
         shell: bash
         env:
-          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+          RCLONE_CONFIG_CONTENT: \${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
-          if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
-            echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."
-            exit 1
-          fi
+          test -n "$RCLONE_CONFIG_CONTENT" || { echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."; exit 1; }
           mkdir -p "$HOME/.config/rclone"
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
-      - name: Get Chromium package from OneDrive
+      - name: Restore checkpoint or Chromium package
         shell: bash
         run: |
           set -euo pipefail
           REVISION=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]')
-          if [[ ! "$REVISION" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Invalid Chromium revision: $REVISION"
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid Chromium revision: $REVISION"; exit 1; }
+
+          ROOT="$WAVE_WORK_ROOT"
+          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          mkdir -p "$ROOT"
+
+          if rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
+            echo "Restoring Android build checkpoint for $REVISION."
+            rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
+          elif rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" >/dev/null 2>&1; then
+            echo "No build checkpoint exists; restoring Chromium source package."
+            rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" | tar -xzf - -C "$ROOT"
+          else
+            echo "Chromium package $REVISION is missing from OneDrive. Run update-chromium.yml first."
             exit 1
           fi
+          printf '%s\n' "$REVISION" > "$ROOT/.wave_revision"
 
-          marker="$WAVE_CHROMIUM_ROOT/.wave_revision"
-          if [ -d "$WAVE_CHROMIUM_ROOT/src/.git" ] && [ -f "$marker" ] && [ "$(cat "$marker")" = "$REVISION" ]; then
-            echo "Chromium $REVISION is already present locally; skipping OneDrive download."
+      - name: Continue Android Chromium build
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVISION=$(cat "$WAVE_WORK_ROOT/.wave_revision")
+          export WAVE_CHROMIUM_ROOT="$WAVE_WORK_ROOT"
+          export GIT_CACHE_PATH="$WAVE_WORK_ROOT/git-cache"
+          export WAVE_DEPOT_TOOLS="$RUNNER_TEMP/depot_tools"
+          chmod +x android/build_chromium.sh
+
+          set +e
+          setsid android/build_chromium.sh &
+          BUILD_PID=$!
+          set -e
+
+          checkpointed=0
+          while kill -0 "$BUILD_PID" 2>/dev/null; do
+            used_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $3}')
+            avail_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+            used_gib=$(awk -v k="$used_kib" 'BEGIN {printf "%.2f", k/1024/1024}')
+            avail_gib=$(awk -v k="$avail_kib" 'BEGIN {printf "%.2f", k/1024/1024}')
+            echo "Disk: $used_gib GiB used, $avail_gib GiB free."
+            if awk -v u="$used_gib" -v a="$avail_gib" -v l="$WAVE_DISK_LIMIT_GIB" -v s="$WAVE_DISK_SAFETY_GIB" 'BEGIN {exit !((u >= l) || (a <= s))}'; then
+              echo "Checkpoint threshold reached; stopping Android build."
+              kill -- "-$BUILD_PID" 2>/dev/null || true
+              sleep 5
+              kill -KILL -- "-$BUILD_PID" 2>/dev/null || true
+              checkpointed=1
+              break
+            fi
+            sleep 20
+          done
+
+          if [ "$checkpointed" -eq 1 ]; then
+            STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+            PARTIAL="$STAGING/checkpoint.tar.zst.partial"
+            FINAL="$STAGING/checkpoint.tar.zst"
+            rclone deletefile "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1 || true
+            echo "Uploading Android build checkpoint to OneDrive."
+            tar -C "$WAVE_WORK_ROOT" -cf - . | zstd -T0 -3 | rclone rcat "onedrive:$PARTIAL"
+            rclone moveto "onedrive:$PARTIAL" "onedrive:$FINAL"
+            printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/checkpoint.ready"
+            echo "Checkpoint saved; the next matrix runner will resume it."
             exit 0
           fi
 
-          rm -rf "$WAVE_CHROMIUM_ROOT"
-          mkdir -p "$WAVE_CHROMIUM_ROOT"
-          rclone copyto "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" "/tmp/chromium-$REVISION.tar.gz" --progress
-          rclone copyto "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256" "/tmp/chromium-$REVISION.sha256"
-          (cd /tmp && sha256sum -c "chromium-$REVISION.sha256")
-          tar -xzf "/tmp/chromium-$REVISION.tar.gz" -C "$WAVE_CHROMIUM_ROOT"
-          printf '%s\n' "$REVISION" > "$marker"
-          rm -f "/tmp/chromium-$REVISION.tar.gz"
-
-      - name: Build Wave Android
-        shell: bash
-        env:
-          WAVE_CHROMIUM_PREPARED: "1"
-        run: |
-          chmod +x android/build_chromium.sh
-          android/build_chromium.sh
+          wait "$BUILD_PID"
+          test -f android/WaveBrowser.apk
+          echo "Android Chromium build completed for $REVISION."
 
       - name: Upload WaveBrowser.apk
+        if: success() && hashFiles('android/WaveBrowser.apk') != ''
         uses: actions/upload-artifact@v4
         with:
           name: WaveBrowser-Android
           path: android/WaveBrowser.apk
           retention-days: 90
+
+      - name: Store completed Android build in OneDrive
+        if: success() && hashFiles('android/WaveBrowser.apk') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVISION=$(cat "$WAVE_WORK_ROOT/.wave_revision")
+          rclone copyto android/WaveBrowser.apk "onedrive:$WAVE_ONEDRIVE_PATH/WaveBrowser-Android-$REVISION.apk"
+          rclone delete "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION" || true
