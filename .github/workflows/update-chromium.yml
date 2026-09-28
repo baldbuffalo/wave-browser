@@ -13,7 +13,7 @@ env:
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
 
 jobs:
-  prepare:
+  Package:
     runs-on: [self-hosted, wave-android]
     outputs:
       revision: ${{ steps.revision.outputs.revision }}
