@@ -60,7 +60,7 @@ jobs:
           $configDir = Join-Path $env:RUNNER_TEMP 'rclone-config'
           New-Item -ItemType Directory -Force -Path $configDir | Out-Null
           $configPath = Join-Path $configDir 'rclone.conf'
-          [IO.File]::WriteAllBytes($configPath, [Convert]::FromBase64String($env:RCLONE_CONFIG_B64))
+          [IO.File]::WriteAllText($configPath, $env:RCLONE_CONFIG_CONTENT)
           "RCLONE_CONFIG=$configPath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Get Chromium package from OneDrive
