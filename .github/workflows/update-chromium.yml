@@ -45,7 +45,7 @@ jobs:
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Install tools
         shell: bash
@@ -341,7 +341,7 @@ jobs:
     if: ${{ always() && needs.Package.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Install rclone
         shell: bash
