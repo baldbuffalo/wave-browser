@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 rem Wave Windows Chromium build.
-rem The Chromium checkout and Git cache live on the persistent runner disk.
+rem Chromium is supplied by update-chromium.yml through OneDrive.
 
 if "%CHROMIUM_SRC%"=="" set "CHROMIUM_SRC=%CD%\..\..\chromium"
 if "%DEPOT_TOOLS%"=="" set "DEPOT_TOOLS=%CD%\..\..\depot_tools"
@@ -20,19 +20,18 @@ exit /b 1
 set "PATH=%DEPOT_TOOLS%;%PATH%"
 set "GIT_CACHE_PATH=%GIT_CACHE_PATH%"
 
-if not exist "%CHROMIUM_SRC%" mkdir "%CHROMIUM_SRC%"
-if not exist "%GIT_CACHE_PATH%" mkdir "%GIT_CACHE_PATH%"
-
-cd /d "%CHROMIUM_SRC%\.."
-if not exist "%CHROMIUM_SRC%\.gclient" (
-  echo Creating persistent Chromium checkout using the shared Git cache...
-  call "%DEPOT_TOOLS%\fetch.bat" --git-cache --nohooks chromium
-  if errorlevel 1 exit /b 1
+if not exist "%CHROMIUM_SRC%\.git" (
+  echo Chromium checkout is missing. Run update-chromium.yml successfully first.
+  exit /b 1
 )
 
 cd /d "%CHROMIUM_SRC%"
+if "%WAVE_CHROMIUM_PREPARED%"=="1" goto chromium_ready
+
 call "%DEPOT_TOOLS%\gclient.bat" sync --nohooks
 if errorlevel 1 exit /b 1
+
+:chromium_ready
 call "%DEPOT_TOOLS%\gclient.bat" runhooks
 if errorlevel 1 exit /b 1
 
