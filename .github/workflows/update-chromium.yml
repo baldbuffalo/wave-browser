@@ -2,9 +2,15 @@ name: Package Chromium for WaveBrowser
 
 on:
   workflow_dispatch:
+    inputs:
+      revision:
+        description: 'Chromium revision to continue packaging (leave blank for latest)'
+        required: false
+        type: string
 
 permissions:
   contents: write
+  actions: write
 
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
@@ -23,7 +29,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+          requested="${{ inputs.revision }}"
+          if [ -n "$requested" ]; then
+            latest="$requested"
+            echo "Continuing explicitly requested Chromium revision: $latest"
+          else
+            latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+            echo "Resolved latest Chromium revision: $latest"
+          fi
           if [[ ! "$latest" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Could not determine a valid Chromium revision."
             exit 1
@@ -270,6 +283,18 @@ jobs:
           echo "checkpoint=false" >> "$GITHUB_OUTPUT"
           echo "Chromium source and dependencies completed for $REVISION."
 
+      - name: Continue with another workflow run when slot 32 is reached
+        if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'true' && matrix.slot == 32
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "Slot 32 reached and Chromium still needs more checkpoint cycles."
+          echo "Starting another workflow run for the SAME Chromium revision: $REVISION"
+          gh workflow run update-chromium.yml --ref main -f revision="$REVISION"
+          echo "Continuation workflow dispatched."
+
       - name: Save checkpoint to OneDrive
         if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'true'
         shell: bash
@@ -369,8 +394,10 @@ jobs:
           set -euo pipefail
           archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
           checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
-          rclone lsf "$archive" >/dev/null
-          rclone lsf "$checksum" >/dev/null
+          if ! rclone lsf "$archive" >/dev/null 2>&1 || ! rclone lsf "$checksum" >/dev/null 2>&1; then
+            echo "Final package is not complete yet; continuation workflow will finish it."
+            exit 0
+          fi
           echo "Verified final Chromium package for $REVISION."
 
       - name: Commit Chromium revision
