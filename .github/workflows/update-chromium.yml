@@ -1,4 +1,4 @@
-name: Update Chromium and build WaveBrowser
+name: Package Chromium for WaveBrowser
 
 on:
   schedule:
