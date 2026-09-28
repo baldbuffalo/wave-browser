@@ -76,6 +76,12 @@ jobs:
           $staging = "$env:WAVE_CHECKPOINT_ROOT/$revision"
           New-Item -ItemType Directory -Force -Path $root | Out-Null
 
+          try {
+            rclone lsf "onedrive:$staging/build.complete" | Out-Null
+            Write-Host "Windows build for $revision is already complete."
+            exit 0
+          } catch {}
+
           $ready = $false
           try { rclone lsf "onedrive:$staging/checkpoint.ready" | Out-Null; $ready = $true } catch {}
           if ($ready) {
@@ -94,6 +100,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $revision = (Get-Content (Join-Path $env:WAVE_WORK_ROOT '.wave_revision') -Raw).Trim()
+          $env:WAVE_CHROMIUM_PREPARED = '1'
           $env:CHROMIUM_SRC = Join-Path $env:WAVE_WORK_ROOT 'chromium\src'
           $env:DEPOT_TOOLS = Join-Path $env:RUNNER_TEMP 'depot_tools'
           $env:GIT_CACHE_PATH = Join-Path $env:WAVE_WORK_ROOT 'git-cache'
@@ -150,4 +157,6 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $revision = (Get-Content (Join-Path $env:WAVE_WORK_ROOT '.wave_revision') -Raw).Trim()
           rclone copyto (Join-Path $env:GITHUB_WORKSPACE 'WaveBrowser.exe') "onedrive:$env:WAVE_ONEDRIVE_PATH/WaveBrowser-Windows-$revision.exe"
-          rclone delete "onedrive:$env:WAVE_CHECKPOINT_ROOT/$revision" 2>$null
+          $revision | rclone rcat "onedrive:$env:WAVE_CHECKPOINT_ROOT/$revision/build.complete"
+          try { rclone deletefile "onedrive:$env:WAVE_CHECKPOINT_ROOT/$revision/checkpoint.ready" } catch {}
+          try { rclone deletefile "onedrive:$env:WAVE_CHECKPOINT_ROOT/$revision/checkpoint.tar.gz" } catch {}
