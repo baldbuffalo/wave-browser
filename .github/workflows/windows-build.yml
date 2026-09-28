@@ -7,39 +7,48 @@ on:
       - 'windows/**'
       - '.github/workflows/windows-build.yml'
 
-permissions:
-  actions: read
+# Windows Chromium is built on the persistent wave-windows runner.
+# The Chromium checkout and Git cache live outside GITHUB_WORKSPACE, so
+# UI-only changes reuse the existing Chromium checkout/build state instead
+# of downloading Chromium again.
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: [self-hosted, wave-windows]
+    env:
+      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
+      CHROMIUM_SRC: D:\\wave-build\\chromium\\src
+      GIT_CACHE_PATH: D:\\wave-build\\git-cache
+      DEPOT_TOOLS: D:\\wave-build\\depot_tools
+      WAVE_OUT: D:\\wave-build\\outputs
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find latest successful Chromium updater run
-        id: updater
+      - name: Verify persistent Chromium checkout
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $runs = gh run list --workflow update-chromium.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId'
-          if (-not $runs) { throw 'No successful Chromium updater run with a Windows artifact was found.' }
-          "run_id=$runs" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path (Join-Path $env:CHROMIUM_SRC '.gclient'))) {
+            throw 'Persistent Chromium checkout is missing. Run update-chromium.yml successfully once to initialize it.'
+          }
 
-      - name: Download WaveBrowser.exe from Chromium updater
+      - name: Prepare persistent Chromium tooling
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download ${{ steps.updater.outputs.run_id }} --workflow update-chromium.yml --name WaveBrowser-Windows --dir windows/out
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'D:\\wave-build', 'D:\\wave-build\\chromium', 'D:\\wave-build\\git-cache', 'D:\\wave-build\\outputs' | Out-Null
+          if (-not (Test-Path (Join-Path $env:DEPOT_TOOLS 'gclient.bat'))) {
+            throw "Persistent depot_tools is missing at $env:DEPOT_TOOLS. Run update-chromium.yml successfully once to initialize it."
+          }
+          $env:DEPOT_TOOLS | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Verify WaveBrowser.exe
-        shell: pwsh
-        run: |
-          if (-not (Test-Path windows/out/WaveBrowser.exe)) { throw 'WaveBrowser.exe was not produced by the Chromium updater.' }
+      - name: Build Wave Windows using existing Chromium checkout
+        shell: cmd
+        run: windows\\build_chromium.bat
 
       - name: Upload WaveBrowser.exe
         uses: actions/upload-artifact@v4
         with:
           name: WaveBrowser-Windows
-          path: windows/out/WaveBrowser.exe
+          path: D:\\wave-build\\outputs\\WaveBrowser.exe
+          retention-days: 90
