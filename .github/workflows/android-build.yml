@@ -68,6 +68,8 @@ jobs:
           rm -rf "$WAVE_CHROMIUM_ROOT"
           mkdir -p "$WAVE_CHROMIUM_ROOT"
           rclone copyto "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" "/tmp/chromium-$REVISION.tar.gz" --progress
+          rclone copyto "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256" "/tmp/chromium-$REVISION.sha256"
+          (cd /tmp && sha256sum -c "chromium-$REVISION.sha256")
           tar -xzf "/tmp/chromium-$REVISION.tar.gz" -C "$WAVE_CHROMIUM_ROOT"
           printf '%s\n' "$REVISION" > "$marker"
           rm -f "/tmp/chromium-$REVISION.tar.gz"
