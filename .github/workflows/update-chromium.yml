@@ -11,26 +11,54 @@ permissions:
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
+  CHECKPOINT_USED_GIB: "13"
+  CHECKPOINT_FREE_GIB: "1"
 
 jobs:
-  Package:
-    runs-on: [self-hosted, wave-android]
+  ResolveRevision:
+    runs-on: ubuntu-latest
     outputs:
       revision: ${{ steps.revision.outputs.revision }}
-      package_exists: ${{ steps.onedrive.outputs.package_exists }}
+    steps:
+      - name: Check latest Chromium revision
+        id: revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+          if [[ ! "$latest" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Could not determine a valid Chromium revision."
+            exit 1
+          fi
+          echo "revision=$latest" >> "$GITHUB_OUTPUT"
+          echo "Pinned Chromium revision for this workflow run: $latest"
+
+  Package:
+    needs: ResolveRevision
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
     env:
-      WAVE_CHROMIUM_ROOT: /opt/wave-build/chromium
-      GIT_CACHE_PATH: /opt/wave-build/git-cache
-      WAVE_DEPOT_TOOLS: /opt/wave-build/depot_tools
+      REVISION: ${{ needs.ResolveRevision.outputs.revision }}
+      WORK_ROOT: ${{ runner.temp }}/wave-chromium
+      CHECKPOINT_ROOT: ${{ env.WAVE_ONEDRIVE_PATH }}/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install rclone
+      - name: Install tools
         shell: bash
         run: |
           set -euo pipefail
           if ! command -v rclone >/dev/null 2>&1; then
             curl -fsSL https://rclone.org/install.sh | sudo bash
+          fi
+          if ! command -v zstd >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y zstd
           fi
 
       - name: Configure OneDrive
@@ -51,92 +79,240 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Checking OneDrive access..."
-          if ! rclone lsd onedrive: >/dev/null; then
-            echo "ERROR: The OneDrive remote is not readable. Ending workflow."
-            exit 1
-          fi
-          echo "OneDrive remote is readable. Continuing."
+          rclone lsd onedrive: >/dev/null
+          echo "OneDrive remote is readable."
 
-      - name: Check latest Chromium revision
-        id: revision
+      - name: Check for completed package
+        id: complete
         shell: bash
-        run: |
-          set -euo pipefail
-          latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
-          if [[ ! "$latest" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Could not determine a valid Chromium revision."
-            exit 1
-          fi
-          echo "revision=$latest" >> "$GITHUB_OUTPUT"
-          echo "Latest Chromium revision: $latest"
-
-      - name: Check whether this revision already exists in OneDrive
-        id: onedrive
-        shell: bash
-        env:
-          REVISION: ${{ steps.revision.outputs.revision }}
         run: |
           set -euo pipefail
           archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
           checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
-
           if rclone lsf "$archive" >/dev/null 2>&1 && rclone lsf "$checksum" >/dev/null 2>&1; then
-            echo "Chromium $REVISION already exists in OneDrive."
-            echo "package_exists=true" >> "$GITHUB_OUTPUT"
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "Chromium $REVISION is already packaged in OneDrive."
           else
-            echo "Chromium $REVISION is not in OneDrive."
-            echo "package_exists=false" >> "$GITHUB_OUTPUT"
+            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "Chromium $REVISION still needs to be packaged."
           fi
 
-      - name: Prepare persistent Chromium tooling
-        if: steps.onedrive.outputs.package_exists != 'true'
+      - name: Stop slot when package is already complete
+        if: steps.complete.outputs.already == 'true'
+        shell: bash
+        run: echo "Nothing to do in checkpoint slot ${{ matrix.slot }}."
+
+      - name: Restore latest checkpoint from OneDrive
+        if: steps.complete.outputs.already != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /opt/wave-build/chromium /opt/wave-build/git-cache /opt/wave-build/depot_tools
-          if [ ! -x "$WAVE_DEPOT_TOOLS/gclient" ]; then
-            rm -rf "$WAVE_DEPOT_TOOLS"
-            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$WAVE_DEPOT_TOOLS"
-          fi
-          echo "$WAVE_DEPOT_TOOLS" >> "$GITHUB_PATH"
+          mkdir -p "$WORK_ROOT"
+          checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
+          ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
 
-      - name: Download Chromium only when OneDrive does not have it
-        if: steps.onedrive.outputs.package_exists != 'true'
+          if rclone lsf "$ready" >/dev/null 2>&1 && rclone lsf "$checkpoint" >/dev/null 2>&1; then
+            echo "Restoring Chromium checkpoint from OneDrive..."
+            rclone cat "$checkpoint" | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
+            echo "Checkpoint restored."
+          else
+            echo "No completed checkpoint exists. Starting a new Chromium checkout."
+          fi
+
+      - name: Prepare depot_tools
+        if: steps.complete.outputs.already != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/depot_tools:$PATH"
+          if [ ! -x "$HOME/depot_tools/gclient" ]; then
+            git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
+          fi
+          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+
+      - name: Continue Chromium checkout and dependency sync
+        if: steps.complete.outputs.already != 'true'
+        id: sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK_ROOT"
+          cd "$WORK_ROOT"
+
+          total_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $2}')
+          free_limit_kb=$((CHECKPOINT_FREE_GIB * 1024 * 1024))
+          target_used_kb=$((CHECKPOINT_USED_GIB * 1024 * 1024))
+          max_safe_used_kb=$((total_kb - free_limit_kb))
+          if (( target_used_kb < max_safe_used_kb )); then
+            checkpoint_used_kb=$target_used_kb
+          else
+            checkpoint_used_kb=$max_safe_used_kb
+          fi
+
+          echo "Runner disk total: $((total_kb / 1024 / 1024)) GiB"
+          echo "Checkpoint target: $((checkpoint_used_kb / 1024 / 1024)) GiB used"
+
+          disk_guarded() {
+            local command="$1"
+            setsid bash -c "$command" &
+            local pid=$!
+
+            while kill -0 "$pid" 2>/dev/null; do
+              used_kb=$((total_kb - $(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')))
+              if (( used_kb >= checkpoint_used_kb )); then
+                echo "Checkpoint threshold reached at approximately $((used_kb / 1024 / 1024)) GiB used."
+                echo "Stopping the current Chromium operation safely before the runner disk fills."
+                kill -TERM -- "-$pid" 2>/dev/null || true
+                sleep 5
+                kill -KILL -- "-$pid" 2>/dev/null || true
+                wait "$pid" || true
+                return 75
+              fi
+              sleep 5
+            done
+
+            wait "$pid"
+          }
+
+          if [ ! -d "$WORK_ROOT/src/.git" ]; then
+            disk_guarded 'fetch --no-history --nohooks chromium' || rc=$?
+            rc=${rc:-0}
+            if [ "$rc" -eq 75 ]; then
+              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif [ "$rc" -ne 0 ]; then
+              exit "$rc"
+            fi
+          fi
+
+          cd "$WORK_ROOT/src"
+
+          disk_guarded 'git fetch origin main' || rc=$?
+          rc=${rc:-0}
+          if [ "$rc" -eq 75 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+
+          disk_guarded 'git checkout --detach "$REVISION"' || rc=$?
+          rc=${rc:-0}
+          if [ "$rc" -eq 75 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+
+          disk_guarded 'gclient sync --nohooks --process-all-deps --revision "src@$REVISION"' || rc=$?
+          rc=${rc:-0}
+          if [ "$rc" -eq 75 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+
+          echo "checkpoint=false" >> "$GITHUB_OUTPUT"
+          echo "Chromium source and dependencies completed for $REVISION."
+
+      - name: Save checkpoint to OneDrive
+        if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK_ROOT"
+          checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
+          partial="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial"
+          ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
+          manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
+
+          rclone deletefile "$partial" >/dev/null 2>&1 || true
+          rclone deletefile "$ready" >/dev/null 2>&1 || true
+
+          echo "Streaming the current Chromium state to OneDrive..."
+          tar -C "$WORK_ROOT" -cf - . | zstd -T0 -3 | rclone rcat "$partial" --progress
+
+          rclone moveto "$partial" "$checkpoint"
+
+          printf '{"revision":"%s","format":"tar.zst","checkpoint_slot":"%s"}\n' "$REVISION" "${{ matrix.slot }}" |
+            rclone rcat "$manifest"
+
+          printf 'ready\n' | rclone rcat "$ready"
+
+          echo "Checkpoint saved to OneDrive. The next GitHub-hosted runner will restore it and continue."
+
+      - name: Create final Chromium package directly in OneDrive
+        if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$WORK_ROOT"
+
+          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
+          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+
+          echo "Chromium is complete. Streaming the final package directly to OneDrive..."
+          tar --exclude='src/out' --exclude='src/.cipd' -czf - .gclient .gclient_entries src |
+            rclone rcat "$archive" --progress
+
+          hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
+          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum"
+
+          echo "Final Chromium package and checksum are now in OneDrive."
+
+      - name: Remove checkpoint after final package succeeds
+        if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst" >/dev/null 2>&1 || true
+          rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.ready" >/dev/null 2>&1 || true
+          rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 || true
+          echo "Temporary OneDrive checkpoint removed."
+
+  Finalize:
+    needs: [ResolveRevision, Package]
+    if: ${{ always() && needs.Package.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v rclone >/dev/null 2>&1; then
+            curl -fsSL https://rclone.org/install.sh | sudo bash
+          fi
+
+      - name: Configure OneDrive
         shell: bash
         env:
-          REVISION: ${{ steps.revision.outputs.revision }}
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
-          mkdir -p "$WAVE_CHROMIUM_ROOT"
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
 
-          cd "$WAVE_CHROMIUM_ROOT"
-          if [ ! -d "src/.git" ]; then
-            fetch --git-cache --nohooks chromium
-          fi
-
-          cd src
-          git fetch origin main
-          git checkout --detach "$REVISION"
-          gclient sync --nohooks --process-all-deps --revision "src@$REVISION"
-
-          cd ..
-          archive="/tmp/chromium-$REVISION.tar.gz"
-          checksum="/tmp/chromium-$REVISION.sha256"
-
-          rm -f "$archive" "$checksum"
-          tar --exclude='src/out' --exclude='src/.cipd' -czf "$archive" .gclient .gclient_entries src
-          sha256sum "$archive" | tee "$checksum"
-
-          rclone copyto "$archive" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" --progress
-          rclone copyto "$checksum" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256" --progress
-
-          echo "Saved Chromium $REVISION to OneDrive."
+      - name: Verify final package
+        shell: bash
+        env:
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
+        run: |
+          set -euo pipefail
+          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
+          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+          rclone lsf "$archive" >/dev/null
+          rclone lsf "$checksum" >/dev/null
+          echo "Verified final Chromium package for $REVISION."
 
       - name: Commit Chromium revision
         shell: bash
         env:
-          REVISION: ${{ steps.revision.outputs.revision }}
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -149,12 +325,7 @@ jobs:
 
       - name: Summary
         env:
-          REVISION: ${{ steps.revision.outputs.revision }}
-          EXISTS: ${{ steps.onedrive.outputs.package_exists }}
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         run: |
-          if [ "$EXISTS" = "true" ]; then
-            echo "Chromium $REVISION was already stored in OneDrive. No Chromium download was performed."
-          else
-            echo "Chromium $REVISION was missing from OneDrive, so it was downloaded once and stored there."
-          fi
-          echo "Android and Windows builds can now retrieve revision $REVISION from OneDrive."
+          echo "Chromium $REVISION is fully packaged in OneDrive."
+          echo "The source download used serial GitHub-hosted runners with OneDrive checkpoints."
