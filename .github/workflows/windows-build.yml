@@ -51,11 +51,11 @@ jobs:
       - name: Configure OneDrive
         shell: pwsh
         env:
-          RCLONE_CONFIG_B64: ${{ secrets.WAVE_ONEDRIVE_RCLONE_CONFIG_B64 }}
+          RCLONE_CONFIG_B64: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ([string]::IsNullOrWhiteSpace($env:RCLONE_CONFIG_B64)) {
-            throw 'Missing WAVE_ONEDRIVE_RCLONE_CONFIG_B64 repository secret.'
+            throw 'Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret.'
           }
           $configDir = Join-Path $env:RUNNER_TEMP 'rclone-config'
           New-Item -ItemType Directory -Force -Path $configDir | Out-Null
