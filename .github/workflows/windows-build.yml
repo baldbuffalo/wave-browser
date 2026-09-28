@@ -82,7 +82,12 @@ jobs:
           if (Test-Path $root) { Remove-Item -Recurse -Force $root }
           New-Item -ItemType Directory -Force -Path $root | Out-Null
           $archive = Join-Path $env:RUNNER_TEMP "chromium-$revision.tar.gz"
+          $hashFile = Join-Path $env:RUNNER_TEMP "chromium-$revision.sha256"
           & rclone copyto "onedrive:$env:WAVE_ONEDRIVE_PATH/chromium-$revision.tar.gz" $archive --progress
+          & rclone copyto "onedrive:$env:WAVE_ONEDRIVE_PATH/chromium-$revision.sha256" $hashFile --progress
+          $expected = (Get-Content $hashFile -Raw).Trim().Split(' ')[0].ToLowerInvariant()
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Chromium package SHA256 mismatch." }
           tar -xzf $archive -C $root
           Set-Content -Path $marker -Value $revision
           Remove-Item -Force $archive
