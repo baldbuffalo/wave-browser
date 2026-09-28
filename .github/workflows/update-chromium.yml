@@ -139,6 +139,39 @@ jobs:
             rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
           fi
 
+      - name: Verify checkpoint files before continuing
+        if: steps.complete.outputs.already != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
+          ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
+          manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
+          partial="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial"
+
+          echo "Checking every OneDrive checkpoint file for this slot..."
+          for file in "$checkpoint" "$ready" "$manifest"; do
+            if rclone lsf "$file" >/dev/null 2>&1; then
+              echo "FOUND: $file"
+            else
+              echo "MISSING: $file"
+            fi
+          done
+
+          if rclone lsf "$ready" >/dev/null 2>&1; then
+            rclone lsf "$checkpoint" >/dev/null 2>&1 || { echo "checkpoint.ready exists but checkpoint.tar.zst is missing."; exit 1; }
+            rclone lsf "$manifest" >/dev/null 2>&1 || { echo "checkpoint.ready exists but checkpoint.json is missing."; exit 1; }
+            echo "Checkpoint is complete and safe to restore."
+          elif rclone lsf "$checkpoint" >/dev/null 2>&1 || rclone lsf "$manifest" >/dev/null 2>&1; then
+            echo "Partial checkpoint state exists, but checkpoint.ready is missing. The restore step will treat it as incomplete."
+          else
+            echo "No checkpoint exists for this slot."
+          fi
+
+          if rclone lsf "$partial" >/dev/null 2>&1; then
+            echo "WARNING: an interrupted partial upload exists: $partial"
+          fi
+
       - name: Prepare depot_tools
         if: steps.complete.outputs.already != 'true'
         shell: bash
