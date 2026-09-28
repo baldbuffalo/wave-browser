@@ -10,6 +10,7 @@ permissions:
 
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
+  WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
 
 jobs:
   check-chromium:
@@ -32,7 +33,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-  build-android:
+  package-chromium:
     needs: check-chromium
     if: needs.check-chromium.outputs.changed == 'true'
     runs-on: [self-hosted, wave-android]
@@ -42,6 +43,7 @@ jobs:
       WAVE_DEPOT_TOOLS: /opt/wave-build/depot_tools
     steps:
       - uses: actions/checkout@v4
+
       - name: Prepare persistent Chromium tooling
         shell: bash
         run: |
@@ -57,71 +59,70 @@ jobs:
           git config --global core.preloadindex true
           git config --global depot-tools.allowGlobalGitConfig false
           echo "$WAVE_DEPOT_TOOLS" >> "$GITHUB_PATH"
-      - name: Pin Chromium revision
-        run: printf '%s\n' '${{ needs.check-chromium.outputs.revision }}' > android/chromium_revision.txt
-      - name: Build Chromium + Wave Android
-        run: |
-          chmod +x android/build_chromium.sh
-          android/build_chromium.sh
-      - name: Upload Wave Android output
-        uses: actions/upload-artifact@v4
-        with:
-          name: WaveBrowser-Android
-          path: android/WaveBrowser.apk
-          retention-days: 90
 
-  build-windows:
-    needs: check-chromium
-    if: needs.check-chromium.outputs.changed == 'true'
-    runs-on: [self-hosted, wave-windows]
-    env:
-      DEPOT_TOOLS_WIN_TOOLCHAIN: 0
-      CHROMIUM_SRC: D:\wave-build\chromium\src
-      GIT_CACHE_PATH: D:\wave-build\git-cache
-      DEPOT_TOOLS: D:\wave-build\depot_tools
-      WAVE_OUT: D:\wave-build\outputs
-    steps:
-      - uses: actions/checkout@v4
-      - name: Prepare persistent Chromium tooling
-        shell: pwsh
+      - name: Prepare Chromium source and dependencies once
+        shell: bash
+        env:
+          REVISION: ${{ needs.check-chromium.outputs.revision }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path 'D:\wave-build', 'D:\wave-build\chromium', 'D:\wave-build\git-cache', 'D:\wave-build\outputs' | Out-Null
-          if (-not (Test-Path (Join-Path $env:DEPOT_TOOLS 'gclient.bat'))) {
-            New-Item -ItemType Directory -Force -Path $env:DEPOT_TOOLS | Out-Null
-            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $env:DEPOT_TOOLS
-          }
-          git config --global core.autocrlf false
-          git config --global core.filemode false
-          git config --global core.fscache true
-          git config --global core.preloadindex true
-          git config --global depot-tools.allowGlobalGitConfig false
-          $env:DEPOT_TOOLS | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
-      - name: Pin Chromium revision
-        shell: pwsh
-        run: Set-Content -Path windows/chromium_revision.txt -Value '${{ needs.check-chromium.outputs.revision }}'
-      - name: Build Chromium + Wave Windows
-        shell: cmd
-        run: windows\build_chromium.bat
-      - name: Upload Wave Windows output
-        uses: actions/upload-artifact@v4
-        with:
-          name: WaveBrowser-Windows
-          path: D:\wave-build\outputs\WaveBrowser.exe
-          retention-days: 90
+          set -euo pipefail
+          cd "$WAVE_CHROMIUM_ROOT"
 
-  commit-revision:
-    needs: [check-chromium, build-android, build-windows]
-    if: needs.check-chromium.outputs.changed == 'true' && needs.build-android.result == 'success' && needs.build-windows.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          if [ ! -d "src/.git" ]; then
+            fetch --git-cache --nohooks chromium
+          fi
+
+          cd src
+          git fetch origin main
+          git checkout --detach "$REVISION"
+          gclient sync --nohooks --process-all-deps --revision "src@$REVISION"
+
+          cd ..
+          rm -f "/tmp/chromium-$REVISION.tar.gz"
+          tar             --exclude='src/out'             --exclude='src/.cipd'             -czf "/tmp/chromium-$REVISION.tar.gz"             .gclient .gclient_entries src
+
+          sha256sum "/tmp/chromium-$REVISION.tar.gz" | tee "/tmp/chromium-$REVISION.sha256"
+
+      - name: Install rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configure OneDrive
+        shell: bash
+        env:
+          RCLONE_CONFIG_B64: ${{ secrets.WAVE_ONEDRIVE_RCLONE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RCLONE_CONFIG_B64" ]; then
+            echo "Missing WAVE_ONEDRIVE_RCLONE_CONFIG_B64 repository secret."
+            exit 1
+          fi
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+          rclone listremotes
+
+      - name: Upload Chromium package to OneDrive
+        shell: bash
+        env:
+          REVISION: ${{ needs.check-chromium.outputs.revision }}
+        run: |
+          set -euo pipefail
+          rclone copyto "/tmp/chromium-$REVISION.tar.gz" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" --progress
+          rclone copyto "/tmp/chromium-$REVISION.sha256" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+
       - name: Commit Chromium revision
+        shell: bash
+        env:
+          REVISION: ${{ needs.check-chromium.outputs.revision }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          printf '%s\n' '${{ needs.check-chromium.outputs.revision }}' > android/chromium_revision.txt
-          printf '%s\n' '${{ needs.check-chromium.outputs.revision }}' > windows/chromium_revision.txt
+          printf '%s\n' "$REVISION" > android/chromium_revision.txt
+          printf '%s\n' "$REVISION" > windows/chromium_revision.txt
           git add android/chromium_revision.txt windows/chromium_revision.txt
           git diff --cached --quiet || git commit -m "Update Chromium revision"
           git push
