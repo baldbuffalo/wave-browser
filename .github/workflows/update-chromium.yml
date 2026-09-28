@@ -36,11 +36,11 @@ jobs:
       - name: Configure OneDrive
         shell: bash
         env:
-          RCLONE_CONFIG_B64: ${{ secrets.WAVE_ONEDRIVE_RCLONE_CONFIG_B64 }}
+          RCLONE_CONFIG_B64: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
           if [ -z "$RCLONE_CONFIG_B64" ]; then
-            echo "Missing WAVE_ONEDRIVE_RCLONE_CONFIG_B64 repository secret."
+            echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."
             exit 1
           fi
           mkdir -p "$HOME/.config/rclone"
