@@ -62,6 +62,11 @@ jobs:
           STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
           mkdir -p "$ROOT"
 
+          if rclone lsf "onedrive:$STAGING/build.complete" >/dev/null 2>&1; then
+            echo "Android build for $REVISION is already complete."
+            exit 0
+          fi
+
           if rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
             echo "Restoring Android build checkpoint for $REVISION."
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
@@ -82,6 +87,7 @@ jobs:
           export WAVE_CHROMIUM_ROOT="$WAVE_WORK_ROOT"
           export GIT_CACHE_PATH="$WAVE_WORK_ROOT/git-cache"
           export WAVE_DEPOT_TOOLS="$RUNNER_TEMP/depot_tools"
+          export WAVE_CHROMIUM_PREPARED=1
           chmod +x android/build_chromium.sh
 
           set +e
@@ -139,4 +145,7 @@ jobs:
           set -euo pipefail
           REVISION=$(cat "$WAVE_WORK_ROOT/.wave_revision")
           rclone copyto android/WaveBrowser.apk "onedrive:$WAVE_ONEDRIVE_PATH/WaveBrowser-Android-$REVISION.apk"
-          rclone delete "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION" || true
+          printf '%s
+' "$REVISION" | rclone rcat "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/build.complete"
+          rclone delete "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/checkpoint.ready" || true
+          rclone deletefile "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/checkpoint.tar.zst" || true
