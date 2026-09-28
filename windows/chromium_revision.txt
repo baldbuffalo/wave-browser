@@ -1,2 +1,2 @@
-# Pin the Chromium source revision used to build Wave for Windows.
-# Replace this with a known Chromium commit/revision when the Windows build is initialized.
+# Pinned Chromium revision used by the Windows Wave build.
+# This file is automatically updated by .github/workflows/update-chromium.yml.
