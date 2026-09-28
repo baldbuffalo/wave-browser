@@ -4,7 +4,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'wiiu/**'
   pull_request:
+    paths:
+      - 'wiiu/**'
   workflow_dispatch:
 
 jobs:
