@@ -36,16 +36,27 @@ jobs:
       - name: Configure OneDrive
         shell: bash
         env:
-          RCLONE_CONFIG_B64: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
-          if [ -z "$RCLONE_CONFIG_B64" ]; then
+          if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
             echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."
             exit 1
           fi
           mkdir -p "$HOME/.config/rclone"
-          printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$HOME/.config/rclone/rclone.conf"
+          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
+
+      - name: Verify OneDrive is readable
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking OneDrive access..."
+          if ! rclone lsd onedrive: >/dev/null; then
+            echo "ERROR: The OneDrive remote is not readable. Ending workflow."
+            exit 1
+          fi
+          echo "OneDrive remote is readable. Continuing."
 
       - name: Check latest Chromium revision
         id: revision
