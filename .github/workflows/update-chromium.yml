@@ -333,4 +333,5 @@ jobs:
       - name: Build next step
         run: |
           echo "Chromium packaging is complete."
-          echo "You can now run the Android or Windows build workflow to compile Chromium into WaveBrowser."
+          echo ""
+          echo "You can now run the Android or Windows build workflow to compile Chromium for the specific platform to add the platform specific engine to WaveBrowser."
