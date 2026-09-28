@@ -7,40 +7,56 @@ on:
       - 'android/**'
       - '.github/workflows/android-build.yml'
 
-permissions:
-  actions: read
+# Android Chromium is built on the persistent wave-android runner.
+# The Chromium checkout and Git cache live outside GITHUB_WORKSPACE, so
+# UI-only changes reuse the existing Chromium checkout/build state instead
+# of downloading Chromium again.
 
 jobs:
   build-android:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, wave-android]
+    env:
+      WAVE_CHROMIUM_ROOT: /opt/wave-build/chromium
+      GIT_CACHE_PATH: /opt/wave-build/git-cache
+      WAVE_DEPOT_TOOLS: /opt/wave-build/depot_tools
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find latest successful Chromium updater run
-        id: updater
+      - name: Prepare persistent Chromium tooling
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          run_id=$(gh run list --workflow update-chromium.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
-          if [ -z "$run_id" ]; then
-            echo "No successful Chromium updater run was found." >&2
+          mkdir -p /opt/wave-build/chromium /opt/wave-build/git-cache /opt/wave-build/depot_tools
+          if [ ! -x "$WAVE_DEPOT_TOOLS/gclient" ]; then
+            rm -rf "$WAVE_DEPOT_TOOLS"
+            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$WAVE_DEPOT_TOOLS"
+          fi
+          git config --global core.autocrlf false
+          git config --global core.filemode false
+          git config --global core.fscache true
+          git config --global core.preloadindex true
+          git config --global depot-tools.allowGlobalGitConfig false
+          echo "$WAVE_DEPOT_TOOLS" >> "$GITHUB_PATH"
+
+      - name: Verify persistent Chromium checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d "$WAVE_CHROMIUM_ROOT/src/.git" ]; then
+            echo "Persistent Chromium checkout is missing."
+            echo "Run update-chromium.yml successfully once to initialize it."
             exit 1
           fi
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
-      - name: Download WaveBrowser.apk from Chromium updater
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build Wave Android using existing Chromium checkout
+        shell: bash
         run: |
-          gh run download "${{ steps.updater.outputs.run_id }}" --workflow update-chromium.yml --name WaveBrowser-Android --dir android
-
-      - name: Verify WaveBrowser.apk
-        run: test -f android/WaveBrowser.apk
+          chmod +x android/build_chromium.sh
+          android/build_chromium.sh
 
       - name: Upload WaveBrowser.apk
         uses: actions/upload-artifact@v4
         with:
           name: WaveBrowser-Android
           path: android/WaveBrowser.apk
+          retention-days: 90
