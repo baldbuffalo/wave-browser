@@ -13,30 +13,11 @@ env:
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
 
 jobs:
-  check-chromium:
-    runs-on: ubuntu-latest
+  prepare:
+    runs-on: [self-hosted, wave-android]
     outputs:
       revision: ${{ steps.revision.outputs.revision }}
-      changed: ${{ steps.revision.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v4
-      - id: revision
-        shell: bash
-        run: |
-          set -euo pipefail
-          latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
-          current=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]' || true)
-          echo "revision=$latest" >> "$GITHUB_OUTPUT"
-          if [ "$latest" = "$current" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  package-chromium:
-    needs: check-chromium
-    if: needs.check-chromium.outputs.changed == 'true'
-    runs-on: [self-hosted, wave-android]
+      package_exists: ${{ steps.onedrive.outputs.package_exists }}
     env:
       WAVE_CHROMIUM_ROOT: /opt/wave-build/chromium
       GIT_CACHE_PATH: /opt/wave-build/git-cache
@@ -44,50 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare persistent Chromium tooling
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p /opt/wave-build/chromium /opt/wave-build/git-cache /opt/wave-build/depot_tools
-          if [ ! -x "$WAVE_DEPOT_TOOLS/gclient" ]; then
-            rm -rf "$WAVE_DEPOT_TOOLS"
-            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$WAVE_DEPOT_TOOLS"
-          fi
-          git config --global core.autocrlf false
-          git config --global core.filemode false
-          git config --global core.fscache true
-          git config --global core.preloadindex true
-          git config --global depot-tools.allowGlobalGitConfig false
-          echo "$WAVE_DEPOT_TOOLS" >> "$GITHUB_PATH"
-
-      - name: Prepare Chromium source and dependencies once
-        shell: bash
-        env:
-          REVISION: ${{ needs.check-chromium.outputs.revision }}
-        run: |
-          set -euo pipefail
-          cd "$WAVE_CHROMIUM_ROOT"
-
-          if [ ! -d "src/.git" ]; then
-            fetch --git-cache --nohooks chromium
-          fi
-
-          cd src
-          git fetch origin main
-          git checkout --detach "$REVISION"
-          gclient sync --nohooks --process-all-deps --revision "src@$REVISION"
-
-          cd ..
-          rm -f "/tmp/chromium-$REVISION.tar.gz"
-          tar             --exclude='src/out'             --exclude='src/.cipd'             -czf "/tmp/chromium-$REVISION.tar.gz"             .gclient .gclient_entries src
-
-          sha256sum "/tmp/chromium-$REVISION.tar.gz" | tee "/tmp/chromium-$REVISION.sha256"
-
       - name: Install rclone
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL https://rclone.org/install.sh | sudo bash
+          if ! command -v rclone >/dev/null 2>&1; then
+            curl -fsSL https://rclone.org/install.sh | sudo bash
+          fi
 
       - name: Configure OneDrive
         shell: bash
@@ -102,21 +46,86 @@ jobs:
           mkdir -p "$HOME/.config/rclone"
           printf '%s' "$RCLONE_CONFIG_B64" | base64 --decode > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
-          rclone listremotes
 
-      - name: Upload Chromium package to OneDrive
+      - name: Check latest Chromium revision
+        id: revision
         shell: bash
-        env:
-          REVISION: ${{ needs.check-chromium.outputs.revision }}
         run: |
           set -euo pipefail
-          rclone copyto "/tmp/chromium-$REVISION.tar.gz" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" --progress
-          rclone copyto "/tmp/chromium-$REVISION.sha256" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+          latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+          if [[ ! "$latest" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Could not determine a valid Chromium revision."
+            exit 1
+          fi
+          echo "revision=$latest" >> "$GITHUB_OUTPUT"
+          echo "Latest Chromium revision: $latest"
+
+      - name: Check whether this revision already exists in OneDrive
+        id: onedrive
+        shell: bash
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+        run: |
+          set -euo pipefail
+          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
+          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+
+          if rclone lsf "$archive" >/dev/null 2>&1 && rclone lsf "$checksum" >/dev/null 2>&1; then
+            echo "Chromium $REVISION already exists in OneDrive."
+            echo "package_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Chromium $REVISION is not in OneDrive."
+            echo "package_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare persistent Chromium tooling
+        if: steps.onedrive.outputs.package_exists != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /opt/wave-build/chromium /opt/wave-build/git-cache /opt/wave-build/depot_tools
+          if [ ! -x "$WAVE_DEPOT_TOOLS/gclient" ]; then
+            rm -rf "$WAVE_DEPOT_TOOLS"
+            git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git "$WAVE_DEPOT_TOOLS"
+          fi
+          echo "$WAVE_DEPOT_TOOLS" >> "$GITHUB_PATH"
+
+      - name: Download Chromium only when OneDrive does not have it
+        if: steps.onedrive.outputs.package_exists != 'true'
+        shell: bash
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WAVE_CHROMIUM_ROOT"
+
+          cd "$WAVE_CHROMIUM_ROOT"
+          if [ ! -d "src/.git" ]; then
+            fetch --git-cache --nohooks chromium
+          fi
+
+          cd src
+          git fetch origin main
+          git checkout --detach "$REVISION"
+          gclient sync --nohooks --process-all-deps --revision "src@$REVISION"
+
+          cd ..
+          archive="/tmp/chromium-$REVISION.tar.gz"
+          checksum="/tmp/chromium-$REVISION.sha256"
+
+          rm -f "$archive" "$checksum"
+          tar --exclude='src/out' --exclude='src/.cipd' -czf "$archive" .gclient .gclient_entries src
+          sha256sum "$archive" | tee "$checksum"
+
+          rclone copyto "$archive" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" --progress
+          rclone copyto "$checksum" "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256" --progress
+
+          echo "Saved Chromium $REVISION to OneDrive."
 
       - name: Commit Chromium revision
         shell: bash
         env:
-          REVISION: ${{ needs.check-chromium.outputs.revision }}
+          REVISION: ${{ steps.revision.outputs.revision }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -126,3 +135,15 @@ jobs:
           git add android/chromium_revision.txt windows/chromium_revision.txt
           git diff --cached --quiet || git commit -m "Update Chromium revision"
           git push
+
+      - name: Summary
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+          EXISTS: ${{ steps.onedrive.outputs.package_exists }}
+        run: |
+          if [ "$EXISTS" = "true" ]; then
+            echo "Chromium $REVISION was already stored in OneDrive. No Chromium download was performed."
+          else
+            echo "Chromium $REVISION was missing from OneDrive, so it was downloaded once and stored there."
+          fi
+          echo "Android and Windows builds can now retrieve revision $REVISION from OneDrive."
