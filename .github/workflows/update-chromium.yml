@@ -569,7 +569,7 @@ jobs:
 
           if [ ! -d "$WORK_ROOT/src/.git" ]; then
             mkdir -p "$WORK_ROOT/src"
-            git -C "$WORK_ROOT/src" init
+            git -C "$WORK_ROOT/src" init -b main
             git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
           elif ! git -C "$WORK_ROOT/src" remote get-url origin >/dev/null 2>&1; then
             git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
