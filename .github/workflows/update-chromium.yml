@@ -652,7 +652,7 @@ jobs:
           echo "Chromium package is complete. Cancelling remaining Package matrix jobs so Finalize can run."
 
           for attempt in {1..10}; do
-            remaining=$(gh api --paginate --slurp               "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100"               --jq '.[] | .jobs[] | select(.name | startswith("Package (")) | select(.name != $ENV.CURRENT_PACKAGE_JOB) | select(.status == "queued" or .status == "in_progress") | .id'               2>/dev/null || true)
+            remaining=$(gh api --paginate --slurp               "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100"               2>/dev/null | jq -r --arg current "$CURRENT_PACKAGE_JOB"               '.[] | .jobs[] | select(.name | startswith("Package (")) | select(.name != $current) | select(.status == "queued" or .status == "in_progress") | .id'               || true)
 
             if [ -z "$remaining" ]; then
               echo "No remaining queued/in-progress Package jobs found."
