@@ -595,6 +595,29 @@ jobs:
 
           cd "$WORK_ROOT"
 
+          # Checkpoints may have been created before the public-checkout custom vars
+          # were added. Enforce them on every restored .gclient so an old checkpoint
+          # can never make gclient request Chromium's private internal repositories.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(".gclient")
+          namespace = {}
+          exec(path.read_text(), {}, namespace)
+          solutions = namespace.get("solutions")
+          if not solutions:
+              raise SystemExit("ERROR: .gclient has no solutions entry.")
+          custom_vars = solutions[0].setdefault("custom_vars", {})
+          custom_vars["checkout_src_internal"] = False
+          custom_vars["checkout_agents_internal"] = False
+          path.write_text(path.read_text() + "\n# WaveBrowser: keep this checkout public-only.\nsolutions[0].setdefault('custom_vars', {}).update({\n    'checkout_src_internal': False,\n    'checkout_agents_internal': False,\n})\n")
+          PY
+
+          # A previous failed sync can leave private-repository scratch directories
+          # behind. They are not part of the public Chromium checkout and must not
+          # be carried into the completed source package.
+          rm -rf "$WORK_ROOT/src/agents/internal" "$WORK_ROOT/_bad_scm"
+
           rc=0
           disk_guarded 'gclient sync --nohooks --process-all-deps --revision "src@$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
