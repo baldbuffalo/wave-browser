@@ -3,6 +3,11 @@ name: Package Chromium for WaveBrowser
 on:
   workflow_dispatch:
 
+# Prevent two manual Chromium packaging runs from touching the same OneDrive staging area.
+concurrency:
+  group: wave-browser-chromium-packaging
+  cancel-in-progress: false
+
 permissions:
   contents: write
   actions: write
@@ -343,8 +348,11 @@ jobs:
           set -euo pipefail
           source_archive="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst"
           source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
+          source_manifest="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.json"
 
-          if rclone lsf "$source_archive" >/dev/null 2>&1 && rclone lsf "$source_ready" >/dev/null 2>&1; then
+          if rclone lsf "$source_archive" >/dev/null 2>&1 &&
+             rclone lsf "$source_ready" >/dev/null 2>&1 &&
+             rclone lsf "$source_manifest" >/dev/null 2>&1; then
             echo "already=true" >> "$GITHUB_OUTPUT"
             echo "Full Chromium source and dependencies are already downloaded for $REVISION."
           else
@@ -370,7 +378,18 @@ jobs:
           if $ready_exists && $checkpoint_exists && $manifest_exists; then
             echo "All checkpoint files exist; restoring the checkpoint."
             rclone cat "$checkpoint" | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
-            echo "Checkpoint restored."
+
+            if [ ! -f "$WORK_ROOT/.gclient" ] || [ ! -d "$WORK_ROOT/src/.git" ]; then
+              echo "Restored checkpoint is missing required Chromium checkout metadata."
+              echo "The checkpoint will be discarded and this slot will start from a clean state."
+              rclone deletefile "$ready" >/dev/null 2>&1 || true
+              rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
+              rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 || true
+              rm -rf "$WORK_ROOT"
+              mkdir -p "$WORK_ROOT"
+            else
+              echo "Checkpoint restored and basic checkout structure verified."
+            fi
           elif ! $ready_exists && ! $checkpoint_exists && ! $manifest_exists; then
             echo "No checkpoint files exist. Starting a new Chromium checkout."
           else
@@ -487,7 +506,6 @@ jobs:
           # disk growth caused by Chromium work from this point instead of rescanning
           # the entire checkout with du. This keeps the guard cheap enough to run
           # during a large git clone.
-          mkdir -p "$WORK_ROOT"
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
 
           start_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
@@ -719,9 +737,7 @@ jobs:
 
       - name: Restore complete Chromium source and create final package
         env:
-          GH_TOKEN: ${{ github.token }}
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
-          ORIGINAL_ATTEMPT: ${{ github.run_attempt }}
         shell: bash
         run: |
           set -euo pipefail
@@ -729,59 +745,22 @@ jobs:
           source_root="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION"
           source_archive="$source_root/chromium-$REVISION.source.tar.zst"
           source_ready="$source_root/source.ready"
+          source_manifest="$source_root/source.json"
           work_root="$RUNNER_TEMP/wave-chromium"
           archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
           checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
 
           source_complete() {
             rclone lsf "$source_archive" >/dev/null 2>&1 &&
-            rclone lsf "$source_ready" >/dev/null 2>&1
+            rclone lsf "$source_ready" >/dev/null 2>&1 &&
+            rclone lsf "$source_manifest" >/dev/null 2>&1
           }
 
           if ! source_complete; then
-            echo "Complete Chromium source is not present yet."
-            echo "Re-running cancelled Package jobs one at a time until the full download is complete."
-
-            declare -A tried_jobs=()
-
-            while ! source_complete; do
-              job_id=$(
-                gh api --paginate --slurp                   "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${ORIGINAL_ATTEMPT}/jobs?per_page=100" |
-                jq -r '.[] | .jobs[] | select(.name | startswith("Package (")) | select(.conclusion == "cancelled") | .id' |
-                while read -r candidate; do
-                  [ -n "$candidate" ] || continue
-                  if [ -z "${tried_jobs[$candidate]+x}" ]; then
-                    echo "$candidate"
-                    break
-                  fi
-                done
-              )
-
-              if [ -z "$job_id" ]; then
-                echo "No unused cancelled Package jobs remain, but the full Chromium source is still missing."
-                exit 1
-              fi
-
-              tried_jobs["$job_id"]=1
-              echo "Re-running cancelled Package job $job_id to continue the Chromium download..."
-              gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id/rerun" >/dev/null
-
-              status=""
-              for poll in {1..2160}; do
-                status=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.status')
-                conclusion=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.conclusion // ""')
-                if [ "$status" = "completed" ]; then
-                  echo "Package job $job_id completed with conclusion: $conclusion"
-                  break
-                fi
-                sleep 10
-              done
-
-              if [ "$status" != "completed" ]; then
-                echo "Timed out waiting for Package job $job_id."
-                continue
-              fi
-            done
+            echo "ERROR: the Package matrix finished without a complete Chromium source archive."
+            echo "No additional Package jobs will be created from Finalize."
+            echo "This means the Package matrix failed before its completion marker was written."
+            exit 1
           fi
 
           echo "Full Chromium source is ready. Restoring it on the Finalize runner..."
