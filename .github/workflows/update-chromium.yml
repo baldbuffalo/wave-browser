@@ -10,8 +10,7 @@ permissions:
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
-  CHECKPOINT_BUDGET_GIB: "13"
-  CHECKPOINT_FREE_GIB: "5"
+  CHECKPOINT_FREE_GIB: "13"
 
 jobs:
   ResolveRevision:
@@ -485,19 +484,12 @@ jobs:
 
           total_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $2}')
           free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
-          start_used_kb=$((total_kb - free_kb))
-          budget_kb=$((CHECKPOINT_BUDGET_GIB * 1024 * 1024))
           free_limit_kb=$((CHECKPOINT_FREE_GIB * 1024 * 1024))
-          max_safe_used_kb=$((total_kb - free_limit_kb))
-          checkpoint_used_kb=$((start_used_kb + budget_kb))
-          if (( checkpoint_used_kb > max_safe_used_kb )); then
-            checkpoint_used_kb=$max_safe_used_kb
-          fi
 
-          echo "Runner disk total: $((total_kb / 1024 / 1024)) GiB"
-          echo "Disk used when Chromium work starts: $((start_used_kb / 1024 / 1024)) GiB"
-          echo "Checkpoint budget for this runner: $(( (checkpoint_used_kb - start_used_kb) / 1024 / 1024 )) GiB additional"
-          echo "Checkpoint threshold: $((checkpoint_used_kb / 1024 / 1024)) GiB used"
+          echo "Filesystem size reported by runner: $((total_kb / 1024 / 1024)) GiB"
+          echo "Free disk when Chromium work starts: $((free_kb / 1024 / 1024)) GiB"
+          echo "Checkpoint safety threshold: $CHECKPOINT_FREE_GIB GiB free"
+          echo "Chromium work will checkpoint before free space reaches the safety threshold."
 
           disk_guarded() {
             local command="$1"
@@ -505,9 +497,9 @@ jobs:
             local pid=$!
 
             while kill -0 "$pid" 2>/dev/null; do
-              used_kb=$((total_kb - $(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')))
-              if (( used_kb >= checkpoint_used_kb )); then
-                echo "Checkpoint threshold reached at approximately $((used_kb / 1024 / 1024)) GiB used."
+              current_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
+              if (( current_free_kb <= free_limit_kb )); then
+                echo "Checkpoint safety threshold reached at approximately $((current_free_kb / 1024 / 1024)) GiB free."
                 echo "Stopping the current Chromium operation safely before the runner disk fills."
                 kill -TERM -- "-$pid" 2>/dev/null || true
                 sleep 5
