@@ -605,7 +605,11 @@ jobs:
           rclone deletefile "$source_ready" >/dev/null 2>&1 || true
 
           echo "Chromium source/dependencies are complete. Saving them for Finalize to package..."
-          tar -C "$WORK_ROOT" -czf - --exclude='./src/out' --exclude='./src/.cipd' --exclude='./src/.git' .gclient .gclient_entries src |
+          tar -C "$WORK_ROOT" -cf - \
+            --exclude='./src/out' \
+            --exclude='./src/.cipd' \
+            --exclude='./src/.git' \
+            .gclient .gclient_entries src |
             zstd -T0 -3 | rclone rcat "$source_partial" --progress
 
           rclone moveto "$source_partial" "$source_archive"
