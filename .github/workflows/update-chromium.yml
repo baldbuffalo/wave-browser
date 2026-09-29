@@ -836,11 +836,25 @@ jobs:
           echo "Chromium $REVISION is fully packaged in OneDrive."
           echo "The source download used serial GitHub-hosted runners with OneDrive checkpoints."
 
-      - name: Build next step
+      - name: Prepare platform build handoff
+        shell: bash
+        env:
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         run: |
-          echo "Chromium packaging is complete."
-          echo ""
-          echo "You can now run the Android or Windows build workflow to compile Chromium for the specific platform to add the platform specific engine to WaveBrowser."
+          set -euo pipefail
+
+          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
+          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+
+          rclone lsf "$archive" >/dev/null
+          rclone lsf "$checksum" >/dev/null
+
+          printf '{"revision":"%s","source_archive":"chromium-%s.tar.gz","checksum":"chromium-%s.sha256","ready_for_platform_builds":true}\n' \
+            "$REVISION" "$REVISION" "$REVISION" |
+            rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.ready.json"
+
+          echo "Chromium $REVISION is ready for platform-specific compilation."
+          echo "Android and Windows workflows will restore this verified source package and compile their own platform engine."
     needs: [ResolveRevision, Package]
     if: ${{ always() && needs.ResolveRevision.result == 'success' && (needs.Package.result == 'success' || needs.Package.result == 'cancelled') }}
     runs-on: ubuntu-latest
