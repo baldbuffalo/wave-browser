@@ -654,7 +654,7 @@ jobs:
           tar -C "$WORK_ROOT" -cf - \
             --exclude='./src/out' \
             --exclude='./src/.cipd' \
-            --exclude='./src/.git' \
+            --exclude='*/.git' \
             --exclude='./.gclient_cache' \
             .gclient .gclient_entries src |
             zstd -T0 -3 | rclone rcat "$source_partial" --progress
@@ -763,23 +763,22 @@ jobs:
             exit 1
           fi
 
-          echo "Full Chromium source is ready. Restoring it on the Finalize runner..."
-          mkdir -p "$work_root"
-          rclone cat "$source_archive" | zstd -d | tar -xpf - -C "$work_root"
+          echo "Full Chromium source is ready. Streaming it directly into the final gzip package..."
 
-          test -d "$work_root/src"
-          test -f "$work_root/.gclient"
-          test -f "$work_root/.gclient_entries"
+          archive_partial="$source_root/chromium-$REVISION.tar.gz.partial"
+          checksum_partial="$source_root/chromium-$REVISION.sha256.partial"
 
-          echo "Creating final Chromium tar.gz package from the verified source..."
-          rm -f "$RUNNER_TEMP/chromium-$REVISION.tar.gz"
-          tar -C "$work_root" -czf "$RUNNER_TEMP/chromium-$REVISION.tar.gz"             --exclude='./src/out'             --exclude='./src/.cipd'             --exclude='./src/.git'             .gclient .gclient_entries src
+          # The source archive is already a complete tar stream. Decompress zstd
+          # and recompress that same tar stream as gzip without extracting Chromium
+          # onto the runner. This keeps Finalize's local disk usage tiny.
+          rclone deletefile "$archive_partial" >/dev/null 2>&1 || true
+          rclone cat "$source_archive" | zstd -d | gzip -1 | rclone rcat "$archive_partial"
+          rclone moveto "$archive_partial" "$archive"
 
-          echo "Uploading final Chromium package to OneDrive..."
-          rclone copyto "$RUNNER_TEMP/chromium-$REVISION.tar.gz" "$archive"
-
-          hash=$(sha256sum "$RUNNER_TEMP/chromium-$REVISION.tar.gz" | awk '{print $1}')
-          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum"
+          echo "Calculating and verifying the final package checksum..."
+          hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
+          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum_partial"
+          rclone moveto "$checksum_partial" "$checksum"
 
           echo "Verifying final package..."
           rclone lsf "$archive" >/dev/null
@@ -792,17 +791,6 @@ jobs:
 
           rclone cat "$archive" | tar -tzf - >/dev/null
           echo "Final Chromium package is checksum-valid and structurally readable."
-
-          echo "Removing temporary source/checkpoint data after successful packaging..."
-          rclone deletefile "$source_archive" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst.partial" >/dev/null 2>&1 || true
-          rclone deletefile "$source_ready" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/source.json" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.tar.zst" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.ready" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.json" >/dev/null 2>&1 || true
-          echo "OneDrive temporary source/checkpoint cleanup complete."
 
       - name: Commit Chromium revision
         shell: bash
@@ -844,3 +832,25 @@ jobs:
 
           echo "Chromium $REVISION is ready for platform-specific compilation."
           echo "Android and Windows workflows will restore this verified source package and compile their own platform engine."
+
+      - name: Clean temporary OneDrive source/checkpoint state
+        shell: bash
+        env:
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
+        run: |
+          set -euo pipefail
+
+          source_root="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION"
+
+          echo "Removing temporary source/checkpoint data after the final package and handoff are verified..."
+          rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst.partial" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/source.ready" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/source.json" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.tar.zst" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.ready" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.json" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/chromium-$REVISION.tar.gz.partial" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/chromium-$REVISION.sha256.partial" >/dev/null 2>&1 || true
+          echo "OneDrive temporary source/checkpoint cleanup complete."
