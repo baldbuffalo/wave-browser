@@ -595,23 +595,19 @@ jobs:
 
           cd "$WORK_ROOT"
 
-          # Checkpoints may have been created before the public-checkout custom vars
-          # were added. Enforce them on every restored .gclient so an old checkpoint
-          # can never make gclient request Chromium's private internal repositories.
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path(".gclient")
-          namespace = {}
-          exec(path.read_text(), {}, namespace)
-          solutions = namespace.get("solutions")
-          if not solutions:
-              raise SystemExit("ERROR: .gclient has no solutions entry.")
-          custom_vars = solutions[0].setdefault("custom_vars", {})
-          custom_vars["checkout_src_internal"] = False
-          custom_vars["checkout_agents_internal"] = False
-          path.write_text(path.read_text() + "\n# WaveBrowser: keep this checkout public-only.\nsolutions[0].setdefault('custom_vars', {}).update({\n    'checkout_src_internal': False,\n    'checkout_agents_internal': False,\n})\n")
-          PY
+          # Older checkpoints may contain a .gclient generated without the
+          # public-only custom variables. Recreate the config with gclient's
+          # supported config command so custom_vars is a normal dictionary in
+          # the generated file. This is also idempotent across resumed slots.
+          rm -f "$WORK_ROOT/.gclient"
+          rc=0
+          disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
+          if [ "$rc" -eq 75 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
 
           # A previous failed sync can leave private-repository scratch directories
           # behind. They are not part of the public Chromium checkout and must not
