@@ -435,24 +435,55 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/depot_tools:$PATH"
 
-          if [ ! -x "$HOME/depot_tools/gclient" ]; then
-            attempt=1
+          attempt=1
+          while true; do
+            rm -rf "$HOME/depot_tools"
+            echo "Installing depot_tools (attempt $attempt)..."
+
+            if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools" &&
+               [ -x "$HOME/depot_tools/gclient" ]; then
+              echo "depot_tools clone succeeded."
+              break
+            fi
+
+            echo "depot_tools clone failed or gclient is missing."
+            echo "Removing incomplete checkout and retrying in 10 seconds..."
+            rm -rf "$HOME/depot_tools"
+            attempt=$((attempt + 1))
+            sleep 10
+          done
+
+          export PATH="$HOME/depot_tools:$PATH"
+
+          # gclient normally auto-updates depot_tools. Disable that automatic
+          # update so a transient depot_tools self-update cannot bypass the
+          # retry loop and kill this job.
+          export DEPOT_TOOLS_UPDATE=0
+
+          # Verify the checkout is usable before allowing Chromium work to start.
+          while true; do
+            if "$HOME/depot_tools/gclient" --version >/dev/null 2>&1; then
+              echo "depot_tools verification succeeded."
+              break
+            fi
+
+            echo "depot_tools verification failed; reinstalling..."
+            rm -rf "$HOME/depot_tools"
+            attempt=$((attempt + 1))
+            echo "Retrying depot_tools installation (attempt $attempt) in 10 seconds..."
+            sleep 10
+
             while true; do
-              rm -rf "$HOME/depot_tools"
-              echo "Cloning depot_tools (attempt $attempt)..."
-              if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"; then
+              if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools" &&
+                 [ -x "$HOME/depot_tools/gclient" ]; then
                 break
               fi
-              echo "depot_tools clone failed; retrying..."
+              rm -rf "$HOME/depot_tools"
               attempt=$((attempt + 1))
+              echo "depot_tools clone failed; retrying in 10 seconds..."
               sleep 10
             done
-          fi
-
-          if [ ! -x "$HOME/depot_tools/gclient" ]; then
-            echo "depot_tools clone completed but gclient was not found."
-            exit 1
-          fi
+          done
 
           echo "$HOME/depot_tools" >> "$GITHUB_PATH"
 
