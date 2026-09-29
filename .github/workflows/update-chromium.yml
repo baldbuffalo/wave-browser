@@ -518,7 +518,10 @@ jobs:
             wait "$pid"
           }
 
-          if [ ! -d "$WORK_ROOT/src/.git" ]; then
+          # A checkpoint may contain a partially created Chromium checkout.
+          # gclient fetch refuses to run when any checkout state already exists,
+          # so only use fetch when there is no checkout or gclient metadata at all.
+          if [ ! -d "$WORK_ROOT/src" ] && [ ! -f "$WORK_ROOT/.gclient" ]; then
             rc=0
             disk_guarded 'fetch --no-history --nohooks chromium' || rc=$?
             if [ "$rc" -eq 75 ]; then
@@ -527,6 +530,8 @@ jobs:
             elif [ "$rc" -ne 0 ]; then
               exit "$rc"
             fi
+          else
+            echo "Existing Chromium checkout/checkpoint state detected; resuming with gclient sync instead of fetch."
           fi
 
           cd "$WORK_ROOT/src"
