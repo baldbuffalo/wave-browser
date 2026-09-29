@@ -2,10 +2,6 @@ name: Wave Windows Build
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'windows/**'
-      - '.github/workflows/windows-build.yml'
 
 jobs:
   build-windows:
