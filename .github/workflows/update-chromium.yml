@@ -482,15 +482,20 @@ jobs:
           mkdir -p "$WORK_ROOT"
           cd "$WORK_ROOT"
 
-          total_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $2}')
-          free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
-          start_used_kb=$((total_kb - free_kb))
-          used_limit_kb=$((CHECKPOINT_USED_GIB * 1024 * 1024))
+          # The runner image itself already consumes substantial space, so df's
+          # whole-filesystem "used" value cannot represent the 14 GiB Chromium
+          # workspace budget. Measure the actual Chromium working tree instead.
+          mkdir -p "$WORK_ROOT"
+          export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
 
-          echo "Filesystem size reported by runner: $((total_kb / 1024 / 1024)) GiB"
-          echo "Used disk when Chromium work starts: $((start_used_kb / 1024 / 1024)) GiB"
-          echo "Checkpoint safety threshold: $CHECKPOINT_USED_GIB GiB used"
-          echo "Chromium work will checkpoint before used space reaches the safety threshold."
+          workspace_start_kb=$(du -sx -k "$WORK_ROOT" | awk '{print $1}')
+          used_limit_kb=$((CHECKPOINT_USED_GIB * 1024 * 1024))
+          workspace_start_bytes=$((workspace_start_kb * 1024))
+
+          echo "Runner filesystem view: $(df -h "$WORK_ROOT" | awk 'NR==2 {print $2 " total, " $3 " used, " $4 " free"}')"
+          echo "Chromium workspace used when sync starts: $((workspace_start_kb / 1024 / 1024)) GiB"
+          echo "Chromium workspace checkpoint threshold: $CHECKPOINT_USED_GIB GiB used"
+          echo "Only Chromium workspace growth/state is counted toward the checkpoint threshold."
 
           disk_guarded() {
             local command="$1"
@@ -498,17 +503,18 @@ jobs:
             local pid=$!
 
             while kill -0 "$pid" 2>/dev/null; do
-              current_used_kb=$((total_kb - $(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')))
-              if (( current_used_kb >= used_limit_kb )); then
-                echo "Checkpoint safety threshold reached at approximately $((current_used_kb / 1024 / 1024)) GiB used."
-                echo "Stopping the current Chromium operation safely before the runner storage limit."
+              current_workspace_kb=$(du -sx -k "$WORK_ROOT" | awk '{print $1}')
+              current_workspace_bytes=$((current_workspace_kb * 1024))
+              if (( current_workspace_bytes >= used_limit_kb )); then
+                echo "Chromium workspace reached approximately $((current_workspace_kb / 1024 / 1024)) GiB used."
+                echo "Stopping the current Chromium operation safely so this runner can checkpoint to OneDrive."
                 kill -TERM -- "-$pid" 2>/dev/null || true
                 sleep 5
                 kill -KILL -- "-$pid" 2>/dev/null || true
                 wait "$pid" || true
                 return 75
               fi
-              sleep 5
+              sleep 2
             done
 
             wait "$pid"
