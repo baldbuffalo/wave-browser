@@ -434,9 +434,26 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/depot_tools:$PATH"
+
           if [ ! -x "$HOME/depot_tools/gclient" ]; then
-            git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
+            attempt=1
+            while true; do
+              rm -rf "$HOME/depot_tools"
+              echo "Cloning depot_tools (attempt $attempt)..."
+              if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"; then
+                break
+              fi
+              echo "depot_tools clone failed; retrying..."
+              attempt=$((attempt + 1))
+              sleep 10
+            done
           fi
+
+          if [ ! -x "$HOME/depot_tools/gclient" ]; then
+            echo "depot_tools clone completed but gclient was not found."
+            exit 1
+          fi
+
           echo "$HOME/depot_tools" >> "$GITHUB_PATH"
 
       - name: Continue Chromium checkout and dependency sync
