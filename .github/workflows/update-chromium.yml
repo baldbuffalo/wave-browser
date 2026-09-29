@@ -671,7 +671,7 @@ jobs:
 
   Finalize:
     needs: [ResolveRevision, Package]
-    if: ${{ always() && needs.ResolveRevision.result == 'success' && (needs.Package.result == 'success' || needs.Package.result == 'cancelled') }}
+    if: ${{ always() && github.run_attempt == 1 && needs.ResolveRevision.result == 'success' && (needs.Package.result == 'success' || needs.Package.result == 'cancelled') }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -703,6 +703,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
+          ORIGINAL_ATTEMPT: ${{ github.run_attempt }}
         shell: bash
         run: |
           set -euo pipefail
@@ -761,7 +762,7 @@ jobs:
 
               job_id=$(
                 gh api --paginate --slurp \
-                  "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" |
+                  "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${ORIGINAL_ATTEMPT}/jobs?per_page=100" |
                 jq -r '
                   .[] | .jobs[] |
                   select(.name | startswith("Package (")) |
