@@ -558,7 +558,7 @@ jobs:
           # A partial src/.git repository survives checkpoint/restore.
           if [ ! -f "$WORK_ROOT/.gclient" ]; then
             rc=0
-            disk_guarded 'gclient config --name src "$CHROMIUM_URL"' || rc=$?
+            disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
             if [ "$rc" -eq 75 ]; then
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
