@@ -496,8 +496,8 @@ jobs:
 
           echo "Runner filesystem view: $(df -h "$WORK_ROOT" | awk 'NR==2 {print $2 " total, " $3 " used, " $4 " free"}')"
           echo "Disk available when Chromium work starts: ${start_free_gib} GiB"
-          echo "Chromium workspace growth checkpoint threshold: $CHECKPOINT_USED_GIB GiB"
-          echo "The checkpoint guard tracks disk growth during Chromium work without repeatedly scanning the checkout."
+          echo "Chromium additional-disk checkpoint threshold: $CHECKPOINT_USED_GIB GiB"
+          echo "Checkpointing when Chromium work consumes approximately $CHECKPOINT_USED_GIB GiB of additional disk."
 
           disk_guarded() {
             local command="$1"
@@ -533,9 +533,8 @@ jobs:
             wait "$pid"
           }
 
-          # A checkpoint may contain gclient metadata without a completed src checkout.
-          # Never run fetch when any checkpoint/checkout state exists. If src is missing,
-          # gclient sync from WORK_ROOT will recreate the checkout from .gclient metadata.
+          # If no checkout metadata exists, fetch starts the initial Chromium checkout.
+          # If metadata exists but src is incomplete, gclient sync resumes/recreates it.
           if [ ! -d "$WORK_ROOT/src" ] && [ ! -f "$WORK_ROOT/.gclient" ]; then
             rc=0
             disk_guarded 'fetch --no-history --nohooks chromium' || rc=$?
@@ -602,7 +601,7 @@ jobs:
           rclone deletefile "$ready" >/dev/null 2>&1 || true
 
           echo "Streaming the current Chromium state to OneDrive..."
-          tar -C "$WORK_ROOT" -cf - . | zstd -T0 -3 | rclone rcat "$partial" --progress
+          tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . | zstd -T0 -3 | rclone rcat "$partial" --progress
 
           rclone moveto "$partial" "$checkpoint"
 
@@ -635,6 +634,7 @@ jobs:
             --exclude='./src/out' \
             --exclude='./src/.cipd' \
             --exclude='./src/.git' \
+            --exclude='./.gclient_cache' \
             .gclient .gclient_entries src |
             zstd -T0 -3 | rclone rcat "$source_partial" --progress
 
