@@ -632,10 +632,10 @@ jobs:
           echo "Final Chromium package and checksum are present in OneDrive."
 
       - name: Cancel remaining package slots after completion
-        if: \${{ steps.complete.outputs.already == 'true' || (steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false') }}
+        if: ${{ steps.complete.outputs.already == 'true' || (steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false') }}
         env:
-          GH_TOKEN: \${{ github.token }}
-          CURRENT_PACKAGE_JOB: Package (\${{ matrix.slot }})
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_PACKAGE_JOB: Package (${{ matrix.slot }})
         shell: bash
         run: |
           set -euo pipefail
@@ -644,7 +644,7 @@ jobs:
           for attempt in {1..10}; do
             remaining=$(
               gh api --paginate --slurp \
-                "/repos/\${GITHUB_REPOSITORY}/actions/runs/\${GITHUB_RUN_ID}/jobs?per_page=100" |
+                "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" |
               jq -r --arg current "$CURRENT_PACKAGE_JOB" \
                 '.[] | .jobs[] |
                  select(.name | startswith("Package (")) |
@@ -661,7 +661,7 @@ jobs:
             while read -r job_id; do
               [ -n "$job_id" ] || continue
               echo "Cancelling Package job $job_id..."
-              gh api --method POST "/repos/\${GITHUB_REPOSITORY}/actions/jobs/\${job_id}/cancel" >/dev/null 2>&1 || true
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/cancel" >/dev/null 2>&1 || true
             done <<< "$remaining"
 
             sleep 2
@@ -671,7 +671,7 @@ jobs:
 
   Finalize:
     needs: [ResolveRevision, Package]
-    if: \${{ always() && needs.ResolveRevision.result == 'success' && (needs.Package.result == 'success' || needs.Package.result == 'cancelled') }}
+    if: ${{ always() && needs.ResolveRevision.result == 'success' && (needs.Package.result == 'success' || needs.Package.result == 'cancelled') }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -688,7 +688,7 @@ jobs:
       - name: Configure OneDrive
         shell: bash
         env:
-          RCLONE_CONFIG_CONTENT: \${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
           if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
@@ -701,8 +701,8 @@ jobs:
 
       - name: Verify final package and recover missing Chromium data
         env:
-          GH_TOKEN: \${{ github.token }}
-          REVISION: \${{ needs.ResolveRevision.outputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         shell: bash
         run: |
           set -euo pipefail
@@ -761,7 +761,7 @@ jobs:
 
               job_id=$(
                 gh api --paginate --slurp \
-                  "/repos/\${GITHUB_REPOSITORY}/actions/runs/\${GITHUB_RUN_ID}/jobs?per_page=100" |
+                  "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" |
                 jq -r '
                   .[] | .jobs[] |
                   select(.name | startswith("Package (")) |
@@ -769,7 +769,7 @@ jobs:
                   .id' |
                 while read -r candidate; do
                   [ -n "$candidate" ] || continue
-                  if [ -z "\${tried_jobs[$candidate]+x}" ]; then
+                  if [ -z "${tried_jobs[$candidate]+x}" ]; then
                     echo "$candidate"
                     break
                   fi
@@ -784,13 +784,13 @@ jobs:
               tried_jobs["$job_id"]=1
               echo "Re-running cancelled Package job $job_id to continue the Chromium download..."
               gh api --method POST \
-                "/repos/\${GITHUB_REPOSITORY}/actions/jobs/$job_id/rerun" >/dev/null
+                "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id/rerun" >/dev/null
 
               echo "Waiting for Package job $job_id to finish..."
               status=""
               for poll in {1..2160}; do
-                status=$(gh api "/repos/\${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.status')
-                conclusion=$(gh api "/repos/\${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.conclusion // ""')
+                status=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.status')
+                conclusion=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.conclusion // ""')
 
                 if [ "$status" = "completed" ]; then
                   echo "Package job $job_id completed with conclusion: $conclusion"
@@ -817,11 +817,11 @@ jobs:
       - name: Commit Chromium revision
         shell: bash
         env:
-          REVISION: \${{ needs.ResolveRevision.outputs.revision }}
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot].users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           printf '%s\n' "$REVISION" > android/chromium_revision.txt
           printf '%s\n' "$REVISION" > windows/chromium_revision.txt
           git add android/chromium_revision.txt windows/chromium_revision.txt
@@ -830,7 +830,7 @@ jobs:
 
       - name: Summary
         env:
-          REVISION: \${{ needs.ResolveRevision.outputs.revision }}
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         run: |
           echo "Chromium $REVISION is fully packaged in OneDrive."
           echo "The source download used serial GitHub-hosted runners with OneDrive checkpoints."
