@@ -615,7 +615,7 @@ jobs:
           rm -rf "$WORK_ROOT/src/agents/internal" "$WORK_ROOT/_bad_scm"
 
           rc=0
-          disk_guarded 'gclient sync --nohooks --process-all-deps --revision "src@$REVISION"' || rc=$?
+          disk_guarded 'gclient sync --nohooks --revision "src@$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
             echo "checkpoint=true" >> "$GITHUB_OUTPUT"
             exit 0
