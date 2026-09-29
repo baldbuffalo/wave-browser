@@ -337,35 +337,21 @@ jobs:
           rclone lsd onedrive: >/dev/null
           echo "OneDrive remote is readable."
 
-      - name: Check for completed package
+      - name: Check for completed Chromium source
         id: complete
         shell: bash
         run: |
           set -euo pipefail
-          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
-          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
-          archive_exists=false
-          checksum_exists=false
-          rclone lsf "$archive" >/dev/null 2>&1 && archive_exists=true || true
-          rclone lsf "$checksum" >/dev/null 2>&1 && checksum_exists=true || true
-          if $archive_exists && $checksum_exists; then
+          source_archive="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst"
+          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
+
+          if rclone lsf "$source_archive" >/dev/null 2>&1 && rclone lsf "$source_ready" >/dev/null 2>&1; then
             echo "already=true" >> "$GITHUB_OUTPUT"
-            echo "Chromium $REVISION archive and checksum already exist. Nothing will be uploaded."
-          elif $archive_exists && ! $checksum_exists; then
-            echo "Final archive exists but checksum is missing; keeping the archive and creating only the checksum."
-            hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
-            printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum"
-            rclone lsf "$checksum" >/dev/null
-            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "Full Chromium source and dependencies are already downloaded for $REVISION."
           else
             echo "already=false" >> "$GITHUB_OUTPUT"
-            echo "Chromium $REVISION still needs to be packaged."
+            echo "Chromium $REVISION still needs the full source/dependency download to complete."
           fi
-
-      - name: Stop slot when package is already complete
-        if: steps.complete.outputs.already == 'true'
-        shell: bash
-        run: echo "Nothing to do in checkpoint slot ${{ matrix.slot }}."
 
       - name: Restore latest checkpoint from OneDrive
         if: steps.complete.outputs.already != 'true'
@@ -603,33 +589,32 @@ jobs:
           rclone lsf "$ready" >/dev/null
           echo "Checkpoint saved with all required files. The next GitHub-hosted runner will restore it and continue."
 
-      - name: Create final Chromium package directly in OneDrive
+      - name: Save completed Chromium source for Finalize
         if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
         shell: bash
         run: |
           set -euo pipefail
           cd "$WORK_ROOT"
 
-          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
-          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+          source_archive="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst"
+          source_partial="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst.partial"
+          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
+          source_manifest="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.json"
 
-          if rclone lsf "$archive" >/dev/null 2>&1 && rclone lsf "$checksum" >/dev/null 2>&1; then
-            echo "Final archive and checksum already exist. Skipping upload."
-            exit 0
-          fi
-          if rclone lsf "$archive" >/dev/null 2>&1; then
-            echo "Final archive already exists; creating only the missing checksum."
-          else
-            echo "Chromium is complete. Streaming the final package directly to OneDrive..."
-            tar --exclude='src/out' --exclude='src/.cipd' -czf - .gclient .gclient_entries src |
-              rclone rcat "$archive" --progress
-            rclone lsf "$archive" >/dev/null
-          fi
-          hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
-          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum"
-          rclone lsf "$archive" >/dev/null
-          rclone lsf "$checksum" >/dev/null
-          echo "Final Chromium package and checksum are present in OneDrive."
+          rclone deletefile "$source_partial" >/dev/null 2>&1 || true
+          rclone deletefile "$source_ready" >/dev/null 2>&1 || true
+
+          echo "Chromium source/dependencies are complete. Saving them for Finalize to package..."
+          tar -C "$WORK_ROOT" -czf - --exclude='./src/out' --exclude='./src/.cipd' --exclude='./src/.git' .gclient .gclient_entries src |
+            zstd -T0 -3 | rclone rcat "$source_partial" --progress
+
+          rclone moveto "$source_partial" "$source_archive"
+          printf '{"revision":"%s","complete":true}\n' "$REVISION" | rclone rcat "$source_manifest"
+          rclone lsf "$source_archive" >/dev/null
+          rclone lsf "$source_manifest" >/dev/null
+          printf 'ready\n' | rclone rcat "$source_ready"
+          rclone lsf "$source_ready" >/dev/null
+          echo "Completed Chromium source saved. Finalize can now create the final tar.gz package."
 
       - name: Cancel remaining package slots after completion
         if: ${{ steps.complete.outputs.already == 'true' || (steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false') }}
@@ -699,7 +684,7 @@ jobs:
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
-      - name: Verify final package and recover missing Chromium data
+      - name: Restore complete Chromium source and create final package
         env:
           GH_TOKEN: ${{ github.token }}
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
@@ -708,66 +693,28 @@ jobs:
         run: |
           set -euo pipefail
 
+          source_root="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION"
+          source_archive="$source_root/chromium-$REVISION.source.tar.zst"
+          source_ready="$source_root/source.ready"
+          work_root="$RUNNER_TEMP/wave-chromium"
           archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
           checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
-          checkpoint_root="onedrive:WaveBrowser/Chromium/staging/$REVISION"
 
-          verify_package() {
-            echo "Checking final Chromium archive and checksum..."
-
-            if ! rclone lsf "$archive" >/dev/null 2>&1; then
-              echo "MISSING: $archive"
-              return 1
-            fi
-
-            if ! rclone lsf "$checksum" >/dev/null 2>&1; then
-              echo "MISSING: $checksum"
-              return 1
-            fi
-
-            expected_hash=$(rclone cat "$checksum" | awk '{print $1}')
-            actual_hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
-
-            if [ -z "$expected_hash" ] || [ "$expected_hash" != "$actual_hash" ]; then
-              echo "Checksum verification failed."
-              echo "Expected: $expected_hash"
-              echo "Actual:   $actual_hash"
-              return 1
-            fi
-
-            echo "Checksum matches. Verifying that the gzip/tar archive is complete..."
-            if ! rclone cat "$archive" | tar -tzf - >/dev/null; then
-              echo "Chromium archive is incomplete or corrupt."
-              return 1
-            fi
-
-            echo "Chromium archive is present, checksum-valid, and structurally readable."
-            return 0
+          source_complete() {
+            rclone lsf "$source_archive" >/dev/null 2>&1 &&
+            rclone lsf "$source_ready" >/dev/null 2>&1
           }
 
-          if verify_package; then
-            echo "Final Chromium package verified successfully."
-          else
-            echo "Final package is missing or incomplete."
-            echo "The cancelled Package jobs will now be re-run one at a time."
-            echo "The OneDrive checkpoint is intentionally kept until verification succeeds."
+          if ! source_complete; then
+            echo "Complete Chromium source is not present yet."
+            echo "Re-running cancelled Package jobs one at a time until the full download is complete."
 
             declare -A tried_jobs=()
 
-            while true; do
-              if verify_package; then
-                echo "Recovery succeeded; final Chromium package is now complete."
-                break
-              fi
-
+            while ! source_complete; do
               job_id=$(
-                gh api --paginate --slurp \
-                  "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${ORIGINAL_ATTEMPT}/jobs?per_page=100" |
-                jq -r '
-                  .[] | .jobs[] |
-                  select(.name | startswith("Package (")) |
-                  select(.conclusion == "cancelled") |
-                  .id' |
+                gh api --paginate --slurp                   "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${ORIGINAL_ATTEMPT}/jobs?per_page=100" |
+                jq -r '.[] | .jobs[] | select(.name | startswith("Package (")) | select(.conclusion == "cancelled") | .id' |
                 while read -r candidate; do
                   [ -n "$candidate" ] || continue
                   if [ -z "${tried_jobs[$candidate]+x}" ]; then
@@ -778,26 +725,22 @@ jobs:
               )
 
               if [ -z "$job_id" ]; then
-                echo "No unused cancelled Package jobs remain, and the Chromium package is still incomplete."
+                echo "No unused cancelled Package jobs remain, but the full Chromium source is still missing."
                 exit 1
               fi
 
               tried_jobs["$job_id"]=1
               echo "Re-running cancelled Package job $job_id to continue the Chromium download..."
-              gh api --method POST \
-                "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id/rerun" >/dev/null
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id/rerun" >/dev/null
 
-              echo "Waiting for Package job $job_id to finish..."
               status=""
               for poll in {1..2160}; do
                 status=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.status')
                 conclusion=$(gh api "/repos/${GITHUB_REPOSITORY}/actions/jobs/$job_id" --jq '.conclusion // ""')
-
                 if [ "$status" = "completed" ]; then
                   echo "Package job $job_id completed with conclusion: $conclusion"
                   break
                 fi
-
                 sleep 10
               done
 
@@ -808,12 +751,46 @@ jobs:
             done
           fi
 
-          echo "Removing temporary OneDrive checkpoint now that the final package is verified."
-          rclone deletefile "$checkpoint_root/checkpoint.tar.zst" >/dev/null 2>&1 || true
-          rclone deletefile "$checkpoint_root/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
-          rclone deletefile "$checkpoint_root/checkpoint.ready" >/dev/null 2>&1 || true
-          rclone deletefile "$checkpoint_root/checkpoint.json" >/dev/null 2>&1 || true
-          echo "Temporary OneDrive checkpoint cleanup complete."
+          echo "Full Chromium source is ready. Restoring it on the Finalize runner..."
+          mkdir -p "$work_root"
+          rclone cat "$source_archive" | zstd -d | tar -xpf - -C "$work_root"
+
+          test -d "$work_root/src"
+          test -f "$work_root/.gclient"
+          test -f "$work_root/.gclient_entries"
+
+          echo "Creating final Chromium tar.gz package from the verified source..."
+          rm -f "$RUNNER_TEMP/chromium-$REVISION.tar.gz"
+          tar -C "$work_root" -czf "$RUNNER_TEMP/chromium-$REVISION.tar.gz"             --exclude='./src/out'             --exclude='./src/.cipd'             --exclude='./src/.git'             .gclient .gclient_entries src
+
+          echo "Uploading final Chromium package to OneDrive..."
+          rclone copyto "$RUNNER_TEMP/chromium-$REVISION.tar.gz" "$archive"
+
+          hash=$(sha256sum "$RUNNER_TEMP/chromium-$REVISION.tar.gz" | awk '{print $1}')
+          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum"
+
+          echo "Verifying final package..."
+          rclone lsf "$archive" >/dev/null
+          rclone lsf "$checksum" >/dev/null
+
+          expected_hash=$(rclone cat "$checksum" | awk '{print $1}')
+          actual_hash=$(rclone cat "$archive" | sha256sum | awk '{print $1}')
+          test -n "$expected_hash"
+          test "$expected_hash" = "$actual_hash"
+
+          rclone cat "$archive" | tar -tzf - >/dev/null
+          echo "Final Chromium package is checksum-valid and structurally readable."
+
+          echo "Removing temporary source/checkpoint data after successful packaging..."
+          rclone deletefile "$source_archive" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst.partial" >/dev/null 2>&1 || true
+          rclone deletefile "$source_ready" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/source.json" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.tar.zst" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.ready" >/dev/null 2>&1 || true
+          rclone deletefile "$source_root/checkpoint.json" >/dev/null 2>&1 || true
+          echo "OneDrive temporary source/checkpoint cleanup complete."
 
       - name: Commit Chromium revision
         shell: bash
