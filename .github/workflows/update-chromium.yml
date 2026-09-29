@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
@@ -640,9 +641,37 @@ jobs:
           rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 || true
           echo "Temporary OneDrive checkpoint removed."
 
+      - name: Cancel remaining package slots after completion
+        if: ${{ steps.complete.outputs.already == 'true' || (steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_PACKAGE_JOB: Package (${{ matrix.slot }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Chromium package is complete. Cancelling remaining Package matrix jobs so Finalize can run."
+
+          for attempt in {1..10}; do
+            remaining=$(gh api --paginate --slurp               "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100"               --jq '.[] | .jobs[] | select(.name | startswith("Package (")) | select(.name != $ENV.CURRENT_PACKAGE_JOB) | select(.status == "queued" or .status == "in_progress") | .id'               2>/dev/null || true)
+
+            if [ -z "$remaining" ]; then
+              echo "No remaining queued/in-progress Package jobs found."
+              break
+            fi
+
+            for job_id in $remaining; do
+              echo "Cancelling Package job $job_id..."
+              gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/cancel" >/dev/null 2>&1 || true
+            done
+
+            sleep 2
+          done
+
+          echo "Remaining package slots have been cancelled. Finalize will continue after the matrix settles."
+
   Finalize:
     needs: [ResolveRevision, Package]
-    if: ${{ always() && needs.Package.result == 'success' }}
+    if: ${{ always() && needs.ResolveRevision.result == 'success' && (needs.Package.result == 'success' || needs.Package.result == 'cancelled') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
