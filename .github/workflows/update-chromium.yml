@@ -482,31 +482,44 @@ jobs:
           mkdir -p "$WORK_ROOT"
           cd "$WORK_ROOT"
 
-          # The runner image itself already consumes substantial space, so df's
-          # whole-filesystem "used" value cannot represent the 14 GiB Chromium
-          # workspace budget. Measure the actual Chromium working tree instead.
+          # The standard runner image consumes substantial disk before the Chromium
+          # checkout starts, and df exposes the full backing filesystem. Track the
+          # disk growth caused by Chromium work from this point instead of rescanning
+          # the entire checkout with du. This keeps the guard cheap enough to run
+          # during a large git clone.
           mkdir -p "$WORK_ROOT"
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
 
-          workspace_start_kb=$(du -sx -k "$WORK_ROOT" | awk '{print $1}')
+          start_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
           used_limit_kb=$((CHECKPOINT_USED_GIB * 1024 * 1024))
-          workspace_start_bytes=$((workspace_start_kb * 1024))
+          start_free_gib=$((start_free_kb / 1024 / 1024))
 
           echo "Runner filesystem view: $(df -h "$WORK_ROOT" | awk 'NR==2 {print $2 " total, " $3 " used, " $4 " free"}')"
-          echo "Chromium workspace used when sync starts: $((workspace_start_kb / 1024 / 1024)) GiB"
-          echo "Chromium workspace checkpoint threshold: $CHECKPOINT_USED_GIB GiB used"
-          echo "Only Chromium workspace growth/state is counted toward the checkpoint threshold."
+          echo "Disk available when Chromium work starts: ${start_free_gib} GiB"
+          echo "Chromium workspace growth checkpoint threshold: $CHECKPOINT_USED_GIB GiB"
+          echo "The checkpoint guard tracks disk growth during Chromium work without repeatedly scanning the checkout."
 
           disk_guarded() {
             local command="$1"
             setsid bash -c "$command" &
             local pid=$!
+            local last_reported_gib=-1
 
             while kill -0 "$pid" 2>/dev/null; do
-              current_workspace_kb=$(du -sx -k "$WORK_ROOT" | awk '{print $1}')
-              current_workspace_bytes=$((current_workspace_kb * 1024))
-              if (( current_workspace_bytes >= used_limit_kb )); then
-                echo "Chromium workspace reached approximately $((current_workspace_kb / 1024 / 1024)) GiB used."
+              current_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
+              growth_kb=$((start_free_kb - current_free_kb))
+              if (( growth_kb < 0 )); then
+                growth_kb=0
+              fi
+
+              current_growth_gib=$((growth_kb / 1024 / 1024))
+              if (( current_growth_gib != last_reported_gib )); then
+                echo "Chromium disk growth since sync start: ${current_growth_gib} GiB"
+                last_reported_gib="$current_growth_gib"
+              fi
+
+              if (( growth_kb >= used_limit_kb )); then
+                echo "Chromium work has consumed approximately ${current_growth_gib} GiB of additional disk."
                 echo "Stopping the current Chromium operation safely so this runner can checkpoint to OneDrive."
                 kill -TERM -- "-$pid" 2>/dev/null || true
                 sleep 5
@@ -514,7 +527,7 @@ jobs:
                 wait "$pid" || true
                 return 75
               fi
-              sleep 2
+              sleep 5
             done
 
             wait "$pid"
