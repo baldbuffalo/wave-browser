@@ -533,43 +533,46 @@ jobs:
             wait "$pid"
           }
 
-          # If no checkout metadata exists, fetch starts the initial Chromium checkout.
-          # If metadata exists but src is incomplete, gclient sync resumes/recreates it.
-          if [ ! -d "$WORK_ROOT/src" ] && [ ! -f "$WORK_ROOT/.gclient" ]; then
+          # Do not use depot_tools fetch for the initial src download. fetch creates
+          # a temporary clone and only renames it to src after the clone completes,
+          # so a checkpoint taken during that clone cannot resume it.
+          # Instead, create the gclient config and fetch Chromium directly into src.
+          # A partial src/.git repository survives checkpoint/restore.
+          if [ ! -f "$WORK_ROOT/.gclient" ]; then
             rc=0
-            disk_guarded 'fetch --no-history --nohooks chromium' || rc=$?
+            disk_guarded 'gclient config --name src "$CHROMIUM_URL"' || rc=$?
             if [ "$rc" -eq 75 ]; then
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
               exit "$rc"
             fi
-          else
-            echo "Existing Chromium checkout/checkpoint metadata detected."
           fi
 
-          if [ -d "$WORK_ROOT/src" ]; then
-            cd "$WORK_ROOT/src"
+          if [ ! -d "$WORK_ROOT/src/.git" ]; then
+            mkdir -p "$WORK_ROOT/src"
+            git -C "$WORK_ROOT/src" init
+            git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
+          elif ! git -C "$WORK_ROOT/src" remote get-url origin >/dev/null 2>&1; then
+            git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
+          fi
 
-            rc=0
-            disk_guarded 'git fetch origin main' || rc=$?
-            if [ "$rc" -eq 75 ]; then
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            elif [ "$rc" -ne 0 ]; then
-              exit "$rc"
-            fi
+          rc=0
+          disk_guarded 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"' || rc=$?
+          if [ "$rc" -eq 75 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
 
-            rc=0
-            disk_guarded 'git checkout --detach "$REVISION"' || rc=$?
-            if [ "$rc" -eq 75 ]; then
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            elif [ "$rc" -ne 0 ]; then
-              exit "$rc"
-            fi
-          else
-            echo "Chromium src checkout is not present yet; gclient sync will create/restore it from .gclient metadata."
+          rc=0
+          disk_guarded 'git -C "$WORK_ROOT/src" checkout --detach "$REVISION"' || rc=$?
+          if [ "$rc" -eq 75 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            exit "$rc"
           fi
 
           cd "$WORK_ROOT"
