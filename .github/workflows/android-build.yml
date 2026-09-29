@@ -2,10 +2,6 @@ name: Wave Android Build
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'android/**'
-      - '.github/workflows/android-build.yml'
 
 jobs:
   build-android:
