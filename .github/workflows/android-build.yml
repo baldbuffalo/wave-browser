@@ -145,7 +145,6 @@ jobs:
           set -euo pipefail
           REVISION=$(cat "$WAVE_WORK_ROOT/.wave_revision")
           rclone copyto android/WaveBrowser.apk "onedrive:$WAVE_ONEDRIVE_PATH/WaveBrowser-Android-$REVISION.apk"
-          printf '%s
-' "$REVISION" | rclone rcat "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/build.complete"
+          printf '%s\\n' "$REVISION" | rclone rcat "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/build.complete"
           rclone delete "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/checkpoint.ready" || true
           rclone deletefile "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/checkpoint.tar.zst" || true
