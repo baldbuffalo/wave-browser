@@ -10,8 +10,8 @@ permissions:
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
-  CHECKPOINT_USED_GIB: "13"
-  CHECKPOINT_FREE_GIB: "1"
+  CHECKPOINT_BUDGET_GIB: "13"
+  CHECKPOINT_FREE_GIB: "5"
 
 jobs:
   ResolveRevision:
@@ -484,17 +484,20 @@ jobs:
           cd "$WORK_ROOT"
 
           total_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $2}')
+          free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
+          start_used_kb=$((total_kb - free_kb))
+          budget_kb=$((CHECKPOINT_BUDGET_GIB * 1024 * 1024))
           free_limit_kb=$((CHECKPOINT_FREE_GIB * 1024 * 1024))
-          target_used_kb=$((CHECKPOINT_USED_GIB * 1024 * 1024))
           max_safe_used_kb=$((total_kb - free_limit_kb))
-          if (( target_used_kb < max_safe_used_kb )); then
-            checkpoint_used_kb=$target_used_kb
-          else
+          checkpoint_used_kb=$((start_used_kb + budget_kb))
+          if (( checkpoint_used_kb > max_safe_used_kb )); then
             checkpoint_used_kb=$max_safe_used_kb
           fi
 
           echo "Runner disk total: $((total_kb / 1024 / 1024)) GiB"
-          echo "Checkpoint target: $((checkpoint_used_kb / 1024 / 1024)) GiB used"
+          echo "Disk used when Chromium work starts: $((start_used_kb / 1024 / 1024)) GiB"
+          echo "Checkpoint budget for this runner: $(( (checkpoint_used_kb - start_used_kb) / 1024 / 1024 )) GiB additional"
+          echo "Checkpoint threshold: $((checkpoint_used_kb / 1024 / 1024)) GiB used"
 
           disk_guarded() {
             local command="$1"
