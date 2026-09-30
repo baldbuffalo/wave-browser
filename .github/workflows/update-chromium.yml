@@ -374,8 +374,8 @@ jobs:
     env:
       REVISION: ${{ needs.ResolveRevision.outputs.revision }}
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
-      DEPOT_TOOLS_CACHE: $RUNNER_TEMP/depot_tools
-      RCLONE_CACHE_DIR: $RUNNER_TEMP/wave-tools
+      DEPOT_TOOLS_CACHE: ${{ github.workspace }}/.wave-tools/depot_tools
+      RCLONE_CACHE_DIR: ${{ github.workspace }}/.wave-tools/rclone
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
       - name: Install tools
@@ -532,7 +532,7 @@ jobs:
           path: |
             ${{ env.DEPOT_TOOLS_CACHE }}
             ${{ env.RCLONE_CACHE_DIR }}
-          key: wave-depot-tools-${{ github.run_id }}
+          key: wave-depot-tools-ubuntu24-v1
 
       - name: Continue Chromium checkout and dependency sync
         if: steps.complete.outputs.already != 'true'
