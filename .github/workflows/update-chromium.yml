@@ -774,6 +774,9 @@ jobs:
                 find ./src \( -type d -name .git -o -type f -name .git \) -print
               } |
                 tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed \
+                  --exclude='*/.git/*.lock' \
+                  --exclude='*/.git/*/*.lock' \
+                  --exclude='*/.git/objects/pack/tmp_*' \
                   --verbatim-files-from -C "$WORK_ROOT" -cf - -T - |
                 zstd -T0 -1
             ) |
@@ -940,6 +943,14 @@ jobs:
               exit "$rc"
             fi
           fi
+
+          # Never restore transient Git lock files from checkpoints. A stale
+          # shallow.lock/index.lock/packed-refs.lock would make the resumed
+          # repository look as if another Git process is still running.
+          find "$WORK_ROOT" -type f \( \
+            -path '*/.git/*.lock' -o \
+            -path '*/.git/*/*.lock' \
+          \) -delete 2>/dev/null || true
 
           if [ ! -d "$WORK_ROOT/src/.git" ]; then
             mkdir -p "$WORK_ROOT/src"
