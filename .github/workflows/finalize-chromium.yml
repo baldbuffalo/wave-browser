@@ -261,18 +261,12 @@ jobs:
           fi
 
           echo "Removing temporary source/checkpoint data after the final package and handoff are verified..."
-          rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst.partial" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/source.ready" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/source.json" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.tar.zst" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.ready" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/checkpoint.json" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/chromium-$REVISION.tar.gz.partial" >/dev/null 2>&1 || true
-          rclone deletefile "$source_root/chromium-$REVISION.sha256.partial" >/dev/null 2>&1 || true
+          # Purge the entire revision staging directory. This removes the source
+          # archive plus every checkpoint generation and the persistent
+          # checkpoint.uploading marker, but leaves the final package at the
+          # top-level Chromium directory untouched.
+          rclone purge "$source_root" >/dev/null 2>&1 || true
           rclone deletefile "$active_marker" >/dev/null 2>&1 || true
-
           # Keep the previous packaged revision until the replacement revision
           # has been fully packaged, verified, and handed off.
           if [[ "$old_revision" =~ ^[0-9a-f]{40}$ ]] && [ "$old_revision" != "$REVISION" ]; then
