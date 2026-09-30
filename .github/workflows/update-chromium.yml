@@ -485,7 +485,7 @@ jobs:
           last_downloaded_generation=""
 
           echo "Package (2) is the dedicated Chromium checkpoint follower."
-          echo "It will download every checkpoint generation published during this run."
+          echo "It will download every completed checkpoint generation published during this run."
 
           while true; do
             pending=0
@@ -530,6 +530,13 @@ jobs:
               fi
 
               echo "Job 2 downloaded and validated checkpoint $generation."
+              marker_now=$(rclone cat "onedrive:$CHECKPOINT_ROOT/checkpoint.uploading" 2>/dev/null || true)
+              if [[ "$marker_now" == "parts|$generation|"* ]]; then
+                rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.uploading" >/dev/null 2>&1 || true
+                echo "Job 2 finished with checkpoint $generation; its marker was deleted."
+              else
+                echo "A newer checkpoint marker is already published; leaving it untouched."
+              fi
               touch "$done_file"
               if [ -n "$last_downloaded_generation" ] && [ "$last_downloaded_generation" != "$generation" ]; then
                 rm -rf "$root/$last_downloaded_generation" "$root/$last_downloaded_generation.tar.zst"
@@ -746,9 +753,6 @@ jobs:
             # checkpoint to spend about an hour before its first 250 MiB part.
             rclone mkdir "$parts_root"
 
-            printf 'parts|%s|run|%s|attempt|%s|slot|%s\n' "$generation" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$SLOT" | rclone rcat "$uploading"
-            echo "Published checkpoint upload marker for slot $SLOT: $generation"
-
             echo "Streaming Chromium Git metadata checkpoint directly to OneDrive..."
             part_name="part-000000"
 
@@ -783,6 +787,12 @@ jobs:
               echo "ERROR: no checkpoint parts were uploaded."
               exit 1
             fi
+
+            # The checkpoint is now fully uploaded. Only now publish the marker.
+            # Job 2 treats this marker as permission to download this generation.
+            printf 'parts|%s|run|%s|attempt|%s|slot|%s\n' "$generation" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$SLOT" |
+              rclone rcat "$uploading"
+            echo "Published completed checkpoint marker for slot $SLOT: $generation"
   
             echo "Uploaded $part_count checkpoint parts."
   
