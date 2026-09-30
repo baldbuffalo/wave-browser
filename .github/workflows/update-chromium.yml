@@ -520,7 +520,10 @@ jobs:
             while true; do
               rclone copy "$parts_root" "$parts_dir" --transfers 4 --checkers 4 --no-traverse --checksum --stats=10s --stats-one-line || true
               if rclone lsf "$ready" >/dev/null 2>&1 && [ "$(rclone cat "$ready" 2>/dev/null || true)" = "parts|$generation" ]; then break; fi
-              if ! rclone lsf "$uploading" >/dev/null 2>&1; then echo "Checkpoint upload marker disappeared before this generation became ready."; exit 1; fi
+              current_marker=$(rclone cat "$uploading" 2>/dev/null || true)
+              if [[ "$current_marker" == parts\|* ]] && [[ "$current_marker" != parts\|$generation\|* ]]; then
+                echo "A newer checkpoint generation is being published; continuing the current checkpoint download."
+              fi
               sleep 5
             done
             rclone copy "$parts_root" "$parts_dir" --transfers 4 --checkers 4 --no-traverse --checksum --stats=10s --stats-one-line
@@ -537,8 +540,12 @@ jobs:
           if [ "$SLOT" -gt 1 ]; then
             while true; do
               if rclone lsf "$uploading" >/dev/null 2>&1; then
-                marker=$(rclone cat "$uploading")
-                [[ "$marker" == parts\|* ]] && { download_uploading_checkpoint "$marker"; break; }
+                marker=$(rclone cat "$uploading" 2>/dev/null || true)
+                if [[ "$marker" == *"|run|$GITHUB_RUN_ID|attempt|$GITHUB_RUN_ATTEMPT|"* ]]; then
+                  [[ "$marker" == parts\|* ]] && { download_uploading_checkpoint "$marker"; break; }
+                else
+                  echo "Ignoring stale checkpoint upload marker from another workflow run."
+                fi
               elif rclone lsf "$ready" >/dev/null 2>&1; then
                 ready_content=$(rclone cat "$ready")
                 [[ "$ready_content" == parts\|* ]] && { restore_complete_checkpoint "$ready_content"; break; }
@@ -637,7 +644,7 @@ jobs:
             # checkpoint to spend about an hour before its first 250 MiB part.
             rclone mkdir "$parts_root"
 
-            printf 'parts|%s|slot|%s\n' "$generation" "$SLOT" | rclone rcat "$uploading"
+            printf 'parts|%s|run|%s|attempt|%s|slot|%s\n' "$generation" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$SLOT" | rclone rcat "$uploading"
             echo "Published checkpoint upload marker for slot $SLOT: $generation"
 
             echo "Streaming Chromium Git metadata checkpoint directly to OneDrive..."
@@ -691,20 +698,12 @@ jobs:
             test "$(rclone cat "$ready")" = "parts|$generation"
             rclone lsf "$manifest" >/dev/null
             rclone lsf "$parts_root/" >/dev/null
-            rclone deletefile "$uploading" >/dev/null 2>&1 || true
-  
-            # The new checkpoint is valid. Only now remove the previous checkpoint.
-            if [[ "$old_ready" == parts\|* ]]; then
-              old_generation=$(printf '%s\n' "$old_ready" | cut -d'|' -f2-)
-              if [ "$old_generation" != "$generation" ]; then
-                echo "Removing previous multipart checkpoint: $old_generation"
-                rclone purge "onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$old_generation" >/dev/null 2>&1 || true
-              fi
-            elif [ "$old_ready" = "ready" ]; then
-              echo "Removing previous legacy single-file checkpoint now that the new checkpoint is ready."
-              rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
-            fi
-  
+            # Keep checkpoint.uploading published so concurrent Package jobs can
+            # always discover the current generation. The standalone Finalize
+            # workflow removes all staging checkpoint data after packaging.
+
+            # Keep older checkpoint generations too. A concurrent worker may still
+            # be downloading the previous generation when the next one is published.
             echo "Checkpoint saved as $part_count parallel OneDrive parts and published atomically."
           }
 
@@ -796,8 +795,15 @@ jobs:
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
               finish_checkpoint_uploads
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
+
+              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
+                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
+                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
+              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
@@ -820,8 +826,15 @@ jobs:
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
               finish_checkpoint_uploads
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
+
+              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
+                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
+                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
+              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
@@ -835,8 +848,15 @@ jobs:
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
               finish_checkpoint_uploads
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
+
+              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
+                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
+                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
+              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
@@ -855,8 +875,15 @@ jobs:
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
               finish_checkpoint_uploads
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
+
+              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
+                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
+                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
+              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
@@ -876,8 +903,15 @@ jobs:
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
               finish_checkpoint_uploads
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
+
+              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
+                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
+                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+
+              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
+              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
