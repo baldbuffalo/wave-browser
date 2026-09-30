@@ -574,6 +574,129 @@ jobs:
             wait "$pid"
           }
 
+          # Checkpointing is part of this sync step. When a guarded Chromium
+          # operation reaches the disk threshold, save the current state immediately
+          # so the next worker can download it while this upload is still running.
+          save_checkpoint() {
+            mkdir -p "$WORK_ROOT"
+            checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
+            ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
+            manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
+            manifest_partial="onedrive:$CHECKPOINT_ROOT/checkpoint.json.partial"
+  
+            old_ready=""
+            if rclone lsf "$ready" >/dev/null 2>&1; then
+              old_ready=$(rclone cat "$ready")
+            fi
+  
+            generation="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s)"
+            parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
+            uploading="onedrive:$CHECKPOINT_ROOT/checkpoint.uploading"
+            printf 'parts|%s|slot|%s\n' "$generation" "$SLOT" | rclone rcat "$uploading"
+            echo "Published checkpoint upload marker for slot $SLOT: $generation"
+            batch_dir="$RUNNER_TEMP/checkpoint-parts-upload"
+            rm -rf "$batch_dir"
+            mkdir -p "$batch_dir"
+  
+            # Start each 250 MiB part upload immediately. Keep at most four
+            # uploads/parts outstanding so local checkpoint data stays within the
+            # runner's ~1 GiB safety headroom while upload overlaps compression.
+            upload_pids=()
+            upload_parts=()
+  
+            wait_for_uploads() {
+              local i
+              for i in "${!upload_pids[@]}"; do
+                wait "${upload_pids[$i]}"
+                rm -f "${upload_parts[$i]}"
+              done
+              upload_pids=()
+              upload_parts=()
+            }
+  
+            start_part_upload() {
+              local part_path="$1"
+              local part_name="$2"
+              echo "Starting OneDrive upload: $part_name"
+              # copy uploads the individual file into the checkpoint directory.
+              # copyto treats the destination as a file and can collide with the
+              # OneDrive directory when that directory is created concurrently.
+              rclone copy "$part_path" "$parts_root" \
+                --no-check-dest \
+                --no-traverse \
+                --onedrive-chunk-size 250M \
+                --stats=10s \
+                --stats-one-line &
+              upload_pids+=("$!")
+              upload_parts+=("$part_path")
+            }
+  
+            echo "Streaming Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
+            part_index=0
+  
+            tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
+              zstd -T0 -1 |
+              while true; do
+                printf -v part_name "part-%06d" "$part_index"
+                part_path="$batch_dir/$part_name"
+  
+                dd iflag=fullblock bs=250M count=1 status=none of="$part_path"
+  
+                if [ ! -s "$part_path" ]; then
+                  rm -f "$part_path"
+                  break
+                fi
+  
+                part_index=$((part_index + 1))
+                start_part_upload "$part_path" "$part_name"
+  
+                if (( ${#upload_pids[@]} == 4 )); then
+                  wait_for_uploads
+                fi
+              done
+  
+            wait_for_uploads
+            rm -rf "$batch_dir"
+  
+            part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
+            if [ "$part_count" -eq 0 ]; then
+              echo "ERROR: no checkpoint parts were uploaded."
+              exit 1
+            fi
+  
+            echo "Uploaded $part_count checkpoint parts."
+  
+            rclone deletefile "$manifest_partial" >/dev/null 2>&1 || true
+            printf '{"revision":"%s","format":"tar.zst.parts","generation":"%s","part_size":"250M","parts":%s}\n' \
+              "$REVISION" "$generation" "$part_count" |
+              rclone rcat "$manifest_partial"
+  
+            rclone moveto "$manifest_partial" "$manifest"
+  
+            # Publish the ready pointer last. Until this exists, the previous valid
+            # checkpoint remains the one used by the restore step.
+            printf 'parts|%s\n' "$generation" | rclone rcat "$ready"
+  
+            test "$(rclone cat "$ready")" = "parts|$generation"
+            rclone lsf "$manifest" >/dev/null
+            rclone lsf "$parts_root/" >/dev/null
+            rclone deletefile "$uploading" >/dev/null 2>&1 || true
+  
+            # The new checkpoint is valid. Only now remove the previous checkpoint.
+            if [[ "$old_ready" == parts\|* ]]; then
+              old_generation=$(printf '%s\n' "$old_ready" | cut -d'|' -f2-)
+              if [ "$old_generation" != "$generation" ]; then
+                echo "Removing previous multipart checkpoint: $old_generation"
+                rclone purge "onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$old_generation" >/dev/null 2>&1 || true
+              fi
+            elif [ "$old_ready" = "ready" ]; then
+              echo "Removing previous legacy single-file checkpoint now that the new checkpoint is ready."
+              rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
+            fi
+  
+            echo "Checkpoint saved as $part_count parallel OneDrive parts and published atomically."
+          }
+
           # Do not use depot_tools fetch for the initial src download. fetch creates
           # a temporary clone and only renames it to src after the clone completes,
           # so a checkpoint taken during that clone cannot resume it.
@@ -583,9 +706,13 @@ jobs:
             rc=0
             disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
             if [ "$rc" -eq 75 ]; then
+              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
+              save_checkpoint
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
+              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+              save_checkpoint
               exit "$rc"
             fi
           fi
@@ -601,20 +728,28 @@ jobs:
           rc=0
           disk_guarded 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            exit "$rc"
-          fi
+              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
+              save_checkpoint
+              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif [ "$rc" -ne 0 ]; then
+              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+              save_checkpoint
+              exit "$rc"
+            fi
 
           rc=0
           disk_guarded 'git -C "$WORK_ROOT/src" checkout --detach "$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            exit "$rc"
-          fi
+              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
+              save_checkpoint
+              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif [ "$rc" -ne 0 ]; then
+              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+              save_checkpoint
+              exit "$rc"
+            fi
 
           cd "$WORK_ROOT"
 
@@ -626,11 +761,15 @@ jobs:
           rc=0
           disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
           if [ "$rc" -eq 75 ]; then
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            exit "$rc"
-          fi
+              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
+              save_checkpoint
+              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif [ "$rc" -ne 0 ]; then
+              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+              save_checkpoint
+              exit "$rc"
+            fi
 
           # A previous failed sync can leave private-repository scratch directories
           # behind. They are not part of the public Chromium checkout and must not
@@ -640,137 +779,19 @@ jobs:
           rc=0
           disk_guarded 'gclient sync --nohooks --no-history --revision "src@$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            exit "$rc"
-          fi
+              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
+              save_checkpoint
+              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif [ "$rc" -ne 0 ]; then
+              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+              save_checkpoint
+              exit "$rc"
+            fi
 
           echo "checkpoint=false" >> "$GITHUB_OUTPUT"
           echo "Chromium source and dependencies completed for $REVISION."
 
-      - name: Save checkpoint to OneDrive
-        if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$WORK_ROOT"
-          checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
-          ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
-          manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
-          manifest_partial="onedrive:$CHECKPOINT_ROOT/checkpoint.json.partial"
-
-          old_ready=""
-          if rclone lsf "$ready" >/dev/null 2>&1; then
-            old_ready=$(rclone cat "$ready")
-          fi
-
-          generation="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s)"
-          parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
-          uploading="onedrive:$CHECKPOINT_ROOT/checkpoint.uploading"
-          printf 'parts|%s|slot|%s\n' "$generation" "$SLOT" | rclone rcat "$uploading"
-          echo "Published checkpoint upload marker for slot $SLOT: $generation"
-          batch_dir="$RUNNER_TEMP/checkpoint-parts-upload"
-          rm -rf "$batch_dir"
-          mkdir -p "$batch_dir"
-
-          # Start each 250 MiB part upload immediately. Keep at most four
-          # uploads/parts outstanding so local checkpoint data stays within the
-          # runner's ~1 GiB safety headroom while upload overlaps compression.
-          upload_pids=()
-          upload_parts=()
-
-          wait_for_uploads() {
-            local i
-            for i in "${!upload_pids[@]}"; do
-              wait "${upload_pids[$i]}"
-              rm -f "${upload_parts[$i]}"
-            done
-            upload_pids=()
-            upload_parts=()
-          }
-
-          start_part_upload() {
-            local part_path="$1"
-            local part_name="$2"
-            echo "Starting OneDrive upload: $part_name"
-            # copy uploads the individual file into the checkpoint directory.
-            # copyto treats the destination as a file and can collide with the
-            # OneDrive directory when that directory is created concurrently.
-            rclone copy "$part_path" "$parts_root" \
-              --no-check-dest \
-              --no-traverse \
-              --onedrive-chunk-size 250M \
-              --stats=10s \
-              --stats-one-line &
-            upload_pids+=("$!")
-            upload_parts+=("$part_path")
-          }
-
-          echo "Streaming Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
-          part_index=0
-
-          tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
-            zstd -T0 -1 |
-            while true; do
-              printf -v part_name "part-%06d" "$part_index"
-              part_path="$batch_dir/$part_name"
-
-              dd iflag=fullblock bs=250M count=1 status=none of="$part_path"
-
-              if [ ! -s "$part_path" ]; then
-                rm -f "$part_path"
-                break
-              fi
-
-              part_index=$((part_index + 1))
-              start_part_upload "$part_path" "$part_name"
-
-              if (( ${#upload_pids[@]} == 4 )); then
-                wait_for_uploads
-              fi
-            done
-
-          wait_for_uploads
-          rm -rf "$batch_dir"
-
-          part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
-          if [ "$part_count" -eq 0 ]; then
-            echo "ERROR: no checkpoint parts were uploaded."
-            exit 1
-          fi
-
-          echo "Uploaded $part_count checkpoint parts."
-
-          rclone deletefile "$manifest_partial" >/dev/null 2>&1 || true
-          printf '{"revision":"%s","format":"tar.zst.parts","generation":"%s","part_size":"250M","parts":%s}\n' \
-            "$REVISION" "$generation" "$part_count" |
-            rclone rcat "$manifest_partial"
-
-          rclone moveto "$manifest_partial" "$manifest"
-
-          # Publish the ready pointer last. Until this exists, the previous valid
-          # checkpoint remains the one used by the restore step.
-          printf 'parts|%s\n' "$generation" | rclone rcat "$ready"
-
-          test "$(rclone cat "$ready")" = "parts|$generation"
-          rclone lsf "$manifest" >/dev/null
-          rclone lsf "$parts_root/" >/dev/null
-          rclone deletefile "$uploading" >/dev/null 2>&1 || true
-
-          # The new checkpoint is valid. Only now remove the previous checkpoint.
-          if [[ "$old_ready" == parts\|* ]]; then
-            old_generation=$(printf '%s\n' "$old_ready" | cut -d'|' -f2-)
-            if [ "$old_generation" != "$generation" ]; then
-              echo "Removing previous multipart checkpoint: $old_generation"
-              rclone purge "onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$old_generation" >/dev/null 2>&1 || true
-            fi
-          elif [ "$old_ready" = "ready" ]; then
-            echo "Removing previous legacy single-file checkpoint now that the new checkpoint is ready."
-            rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
-          fi
-
-          echo "Checkpoint saved as $part_count parallel OneDrive parts and published atomically."
       - name: Save completed Chromium source for Finalize
         if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
         shell: bash
