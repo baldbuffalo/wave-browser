@@ -405,13 +405,7 @@ PY
           else
             install -m 0755 "$(command -v rclone)" "$RCLONE_CACHE_DIR/rclone"
           fi
-          if ! command -v zstd >/dev/null 2>&1; then
-            sudo apt-get update
-            # Remove only known malformed manual pages before the package trigger runs.
-            sudo rm -f               /usr/share/man/man1/run-clang-tidy-16.1.gz               /usr/share/man/man1/git-clang-format-16.1.gz               /usr/share/man/man1/run-clang-tidy-17.1.gz               /usr/share/man/man1/git-clang-format-17.1.gz               /usr/share/man/man1/run-clang-tidy-18.1.gz               /usr/share/man/man1/git-clang-format-18.1.gz               /usr/share/man/man1/walinuxagent.1.gz               /usr/share/man/man1/debconf-apt-progress.1.gz               /usr/share/man/man1/debconf-communicate.1.gz               /usr/share/man/man1/debconf-copydb.1.gz               /usr/share/man/man1/debconf-escape.1.gz               /usr/share/man/man1/debconf-set-selections.1.gz               /usr/share/man/man1/debconf-show.1.gz               /usr/share/man/man7/man.7.gz               /usr/share/man/man7/parallel_book.7.gz               /usr/share/man/man7/parallel_design.7.gz               /usr/share/man/man7/parallel_examples.7.gz               /usr/share/man/man7/parallel_tutorial.7.gz
-            sudo rm -f               /usr/share/man/ru/man1/debconf-apt-progress.1.gz               /usr/share/man/ru/man1/debconf-communicate.1.gz               /usr/share/man/ru/man1/debconf-copydb.1.gz               /usr/share/man/ru/man1/debconf-escape.1.gz               /usr/share/man/ru/man1/debconf-set-selections.1.gz               /usr/share/man/ru/man1/debconf-show.1.gz               /usr/share/man/ru/man1/debconf.1.gz               /usr/share/man/ru/man8/dpkg-preconfigure.8.gz               /usr/share/man/ru/man8/dpkg-reconfigure.8.gz
-            sudo apt-get install -y zstd
-          fi
+
 
       - name: Configure OneDrive
         shell: bash
@@ -494,7 +488,7 @@ PY
           path: |
             ${{ env.DEPOT_TOOLS_CACHE }}
             ${{ env.RCLONE_CACHE_DIR }}
-          key: wave-depot-tools-${{ github.run_id }}
+          key: wave-depot-tools-ubuntu24-v1
 
       - name: Prepare depot_tools
         if: steps.complete.outputs.already != 'true'
@@ -529,6 +523,7 @@ PY
           export PATH="$DEPOT_TOOLS_DIR:$PATH"
           export DEPOT_TOOLS_UPDATE=0
           "$DEPOT_TOOLS_DIR/gclient" --version
+          echo "$DEPOT_TOOLS_DIR" >> "$GITHUB_PATH"
 
       - name: Save depot_tools cache
         if: steps.complete.outputs.already != 'true' && steps.depot_cache.outputs.cache-hit != 'true'
