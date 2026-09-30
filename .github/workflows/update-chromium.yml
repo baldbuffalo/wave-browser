@@ -22,10 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       revision: ${{ steps.revision.outputs.revision }}
+      already_finalized: ${{ steps.revision.outputs.already_finalized }}
     steps:
       - name: Check latest Chromium revision
         id: revision
         shell: bash
+        env:
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
           latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
@@ -36,8 +39,38 @@ jobs:
           echo "revision=$latest" >> "$GITHUB_OUTPUT"
           echo "Pinned Chromium revision for this workflow run: $latest"
 
+          if ! command -v rclone >/dev/null 2>&1; then
+            curl -fsSL https://rclone.org/install.sh | sudo bash
+          fi
+          if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
+            echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."
+            exit 1
+          fi
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+
+          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$latest.tar.gz"
+          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$latest.sha256"
+          ready="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$latest.ready.json"
+
+          if rclone lsf "$archive" >/dev/null 2>&1 &&
+             rclone lsf "$checksum" >/dev/null 2>&1 &&
+             rclone lsf "$ready" >/dev/null 2>&1; then
+            ready_revision=$(rclone cat "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))')
+            if [ "$ready_revision" = "$latest" ]; then
+              echo "Chromium $latest is already fully finalized. The Package matrix will be skipped."
+              echo "already_finalized=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "Chromium $latest is not finalized. The Package matrix will run if needed."
+          echo "already_finalized=false" >> "$GITHUB_OUTPUT"
+
   Package:
     needs: ResolveRevision
+    if: ${{ needs.ResolveRevision.result == 'success' && needs.ResolveRevision.outputs.already_finalized != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
