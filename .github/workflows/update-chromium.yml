@@ -374,10 +374,9 @@ PY
     env:
       REVISION: ${{ needs.ResolveRevision.outputs.revision }}
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
+      DEPOT_TOOLS_CACHE: ${{ runner.temp }}/depot_tools
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
-      - uses: actions/checkout@v7.0.1
-
       - name: Install tools
         shell: bash
         run: |
@@ -419,13 +418,6 @@ PY
           mkdir -p "$HOME/.config/rclone"
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
-
-      - name: Verify OneDrive is readable
-        shell: bash
-        run: |
-          set -euo pipefail
-          rclone lsd onedrive: >/dev/null
-          echo "OneDrive remote is readable."
 
       - name: Check for completed Chromium source
         id: complete
@@ -486,97 +478,54 @@ PY
             rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
           fi
 
-      - name: Verify checkpoint files before continuing
+      - name: Restore depot_tools cache
         if: steps.complete.outputs.already != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
-          ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
-          manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
-          partial="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial"
-
-          echo "Checking every OneDrive checkpoint file for this slot..."
-          for file in "$checkpoint" "$ready" "$manifest"; do
-            if rclone lsf "$file" >/dev/null 2>&1; then
-              echo "FOUND: $file"
-            else
-              echo "MISSING: $file"
-            fi
-          done
-
-          if rclone lsf "$ready" >/dev/null 2>&1; then
-            rclone lsf "$checkpoint" >/dev/null 2>&1 || { echo "checkpoint.ready exists but checkpoint.tar.zst is missing."; exit 1; }
-            rclone lsf "$manifest" >/dev/null 2>&1 || { echo "checkpoint.ready exists but checkpoint.json is missing."; exit 1; }
-            echo "Checkpoint is complete and safe to restore."
-          elif rclone lsf "$checkpoint" >/dev/null 2>&1 || rclone lsf "$manifest" >/dev/null 2>&1; then
-            echo "Partial checkpoint state exists, but checkpoint.ready is missing. The restore step will treat it as incomplete."
-          else
-            echo "No checkpoint exists for this slot."
-          fi
-
-          if rclone lsf "$partial" >/dev/null 2>&1; then
-            echo "WARNING: an interrupted partial upload exists: $partial"
-          fi
+        id: depot_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.DEPOT_TOOLS_CACHE }}
+          key: wave-depot-tools-${{ github.run_id }}
 
       - name: Prepare depot_tools
         if: steps.complete.outputs.already != 'true'
         shell: bash
+        env:
+          DEPOT_TOOLS_DIR: ${{ env.DEPOT_TOOLS_CACHE }}
         run: |
           set -euo pipefail
-          export PATH="$HOME/depot_tools:$PATH"
 
-          attempt=1
-          while true; do
-            rm -rf "$HOME/depot_tools"
-            echo "Installing depot_tools (attempt $attempt)..."
-
-            if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools" &&
-               [ -x "$HOME/depot_tools/gclient" ]; then
-              echo "depot_tools clone succeeded."
-              break
-            fi
-
-            echo "depot_tools clone failed or gclient is missing."
-            echo "Removing incomplete checkout and retrying in 10 seconds..."
-            rm -rf "$HOME/depot_tools"
-            attempt=$((attempt + 1))
-            sleep 10
-          done
-
-          export PATH="$HOME/depot_tools:$PATH"
-
-          # gclient normally auto-updates depot_tools. Disable that automatic
-          # update so a transient depot_tools self-update cannot bypass the
-          # retry loop and kill this job.
-          export DEPOT_TOOLS_UPDATE=0
-
-          # Verify the checkout is usable before allowing Chromium work to start.
-          while true; do
-            if "$HOME/depot_tools/gclient" --version >/dev/null 2>&1; then
-              echo "depot_tools verification succeeded."
-              break
-            fi
-
-            echo "depot_tools verification failed; reinstalling..."
-            rm -rf "$HOME/depot_tools"
-            attempt=$((attempt + 1))
-            echo "Retrying depot_tools installation (attempt $attempt) in 10 seconds..."
-            sleep 10
-
+          if [ ! -x "$DEPOT_TOOLS_DIR/gclient" ]; then
+            echo "Preparing depot_tools once for this workflow run..."
+            rm -rf "$DEPOT_TOOLS_DIR"
+            attempt=1
             while true; do
-              if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools" &&
-                 [ -x "$HOME/depot_tools/gclient" ]; then
+              mkdir -p "$(dirname "$DEPOT_TOOLS_DIR")"
+              if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS_DIR" &&
+                 [ -x "$DEPOT_TOOLS_DIR/gclient" ]; then
+                echo "depot_tools clone succeeded."
                 break
               fi
-              rm -rf "$HOME/depot_tools"
+
+              echo "depot_tools clone failed or gclient is missing."
+              rm -rf "$DEPOT_TOOLS_DIR"
               attempt=$((attempt + 1))
-              echo "depot_tools clone failed; retrying in 10 seconds..."
+              echo "Retrying depot_tools installation (attempt $attempt) in 10 seconds..."
               sleep 10
             done
-          done
+          else
+            echo "Restored depot_tools from this workflow run's cache."
+          fi
 
-          echo "$HOME/depot_tools" >> "$GITHUB_PATH"
+          export PATH="$DEPOT_TOOLS_DIR:$PATH"
+          export DEPOT_TOOLS_UPDATE=0
+          "$DEPOT_TOOLS_DIR/gclient" --version
+
+      - name: Save depot_tools cache
+        if: steps.complete.outputs.already != 'true' && steps.depot_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.DEPOT_TOOLS_CACHE }}
+          key: wave-depot-tools-${{ github.run_id }}
 
       - name: Continue Chromium checkout and dependency sync
         if: steps.complete.outputs.already != 'true'
