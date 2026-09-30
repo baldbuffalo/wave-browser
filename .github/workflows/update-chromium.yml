@@ -377,6 +377,7 @@ jobs:
           if ! command -v zstd >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y zstd
+            sudo mandb
           fi
 
       - name: Configure OneDrive
@@ -764,6 +765,7 @@ jobs:
           if ! command -v pv >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y pv
+            sudo mandb
           fi
 
       - name: Configure OneDrive
