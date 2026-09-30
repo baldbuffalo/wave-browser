@@ -591,7 +591,7 @@ jobs:
           echo "Disk available when Chromium work starts: ${start_free_gib} GiB"
           echo "Chromium checkpoint interval: $CHECKPOINT_INTERVAL_GIB GiB of additional disk"
           echo "Hard safety limit: $CHECKPOINT_USED_GIB GiB of additional disk"
-          echo "Checkpointing every approximately $CHECKPOINT_INTERVAL_GIB GiB of additional Chromium disk growth."
+          echo "Checkpointing every 1 GiB of additional Chromium disk growth."
 
           checkpoint_pid=""
           checkpoint_pending_UNUSED=false
