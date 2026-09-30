@@ -15,6 +15,7 @@ permissions:
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
+  RUNNER_STORAGE_BUDGET_GIB: "14"
   CHECKPOINT_USED_GIB: "13"
   CHECKPOINT_INTERVAL_GIB: "1"
 
@@ -585,12 +586,20 @@ jobs:
 
           start_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
           used_limit_kb=$((CHECKPOINT_USED_GIB * 1024 * 1024))
+          headroom_gib=$((RUNNER_STORAGE_BUDGET_GIB - CHECKPOINT_USED_GIB))
           start_free_gib=$((start_free_kb / 1024 / 1024))
 
+          if (( CHECKPOINT_USED_GIB >= RUNNER_STORAGE_BUDGET_GIB )); then
+            echo "ERROR: CHECKPOINT_USED_GIB must be lower than RUNNER_STORAGE_BUDGET_GIB."
+            exit 1
+          fi
+
           echo "Runner filesystem view: $(df -h "$WORK_ROOT" | awk 'NR==2 {print $2 " total, " $3 " used, " $4 " free"}')"
-          echo "Disk available when Chromium work starts: ${start_free_gib} GiB"
-          echo "Chromium checkpoint interval: $CHECKPOINT_INTERVAL_GIB GiB of additional disk"
-          echo "Hard safety limit: $CHECKPOINT_USED_GIB GiB of additional disk"
+          echo "GitHub standard runner storage budget used by this guard: ${RUNNER_STORAGE_BUDGET_GIB} GiB"
+          echo "Disk free at Chromium work start (df): ${start_free_gib} GiB"
+          echo "Chromium checkpoint interval: ${CHECKPOINT_INTERVAL_GIB} GiB of additional Chromium disk growth"
+          echo "Hard safety limit: ${CHECKPOINT_USED_GIB} GiB of additional Chromium disk growth"
+          echo "Reserved safety headroom: ${headroom_gib} GiB"
           echo "Checkpointing every 1 GiB of additional Chromium disk growth."
 
           checkpoint_pid=""
