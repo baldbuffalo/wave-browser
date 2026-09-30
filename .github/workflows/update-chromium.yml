@@ -563,11 +563,24 @@ jobs:
             generation="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s)"
             parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
             uploading="onedrive:$CHECKPOINT_ROOT/checkpoint.uploading"
+            snapshot_dir="$RUNNER_TEMP/checkpoint-snapshot-$generation"
+            batch_dir="$RUNNER_TEMP/checkpoint-parts-upload-$generation"
+
+            rm -rf "$snapshot_dir" "$batch_dir"
+            mkdir -p "$snapshot_dir" "$batch_dir"
+
+            echo "Creating stable hard-link checkpoint snapshot..."
+            cp -al "$WORK_ROOT/.gclient" "$snapshot_dir/"
+            cp -al "$WORK_ROOT/.gclient_entries" "$snapshot_dir/" 2>/dev/null || true
+            cp -al "$WORK_ROOT/src" "$snapshot_dir/"
+
+            # Create the remote directory before any parallel uploads begin.
+            # This prevents the parallel rclone workers from racing to create it.
+            rclone mkdir "$parts_root"
+
+            # Publish the marker only after the local snapshot exists.
             printf 'parts|%s|slot|%s\n' "$generation" "$SLOT" | rclone rcat "$uploading"
             echo "Published checkpoint upload marker for slot $SLOT: $generation"
-            batch_dir="$RUNNER_TEMP/checkpoint-parts-upload"
-            rm -rf "$batch_dir"
-            mkdir -p "$batch_dir"
   
             # Start each 250 MiB part upload immediately. Keep at most four
             # uploads/parts outstanding so local checkpoint data stays within the
@@ -589,12 +602,8 @@ jobs:
               local part_path="$1"
               local part_name="$2"
               echo "Starting OneDrive upload: $part_name"
-              # copy uploads the individual file into the checkpoint directory.
-              # copyto treats the destination as a file and can collide with the
-              # OneDrive directory when that directory is created concurrently.
-              rclone copy "$part_path" "$parts_root" \
+              rclone copyto "$part_path" "$parts_root/$part_name" \
                 --no-check-dest \
-                --no-traverse \
                 --onedrive-chunk-size 250M \
                 --stats=10s \
                 --stats-one-line &
@@ -602,10 +611,10 @@ jobs:
               upload_parts+=("$part_path")
             }
   
-            echo "Streaming Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
+            echo "Streaming stable Chromium snapshot into pipelined 250 MiB OneDrive checkpoint parts..."
             part_index=0
   
-            tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
+            tar -C "$snapshot_dir" -cf - --exclude='./.gclient_cache' . |
               zstd -T0 -1 |
               while true; do
                 printf -v part_name "part-%06d" "$part_index"
@@ -627,7 +636,7 @@ jobs:
               done
   
             wait_for_uploads
-            rm -rf "$batch_dir"
+            rm -rf "$batch_dir" "$snapshot_dir"
   
             part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
             if [ "$part_count" -eq 0 ]; then
