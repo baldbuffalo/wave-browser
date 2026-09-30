@@ -42,6 +42,12 @@ jobs:
             # Repair known malformed man pages on the hosted runner before
             # installing rclone. No mandb output is suppressed.
             sudo touch /var/lib/man-db/auto-update
+            # Remove the remaining known malformed Russian translations before walinuxagent
+            # runs man-db's trigger; otherwise the trigger emits these parse warnings.
+            sudo rm -f \
+              /usr/share/man/ru/man1/debconf.1.gz \
+              /usr/share/man/ru/man8/dpkg-preconfigure.8.gz \
+              /usr/share/man/ru/man8/dpkg-reconfigure.8.gz
             sudo apt-get install --reinstall -y walinuxagent
             # The hosted runner image can contain stale/corrupt man-page files. Repair the
             # trigger first, then remove only the files known to produce parse warnings
