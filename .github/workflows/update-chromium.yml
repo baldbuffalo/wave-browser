@@ -98,8 +98,52 @@ jobs:
           echo "Chromium $latest is not finalized. The Package matrix will run if needed."
           echo "already_finalized=false" >> "$GITHUB_OUTPUT"
 
-  Package:
+  SetupTools:
     needs: ResolveRevision
+    if: ${{ needs.ResolveRevision.result == 'success' && needs.ResolveRevision.outputs.already_finalized != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore Chromium tools cache
+        id: tools-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/wave-browser/tools/bin
+            ~/.cache/wave-browser/tools/depot_tools
+          key: wave-chromium-tools-v1-${{ runner.os }}-x64
+
+      - name: Install Chromium tools on cache miss
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools_root="$HOME/.cache/wave-browser/tools"
+          bin_dir="$tools_root/bin"
+          depot_tools_dir="$tools_root/depot_tools"
+          mkdir -p "$bin_dir"
+          rm -rf "$depot_tools_dir"
+
+          tmp_dir=$(mktemp -d)
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
+          python3 -c 'import sys,zipfile; zip_path,out_dir=sys.argv[1],sys.argv[2]; z=zipfile.ZipFile(zip_path); binary=next(n for n in z.namelist() if n.endswith("/rclone")); z.extract(binary,out_dir); z.close(); print(binary)' "$tmp_dir/rclone.zip" "$tmp_dir"
+          install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" "$bin_dir/rclone"
+
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$depot_tools_dir"
+
+          "$bin_dir/rclone" version
+          PATH="$depot_tools_dir:$PATH" gclient --version
+
+      - name: Verify Chromium tools cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$HOME/.cache/wave-browser/tools/bin/rclone"
+          test -x "$HOME/.cache/wave-browser/tools/depot_tools/gclient"
+          echo "Chromium tools cache is ready. Package jobs can restore it without reinstalling rclone or depot_tools."
+
+  Package:
+    needs: [ResolveRevision, SetupTools]
     if: ${{ needs.ResolveRevision.result == 'success' && needs.ResolveRevision.outputs.already_finalized != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -370,28 +414,23 @@ jobs:
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
-      - name: Install tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v rclone >/dev/null 2>&1; then
-            tmp_dir=$(mktemp -d)
-            trap 'rm -rf "$tmp_dir"' EXIT
-            curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
-            python3 -c 'import sys,zipfile; zip_path,out_dir=sys.argv[1],sys.argv[2]; z=zipfile.ZipFile(zip_path); binary=next(n for n in z.namelist() if n.endswith("/rclone")); z.extract(binary,out_dir); z.close(); print(binary)' "$tmp_dir/rclone.zip" "$tmp_dir"
-            sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
-            rclone version
-          fi
+      - name: Restore cached Chromium tools
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/wave-browser/tools/bin
+            ~/.cache/wave-browser/tools/depot_tools
+          key: wave-chromium-tools-v1-${{ runner.os }}-x64
 
-      - name: Install depot_tools
+      - name: Add cached Chromium tools to PATH
         shell: bash
         run: |
           set -euo pipefail
-          depot_tools_dir="$RUNNER_TEMP/depot_tools"
-          rm -rf "$depot_tools_dir"
-          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$depot_tools_dir"
-          echo "$depot_tools_dir" >> "$GITHUB_PATH"
-          export PATH="$depot_tools_dir:$PATH"
+          echo "$HOME/.cache/wave-browser/tools/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cache/wave-browser/tools/depot_tools" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cache/wave-browser/tools/bin:$HOME/.cache/wave-browser/tools/depot_tools:$PATH"
+          command -v rclone
+          rclone version
           command -v gclient
           gclient --version
 
