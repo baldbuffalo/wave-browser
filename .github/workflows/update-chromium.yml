@@ -694,12 +694,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - name: Install rclone
+      - name: Install rclone and progress tools
         shell: bash
         run: |
           set -euo pipefail
           if ! command -v rclone >/dev/null 2>&1; then
             curl -fsSL https://rclone.org/install.sh | sudo bash
+          fi
+          if ! command -v pv >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y pv
           fi
 
       - name: Configure OneDrive
@@ -767,8 +771,20 @@ jobs:
           # The source archive is already a complete tar stream. Decompress zstd
           # and recompress that same tar stream as gzip without extracting Chromium
           # onto the runner. This keeps Finalize's local disk usage tiny.
+          #
+          # Show real progress for the long OneDrive -> zstd -> gzip -> OneDrive
+          # pipeline. pv measures the known compressed source size, while rclone
+          # reports the upload activity for the final gzip stream.
+          source_bytes=$(rclone size "$source_archive" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["bytes"])')
+          source_gib=$(awk -v b="$source_bytes" 'BEGIN {printf "%.2f", b/1024/1024/1024}')
+          echo "Source archive size: ${source_gib} GiB"
+          echo "Packaging progress below is based on the compressed source bytes read."
           rclone deletefile "$archive_partial" >/dev/null 2>&1 || true
-          rclone cat "$source_archive" | zstd -d | gzip -1 | rclone rcat "$archive_partial"
+          rclone cat "$source_archive" |
+            pv -p -t -e -r -b -s "$source_bytes" |
+            zstd -d |
+            gzip -1 |
+            rclone rcat "$archive_partial" --progress --stats=10s --stats-one-line
           rclone moveto "$archive_partial" "$archive"
 
           echo "Calculating and verifying the final package checksum..."
