@@ -589,8 +589,9 @@ jobs:
 
           echo "Runner filesystem view: $(df -h "$WORK_ROOT" | awk 'NR==2 {print $2 " total, " $3 " used, " $4 " free"}')"
           echo "Disk available when Chromium work starts: ${start_free_gib} GiB"
-          echo "Chromium additional-disk checkpoint threshold: $CHECKPOINT_USED_GIB GiB"
-          echo "Checkpointing when Chromium work consumes approximately $CHECKPOINT_USED_GIB GiB of additional disk."
+          echo "Chromium checkpoint interval: $CHECKPOINT_INTERVAL_GIB GiB of additional disk"
+          echo "Hard safety limit: $CHECKPOINT_USED_GIB GiB of additional disk"
+          echo "Checkpointing every approximately $CHECKPOINT_INTERVAL_GIB GiB of additional Chromium disk growth."
 
           checkpoint_pid=""
           checkpoint_pending_UNUSED=false
