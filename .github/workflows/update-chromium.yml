@@ -661,28 +661,43 @@ jobs:
   
             echo "Streaming live Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
             part_index=0
+            stream_fifo="$batch_dir/chromium-state.stream"
+            mkfifo "$stream_fifo"
   
+            # Do not put the part loop directly after a pipe. Bash executes a
+            # pipeline component in a subshell, so upload_pids/upload_parts would
+            # be lost when the loop exits and the parent could delete batch_dir
+            # while its background rclone uploads were still reading from it.
             tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed               -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
-              zstd -T0 -1 |
-              while true; do
-                printf -v part_name "part-%06d" "$part_index"
-                part_path="$batch_dir/$part_name"
+              zstd -T0 -1 > "$stream_fifo" &
+            stream_pid=$!
   
-                dd iflag=fullblock bs=250M count=1 status=none of="$part_path"
+            while true; do
+              printf -v part_name "part-%06d" "$part_index"
+              part_path="$batch_dir/$part_name"
   
-                if [ ! -s "$part_path" ]; then
-                  rm -f "$part_path"
-                  break
-                fi
+              dd iflag=fullblock bs=250M count=1 status=none if="$stream_fifo" of="$part_path"
   
-                part_index=$((part_index + 1))
-                start_part_upload "$part_path" "$part_name"
+              if [ ! -s "$part_path" ]; then
+                rm -f "$part_path"
+                break
+              fi
   
-                if (( ${#upload_pids[@]} == 4 )); then
-                  wait_for_uploads
-                fi
-              done
+              part_index=$((part_index + 1))
+              start_part_upload "$part_path" "$part_name"
   
+              if (( ${#upload_pids[@]} == 4 )); then
+                wait_for_uploads
+              fi
+            done
+  
+            if ! wait "$stream_pid"; then
+              echo "ERROR: live Chromium checkpoint stream failed while reading the working tree."
+              rm -rf "$batch_dir"
+              exit 1
+            fi
+  
+            rm -f "$stream_fifo"
             wait_for_uploads
             rm -rf "$batch_dir"
   
@@ -1031,19 +1046,15 @@ jobs:
           # GitHub waits for every matrix child before a needs: Package job starts.
           # Poll OneDrive instead so Finalize starts as soon as the winning Package
           # slot writes all three completion files.
-          for attempt in {1..600}; do
+          attempt=0
+          while true; do
+            attempt=$((attempt + 1))
             if source_complete; then
               echo "Full Chromium source is ready. Streaming it directly into the final gzip package..."
               break
             fi
 
-            if (( attempt == 600 )); then
-              echo "ERROR: timed out waiting 300 minutes for the completed Chromium source."
-              echo "Expected: $source_archive, $source_ready, and $source_manifest"
-              exit 1
-            fi
-
             if (( attempt % 10 == 0 )); then
-              echo "Source is not complete yet; still waiting on OneDrive (attempt $attempt/600)."
+              echo "Source is not complete yet; still waiting on OneDrive (attempt $attempt)."
             fi
           done
