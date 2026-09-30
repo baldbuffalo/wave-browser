@@ -686,47 +686,9 @@ jobs:
           rclone lsf "$source_ready" >/dev/null
           echo "Completed Chromium source saved. Finalize can now create the final tar.gz package."
 
-      - name: Cancel remaining package slots after completion
-        if: ${{ steps.complete.outputs.already == 'true' || (steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CURRENT_PACKAGE_JOB: Package (${{ matrix.slot }})
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Chromium package is complete. Cancelling remaining Package matrix jobs so Finalize can verify it."
-
-          for attempt in {1..10}; do
-            remaining=$(
-              gh api --paginate --slurp \
-                "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" |
-              jq -r --arg current "$CURRENT_PACKAGE_JOB" \
-                '.[] | .jobs[] |
-                 select(.name | startswith("Package (")) |
-                 select(.name != $current) |
-                 select(.status == "queued" or .status == "in_progress") |
-                 .id' || true
-            )
-
-            if [ -z "$remaining" ]; then
-              echo "No remaining queued/in-progress Package jobs found."
-              break
-            fi
-
-            while read -r job_id; do
-              [ -n "$job_id" ] || continue
-              echo "Cancelling Package job $job_id..."
-              gh api --method POST "/repos/${GITHUB_REPOSITORY}/actions/jobs/${job_id}/cancel" >/dev/null 2>&1 || true
-            done <<< "$remaining"
-
-            sleep 2
-          done
-
-          echo "Remaining package slots have been cancelled. Finalize will verify the OneDrive package."
-
   Finalize:
-    needs: [ResolveRevision, Package]
-    if: ${{ always() && github.run_attempt == 1 && needs.ResolveRevision.result == 'success' && (needs.Package.result == 'success' || needs.Package.result == 'cancelled') }}
+    needs: ResolveRevision
+    if: ${{ needs.ResolveRevision.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -775,14 +737,29 @@ jobs:
             rclone lsf "$source_manifest" >/dev/null 2>&1
           }
 
-          if ! source_complete; then
-            echo "ERROR: the Package matrix finished without a complete Chromium source archive."
-            echo "No additional Package jobs will be created from Finalize."
-            echo "This means the Package matrix failed before its completion marker was written."
-            exit 1
-          fi
+          echo "Finalize is waiting for the completed Chromium source marker from the Package matrix..."
 
-          echo "Full Chromium source is ready. Streaming it directly into the final gzip package..."
+          # Finalize is intentionally independent of the 256-job Package matrix.
+          # GitHub waits for every matrix child before a needs: Package job starts.
+          # Poll OneDrive instead so Finalize starts as soon as the winning Package
+          # slot writes all three completion files.
+          for attempt in {1..600}; do
+            if source_complete; then
+              echo "Full Chromium source is ready. Streaming it directly into the final gzip package..."
+              break
+            fi
+
+            if (( attempt == 600 )); then
+              echo "ERROR: timed out waiting 300 minutes for the completed Chromium source."
+              echo "Expected: $source_archive, $source_ready, and $source_manifest"
+              exit 1
+            fi
+
+            if (( attempt % 10 == 0 )); then
+              echo "Source is not complete yet; still waiting on OneDrive (attempt $attempt/600)."
+            fi
+            sleep 30
+          done
 
           archive_partial="$source_root/chromium-$REVISION.tar.gz.partial"
           checksum_partial="$source_root/chromium-$REVISION.sha256.partial"
