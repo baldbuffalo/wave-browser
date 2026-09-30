@@ -297,8 +297,7 @@ jobs:
           - 143
           - 144
           - 145
-          - 146          - 147
-          - 148
+          - 146          - 147          - 148
           - 149
           - 150
           - 151
@@ -597,8 +596,7 @@ jobs:
           checkpoint_pid=""
           checkpoint_pending_UNUSED=false
           next_checkpoint_gib=$CHECKPOINT_INTERVAL_GIB
-          # Checkpointing is part of this sync step. When a guarded Chromium
-          # operation reaches the disk threshold, save the current state immediately
+          # Checkpointing is part of this sync step. When a guarded Chromium          # operation reaches the disk threshold, save the current state immediately
           # so the next worker can download it while this upload is still running.
           save_checkpoint() {
             mkdir -p "$WORK_ROOT"
@@ -619,12 +617,11 @@ jobs:
             batch_dir="$RUNNER_TEMP/checkpoint-parts-upload-$generation"
 
             rm -rf "$snapshot_dir" "$batch_dir"
-            mkdir -p "$snapshot_dir" "$batch_dir"
+            mkdir -p "$batch_dir"
 
-            echo "Creating stable hard-link checkpoint snapshot..."
-            cp -al "$WORK_ROOT/.gclient" "$snapshot_dir/"
-            cp -al "$WORK_ROOT/.gclient_entries" "$snapshot_dir/" 2>/dev/null || true
-            cp -al "$WORK_ROOT/src" "$snapshot_dir/"
+            # This function is called only after the guarded Chromium operation has
+            # stopped. Do not hard-link the live checkout: hard links share the same
+            # inode, so gclient/git could keep modifying the supposed snapshot.
 
             # Create the remote directory before any parallel uploads begin.
             # This prevents the parallel rclone workers from racing to create it.
@@ -664,10 +661,10 @@ jobs:
               upload_parts+=("$part_path")
             }
   
-            echo "Streaming stable Chromium snapshot into pipelined 250 MiB OneDrive checkpoint parts..."
+            echo "Streaming stopped Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
             part_index=0
   
-            tar -C "$snapshot_dir" -cf - --exclude='./.gclient_cache' . |
+            tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
               zstd -T0 -1 |
               while true; do
                 printf -v part_name "part-%06d" "$part_index"
@@ -689,7 +686,7 @@ jobs:
               done
   
             wait_for_uploads
-            rm -rf "$batch_dir" "$snapshot_dir"
+            rm -rf "$batch_dir"
   
             part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
             if [ "$part_count" -eq 0 ]; then
@@ -782,10 +779,13 @@ jobs:
               fi
 
               while (( growth_kb >= next_checkpoint_gib * 1024 * 1024 )); do
-                echo "Chromium disk growth since sync start: ${next_checkpoint_gib} GiB"
-                echo "Saving checkpoint to OneDrive..."
-                start_checkpoint_if_idle
-                next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
+                echo "Chromium disk growth since sync start: " "$next_checkpoint_gib" " GiB"
+                echo "Stopping the current Chromium operation so this exact on-disk state can be checkpointed safely."
+                kill -TERM -- "-$pid" 2>/dev/null || true
+                sleep 5
+                kill -KILL -- "-$pid" 2>/dev/null || true
+                wait "$pid" || true
+                return 75
               done
 
               if (( growth_kb >= used_limit_kb )); then
@@ -897,8 +897,7 @@ jobs:
               start_checkpoint_if_idle
               finish_checkpoint_uploads              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
-            elif [ "$rc" -ne 0 ]; then
-              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+            elif [ "$rc" -ne 0 ]; then              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
               finish_checkpoint_uploads
               exit "$rc"
