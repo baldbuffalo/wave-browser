@@ -31,13 +31,15 @@ jobs:
           RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
-          latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
-          if [[ ! "$latest" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Could not determine a valid Chromium revision."
-            exit 1
+          active_marker="onedrive:$WAVE_ONEDRIVE_PATH/active_revision.json"
+          active_revision=""
+          if rclone lsf "$active_marker" >/dev/null 2>&1; then
+            active_revision=$(rclone cat "$active_marker" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))')
+            if [[ ! "$active_revision" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Ignoring invalid active Chromium revision marker."
+              active_revision=""
+            fi
           fi
-          echo "revision=$latest" >> "$GITHUB_OUTPUT"
-          echo "Pinned Chromium revision for this workflow run: $latest"
 
           if ! command -v rclone >/dev/null 2>&1; then
             curl -fsSL https://rclone.org/install.sh | sudo bash
@@ -50,6 +52,23 @@ jobs:
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
+          if [ -n "$active_revision" ]; then
+            latest="$active_revision"
+            echo "Found an active Chromium packaging target: $latest"
+            echo "A previous run started this revision, so this run will resume it instead of resolving a newer Chromium revision."
+          else
+            latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+            if [[ ! "$latest" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Could not determine a valid Chromium revision."
+              exit 1
+            fi
+            printf '{"revision":"%s","status":"active"}\n' "$latest" | rclone rcat "$active_marker"
+            echo "Created persistent Chromium packaging target: $latest"
+          fi
+
+          echo "revision=$latest" >> "$GITHUB_OUTPUT"
+          echo "Pinned Chromium revision for this workflow run: $latest"
+
           archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$latest.tar.gz"
           checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$latest.sha256"
           ready="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$latest.ready.json"
@@ -60,6 +79,7 @@ jobs:
             ready_revision=$(rclone cat "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))')
             if [ "$ready_revision" = "$latest" ]; then
               echo "Chromium $latest is already fully finalized. The Package matrix will be skipped."
+              rclone deletefile "$active_marker" >/dev/null 2>&1 || true
               echo "already_finalized=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -916,6 +936,7 @@ jobs:
           set -euo pipefail
 
           source_root="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION"
+          active_marker="onedrive:$WAVE_ONEDRIVE_PATH/active_revision.json"
 
           echo "Removing temporary source/checkpoint data after the final package and handoff are verified..."
           rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst" >/dev/null 2>&1 || true
@@ -928,4 +949,5 @@ jobs:
           rclone deletefile "$source_root/checkpoint.json" >/dev/null 2>&1 || true
           rclone deletefile "$source_root/chromium-$REVISION.tar.gz.partial" >/dev/null 2>&1 || true
           rclone deletefile "$source_root/chromium-$REVISION.sha256.partial" >/dev/null 2>&1 || true
+          rclone deletefile "$active_marker" >/dev/null 2>&1 || true
           echo "OneDrive temporary source/checkpoint cleanup complete."
