@@ -41,15 +41,15 @@ jobs:
             trap 'rm -rf "$tmp_dir"' EXIT
             curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
             python3 - "$tmp_dir/rclone.zip" "$tmp_dir" <<'PY'
-import sys
-import zipfile
-
-zip_path, out_dir = sys.argv[1], sys.argv[2]
-with zipfile.ZipFile(zip_path) as z:
-    binary = next(name for name in z.namelist() if name.endswith("/rclone"))
-    z.extract(binary, out_dir)
-print(binary)
-PY
+            import sys
+            import zipfile
+            
+            zip_path, out_dir = sys.argv[1], sys.argv[2]
+            with zipfile.ZipFile(zip_path) as z:
+                binary = next(name for name in z.namelist() if name.endswith("/rclone"))
+                z.extract(binary, out_dir)
+            print(binary)
+            PY
             sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
             rclone version
           fi
@@ -391,15 +391,15 @@ PY
             trap 'rm -rf "$tmp_dir"' EXIT
             curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
             python3 - "$tmp_dir/rclone.zip" "$tmp_dir" <<'PY'
-import sys
-import zipfile
-
-zip_path, out_dir = sys.argv[1], sys.argv[2]
-with zipfile.ZipFile(zip_path) as z:
-    binary = next(name for name in z.namelist() if name.endswith("/rclone"))
-    z.extract(binary, out_dir)
-print(binary)
-PY
+            import sys
+            import zipfile
+            
+            zip_path, out_dir = sys.argv[1], sys.argv[2]
+            with zipfile.ZipFile(zip_path) as z:
+                binary = next(name for name in z.namelist() if name.endswith("/rclone"))
+                z.extract(binary, out_dir)
+            print(binary)
+            PY
             install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" "$RCLONE_CACHE_DIR/rclone"
             sudo install -m 0755 "$RCLONE_CACHE_DIR/rclone" /usr/local/bin/rclone
           else
@@ -745,15 +745,15 @@ PY
             trap 'rm -rf "$tmp_dir"' EXIT
             curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
             python3 - "$tmp_dir/rclone.zip" "$tmp_dir" <<'PY'
-import sys
-import zipfile
-
-zip_path, out_dir = sys.argv[1], sys.argv[2]
-with zipfile.ZipFile(zip_path) as z:
-    binary = next(name for name in z.namelist() if name.endswith("/rclone"))
-    z.extract(binary, out_dir)
-print(binary)
-PY
+            import sys
+            import zipfile
+            
+            zip_path, out_dir = sys.argv[1], sys.argv[2]
+            with zipfile.ZipFile(zip_path) as z:
+                binary = next(name for name in z.namelist() if name.endswith("/rclone"))
+                z.extract(binary, out_dir)
+            print(binary)
+            PY
             sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
           fi
           if ! command -v pv >/dev/null 2>&1; then
