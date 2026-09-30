@@ -449,6 +449,25 @@ jobs:
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
+      - name: Check for completed Chromium source
+        id: complete
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_archive="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst"
+          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
+          source_manifest="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.json"
+
+          if rclone lsf "$source_archive" >/dev/null 2>&1 &&
+             rclone lsf "$source_ready" >/dev/null 2>&1 &&
+             rclone lsf "$source_manifest" >/dev/null 2>&1; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "Full Chromium source and dependencies are already downloaded for $REVISION."
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+            echo "Chromium $REVISION still needs the full source/dependency download to complete."
+          fi
+
       - name: Job 2 checkpoint follower
         if: ${{ matrix.slot == 2 && steps.complete.outputs.already != 'true' }}
         shell: bash
@@ -534,24 +553,6 @@ jobs:
 
           rm -rf "$root"
 
-      - name: Check for completed Chromium source
-        id: complete
-        shell: bash
-        run: |
-          set -euo pipefail
-          source_archive="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst"
-          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
-          source_manifest="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.json"
-
-          if rclone lsf "$source_archive" >/dev/null 2>&1 &&
-             rclone lsf "$source_ready" >/dev/null 2>&1 &&
-             rclone lsf "$source_manifest" >/dev/null 2>&1; then
-            echo "already=true" >> "$GITHUB_OUTPUT"
-            echo "Full Chromium source and dependencies are already downloaded for $REVISION."
-          else
-            echo "already=false" >> "$GITHUB_OUTPUT"
-            echo "Chromium $REVISION still needs the full source/dependency download to complete."
-          fi
 
       - name: Restore latest checkpoint from OneDrive
         if: ${{ matrix.slot != 2 && steps.complete.outputs.already != 'true' }}
