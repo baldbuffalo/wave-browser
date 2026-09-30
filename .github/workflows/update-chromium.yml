@@ -861,13 +861,10 @@ jobs:
               fi
 
               while (( growth_kb >= next_checkpoint_gib * 1024 * 1024 )); do
-                echo "Chromium disk growth since sync start: " "$next_checkpoint_gib" " GiB"
-                echo "Stopping the current Chromium operation so this exact on-disk state can be checkpointed safely."
-                kill -TERM -- "-$pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL -- "-$pid" 2>/dev/null || true
-                wait "$pid" || true
-                return 75
+                echo "Chromium disk growth since sync start: $next_checkpoint_gib GiB"
+                echo "Starting a background checkpoint at the $next_checkpoint_gib GiB interval; Chromium will continue running."
+                start_checkpoint_if_idle
+                next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
               done
 
               if (( growth_kb >= used_limit_kb )); then
