@@ -449,6 +449,91 @@ jobs:
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
+      - name: Job 2 checkpoint follower
+        if: ${{ matrix.slot == 2 && steps.complete.outputs.already != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
+          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
+          root="$RUNNER_TEMP/checkpoint-follower"
+
+          rm -rf "$root"
+          mkdir -p "$root"
+
+          last_generation=""
+          echo "Package (2) is the dedicated Chromium checkpoint follower."
+          echo "It will download every new checkpoint published by the active Package job."
+
+          while true; do
+            if rclone lsf "$source_ready" >/dev/null 2>&1; then
+              echo "Completed Chromium source detected. Checkpoint follower finished."
+              break
+            fi
+
+            ready_content=$(rclone cat "$ready" 2>/dev/null || true)
+            if [[ "$ready_content" != parts\|* ]]; then
+              sleep 2
+              continue
+            fi
+
+            generation=$(printf '%s\n' "$ready_content" | cut -d'|' -f2)
+            if [[ "$generation" != "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-"* ]]; then
+              sleep 2
+              continue
+            fi
+
+            if [ "$generation" = "$last_generation" ]; then
+              sleep 2
+              continue
+            fi
+
+            parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
+            parts_dir="$root/$generation"
+            stream="$root/$generation.tar.zst"
+
+            rm -rf "$parts_dir" "$stream"
+            mkdir -p "$parts_dir"
+
+            echo "Checkpoint $generation is ready. Job 2 is downloading it now."
+
+            rclone copy "$parts_root" "$parts_dir" \
+              --transfers 4 \
+              --checkers 4 \
+              --no-traverse \
+              --checksum \
+              --stats=10s \
+              --stats-one-line
+
+            part_count=$(find "$parts_dir" -maxdepth 1 -type f -name 'part-*' | wc -l)
+            if [ "$part_count" -ne 1 ]; then
+              echo "Checkpoint $generation is incomplete ($part_count parts). Retrying."
+              rm -rf "$parts_dir" "$stream"
+              sleep 2
+              continue
+            fi
+
+            cat "$parts_dir/part-000000" > "$stream"
+
+            if ! zstd -t "$stream"; then
+              echo "Checkpoint $generation failed validation. Retrying."
+              rm -rf "$parts_dir" "$stream"
+              sleep 2
+              continue
+            fi
+
+            echo "Job 2 downloaded and validated checkpoint $generation."
+
+            if [ -n "$last_generation" ] && [ "$last_generation" != "$generation" ]; then
+              rm -rf "$root/$last_generation" "$root/$last_generation.tar.zst"
+            fi
+
+            last_generation="$generation"
+          done
+
+          rm -rf "$root"
+
       - name: Check for completed Chromium source
         id: complete
         shell: bash
@@ -469,7 +554,7 @@ jobs:
           fi
 
       - name: Restore latest checkpoint from OneDrive
-        if: steps.complete.outputs.already != 'true'
+        if: ${{ matrix.slot != 2 && steps.complete.outputs.already != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -579,7 +664,7 @@ jobs:
             echo "Checkpoint restore/download complete and checkout metadata verified."
           fi
       - name: Continue Chromium checkout and dependency sync
-        if: steps.complete.outputs.already != 'true'
+        if: ${{ matrix.slot != 2 && steps.complete.outputs.already != 'true' }}
         id: sync
         shell: bash
         run: |
@@ -924,7 +1009,7 @@ jobs:
           echo "checkpoint=false" >> "$GITHUB_OUTPUT"
 
       - name: Save completed Chromium source for Finalize
-        if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
+        if: ${{ matrix.slot != 2 && steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false' }}
         shell: bash
         run: |
           set -euo pipefail
