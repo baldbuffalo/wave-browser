@@ -482,6 +482,8 @@ jobs:
           rm -rf "$root"
           mkdir -p "$root"
 
+          last_downloaded_generation=""
+
           echo "Package (2) is the dedicated Chromium checkpoint follower."
           echo "It will download every checkpoint generation published during this run."
 
@@ -529,6 +531,10 @@ jobs:
 
               echo "Job 2 downloaded and validated checkpoint $generation."
               touch "$done_file"
+              if [ -n "$last_downloaded_generation" ] && [ "$last_downloaded_generation" != "$generation" ]; then
+                rm -rf "$root/$last_downloaded_generation" "$root/$last_downloaded_generation.tar.zst"
+              fi
+              last_downloaded_generation="$generation"
               if [ -n "${last_downloaded_generation:-}" ] && [ "$last_downloaded_generation" != "$generation" ]; then
                 rm -rf "$root/$last_downloaded_generation" "$root/$last_downloaded_generation.tar.zst"
               fi
