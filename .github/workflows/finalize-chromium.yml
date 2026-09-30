@@ -17,6 +17,10 @@ concurrency:
 permissions:
   contents: write
 
+# Finalize must never create a GitHub Actions cache. Chromium source and the
+# final Chromium package live in OneDrive; only the small rclone tool cache is restored.
+cache-mode: read
+
 env:
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
 
@@ -27,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - name: Restore cached rclone
+      - name: Restore cached rclone tool only
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/wave-browser/tools/bin
