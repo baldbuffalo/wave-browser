@@ -297,8 +297,7 @@ jobs:
           - 143
           - 144
           - 145
-          - 146          - 147          - 148
-          - 149
+          - 146          - 147          - 148          - 149
           - 150
           - 151
           - 152
@@ -597,8 +596,7 @@ jobs:
           checkpoint_pending_UNUSED=false
           next_checkpoint_gib=$CHECKPOINT_INTERVAL_GIB
           # Checkpointing is part of this sync step. When a guarded Chromium          # operation reaches the disk threshold, save the current state immediately
-          # so the next worker can download it while this upload is still running.
-          save_checkpoint() {
+          # so the next worker can download it while this upload is still running.          save_checkpoint() {
             mkdir -p "$WORK_ROOT"
             checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
             ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
@@ -661,10 +659,10 @@ jobs:
               upload_parts+=("$part_path")
             }
   
-            echo "Streaming stopped Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
+            echo "Streaming live Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
             part_index=0
   
-            tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
+            tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed               -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
               zstd -T0 -1 |
               while true; do
                 printf -v part_name "part-%06d" "$part_index"
@@ -897,8 +895,7 @@ jobs:
               start_checkpoint_if_idle
               finish_checkpoint_uploads              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
-            elif [ "$rc" -ne 0 ]; then              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_checkpoint_if_idle
+            elif [ "$rc" -ne 0 ]; then              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."              start_checkpoint_if_idle
               finish_checkpoint_uploads
               exit "$rc"
             fi
