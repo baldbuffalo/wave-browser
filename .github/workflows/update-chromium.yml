@@ -35,7 +35,10 @@ jobs:
           active_revision=""
 
           if ! command -v rclone >/dev/null 2>&1; then
-            curl -fsSL https://rclone.org/install.sh | sudo bash
+            # The hosted Ubuntu image can emit a harmless man-db warning for
+            # walinuxagent while the rclone installer updates system packages.
+            # Keep that unrelated warning out of ResolveRevision logs.
+            curl -fsSL https://rclone.org/install.sh | sudo bash 2> >(grep -v 'walinuxagent(1)' >&2)
           fi
           if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
             echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."
