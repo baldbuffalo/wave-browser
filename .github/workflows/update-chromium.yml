@@ -297,8 +297,7 @@ jobs:
           - 143
           - 144
           - 145
-          - 146
-          - 147
+          - 146          - 147
           - 148
           - 149
           - 150
@@ -598,7 +597,6 @@ jobs:
           checkpoint_pid=""
           checkpoint_pending_UNUSED=false
           next_checkpoint_gib=$CHECKPOINT_INTERVAL_GIB
-
           # Checkpointing is part of this sync step. When a guarded Chromium
           # operation reaches the disk threshold, save the current state immediately
           # so the next worker can download it while this upload is still running.
@@ -897,8 +895,7 @@ jobs:
           if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
-              finish_checkpoint_uploads
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              finish_checkpoint_uploads              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
@@ -1053,5 +1050,4 @@ jobs:
             if (( attempt % 10 == 0 )); then
               echo "Source is not complete yet; still waiting on OneDrive (attempt $attempt/600)."
             fi
-            sleep 30
           done
