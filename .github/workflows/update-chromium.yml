@@ -954,6 +954,22 @@ jobs:
           rclone lsf "$source_ready" >/dev/null
           echo "Completed Chromium source saved. Finalize can now create the final tar.gz package."
 
+      - name: Publish Package completion marker
+        if: ${{ always() }}
+        shell: bash
+        env:
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+
+          marker="onedrive:$CHECKPOINT_ROOT/package-complete-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$SLOT.done"
+          printf 'completed|run=%s|attempt=%s|slot=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$SLOT" |
+            rclone rcat "$marker"
+          echo "Published Package completion marker for slot $SLOT."
+
   Finalize:
     needs: ResolveRevision
     if: ${{ needs.ResolveRevision.result == 'success' }}
@@ -1043,21 +1059,24 @@ jobs:
             rclone lsf "$source_manifest" >/dev/null 2>&1
           }
 
-          echo "Finalize is waiting for the completed Chromium source marker from the Package matrix..."
+          echo "Finalize is waiting for Package jobs to finish before checking the completed source."
 
-          # Finalize is intentionally independent of the 256-job Package matrix.
-          # GitHub waits for every matrix child before a needs: Package job starts.
-          # Poll OneDrive instead so Finalize starts as soon as the winning Package
-          # slot writes all three completion files.
-          attempt=0
+          completed_count=0
           while true; do
-            attempt=$((attempt + 1))
-            if source_complete; then
-              echo "Full Chromium source is ready. Streaming it directly into the final gzip package..."
-              break
+            current_count=$(rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/" --files-only 2>/dev/null |
+              grep -c "^package-complete-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-" || true)
+
+            if (( current_count > completed_count )); then
+              echo "A Package job has finished ($current_count completed). Checking Chromium source now."
+
+              if source_complete; then
+                echo "Full Chromium source is ready. Streaming it directly into the final gzip package..."
+                break
+              fi
+
+              echo "Chromium source is not complete yet. No more source checks until another Package job finishes."
+              completed_count="$current_count"
             fi
 
-            if (( attempt % 10 == 0 )); then
-              echo "Source is not complete yet; still waiting on OneDrive (attempt $attempt)."
-            fi
+            sleep 5
           done
