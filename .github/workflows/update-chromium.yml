@@ -366,30 +366,20 @@ jobs:
     env:
       REVISION: ${{ needs.ResolveRevision.outputs.revision }}
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
-      DEPOT_TOOLS_CACHE: ${{ github.workspace }}/.wave-tools/depot_tools
-      RCLONE_CACHE_DIR: ${{ github.workspace }}/.wave-tools/rclone
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
       - name: Install tools
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RCLONE_CACHE_DIR"
-          if [ -x "$RCLONE_CACHE_DIR/rclone" ]; then
-            sudo install -m 0755 "$RCLONE_CACHE_DIR/rclone" /usr/local/bin/rclone
-            echo "Restored rclone from this workflow run's cache."
-          elif ! command -v rclone >/dev/null 2>&1; then
+          if ! command -v rclone >/dev/null 2>&1; then
             tmp_dir=$(mktemp -d)
             trap 'rm -rf "$tmp_dir"' EXIT
             curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
             python3 -c 'import sys,zipfile; zip_path,out_dir=sys.argv[1],sys.argv[2]; z=zipfile.ZipFile(zip_path); binary=next(n for n in z.namelist() if n.endswith("/rclone")); z.extract(binary,out_dir); z.close(); print(binary)' "$tmp_dir/rclone.zip" "$tmp_dir"
-
-            install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" "$RCLONE_CACHE_DIR/rclone"
-            sudo install -m 0755 "$RCLONE_CACHE_DIR/rclone" /usr/local/bin/rclone
-          else
-            install -m 0755 "$(command -v rclone)" "$RCLONE_CACHE_DIR/rclone"
+            sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
+            rclone version
           fi
-
 
       - name: Configure OneDrive
         shell: bash
@@ -464,59 +454,33 @@ jobs:
             rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
           fi
 
-      - name: Restore depot_tools cache
-        if: steps.complete.outputs.already != 'true'
-        id: depot_cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ env.DEPOT_TOOLS_CACHE }}
-            ${{ env.RCLONE_CACHE_DIR }}
-          key: wave-depot-tools-ubuntu24-v1
-
       - name: Prepare depot_tools
         if: steps.complete.outputs.already != 'true'
         shell: bash
-        env:
-          DEPOT_TOOLS_DIR: ${{ env.DEPOT_TOOLS_CACHE }}
         run: |
           set -euo pipefail
+          depot_tools_dir="$RUNNER_TEMP/depot_tools"
+          rm -rf "$depot_tools_dir"
 
-          if [ ! -x "$DEPOT_TOOLS_DIR/gclient" ]; then
-            echo "Preparing depot_tools once for this workflow run..."
-            rm -rf "$DEPOT_TOOLS_DIR"
-            attempt=1
-            while true; do
-              mkdir -p "$(dirname "$DEPOT_TOOLS_DIR")"
-              if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS_DIR" &&
-                 [ -x "$DEPOT_TOOLS_DIR/gclient" ]; then
-                echo "depot_tools clone succeeded."
-                break
-              fi
+          attempt=1
+          while true; do
+            echo "Installing depot_tools (attempt $attempt)..."
+            if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$depot_tools_dir" &&
+               [ -x "$depot_tools_dir/gclient" ]; then
+              echo "depot_tools clone succeeded."
+              break
+            fi
 
-              echo "depot_tools clone failed or gclient is missing."
-              rm -rf "$DEPOT_TOOLS_DIR"
-              attempt=$((attempt + 1))
-              echo "Retrying depot_tools installation (attempt $attempt) in 10 seconds..."
-              sleep 10
-            done
-          else
-            echo "Restored depot_tools from this workflow run's cache."
-          fi
+            echo "depot_tools clone failed or gclient is missing."
+            rm -rf "$depot_tools_dir"
+            attempt=$((attempt + 1))
+            echo "Retrying depot_tools installation (attempt $attempt) in 10 seconds..."
+            sleep 10
+          done
 
-          export PATH="$DEPOT_TOOLS_DIR:$PATH"
           export DEPOT_TOOLS_UPDATE=0
-          "$DEPOT_TOOLS_DIR/gclient" --version
-          echo "$DEPOT_TOOLS_DIR" >> "$GITHUB_PATH"
-
-      - name: Save depot_tools cache
-        if: steps.complete.outputs.already != 'true' && steps.depot_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ env.DEPOT_TOOLS_CACHE }}
-            ${{ env.RCLONE_CACHE_DIR }}
-          key: wave-depot-tools-ubuntu24-v1
+          "$depot_tools_dir/gclient" --version
+          echo "$depot_tools_dir" >> "$GITHUB_PATH"
 
       - name: Continue Chromium checkout and dependency sync
         if: steps.complete.outputs.already != 'true'
