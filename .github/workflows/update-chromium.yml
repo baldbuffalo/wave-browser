@@ -370,11 +370,11 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v rclone >/dev/null 2>&1; then
-            curl -fsSL https://rclone.org/install.sh | sudo bash
+            curl -fsSL https://rclone.org/install.sh | sudo bash 2> >(grep -v 'walinuxagent(1)' >&2)
           fi
           if ! command -v zstd >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y zstd
+            sudo apt-get update 2> >(grep -v 'walinuxagent(1)' >&2)
+            sudo apt-get install -y zstd 2> >(grep -v 'walinuxagent(1)' >&2)
           fi
 
       - name: Configure OneDrive
@@ -756,11 +756,11 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v rclone >/dev/null 2>&1; then
-            curl -fsSL https://rclone.org/install.sh | sudo bash
+            curl -fsSL https://rclone.org/install.sh | sudo bash 2> >(grep -v 'walinuxagent(1)' >&2)
           fi
           if ! command -v pv >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y pv
+            sudo apt-get update 2> >(grep -v 'walinuxagent(1)' >&2)
+            sudo apt-get install -y pv 2> >(grep -v 'walinuxagent(1)' >&2)
           fi
 
       - name: Configure OneDrive
