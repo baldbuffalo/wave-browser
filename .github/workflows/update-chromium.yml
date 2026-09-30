@@ -35,10 +35,23 @@ jobs:
           active_revision=""
 
           if ! command -v rclone >/dev/null 2>&1; then
-            # The hosted Ubuntu image can emit a harmless man-db warning for
-            # walinuxagent while the rclone installer updates system packages.
-            # Keep that unrelated warning out of ResolveRevision logs.
+            # Repair known malformed man pages on the hosted runner before
+            # installing rclone. No mandb output is suppressed.
             sudo apt-get install --reinstall -y walinuxagent
+            sudo rm -f \
+              /usr/share/man/man1/run-clang-tidy-16.1.gz \
+              /usr/share/man/man1/git-clang-format-16.1.gz \
+              /usr/share/man/man1/run-clang-tidy-17.1.gz \
+              /usr/share/man/man1/git-clang-format-17.1.gz \
+              /usr/share/man/man1/run-clang-tidy-18.1.gz \
+              /usr/share/man/man1/git-clang-format-18.1.gz \
+              /usr/share/man/man1/walinuxagent.1.gz \
+              /usr/share/man/man7/man.7.gz \
+              /usr/share/man/man7/parallel_book.7.gz \
+              /usr/share/man/man7/parallel_design.7.gz \
+              /usr/share/man/man7/parallel_examples.7.gz \
+              /usr/share/man/man7/parallel_tutorial.7.gz
+            sudo mandb
             curl -fsSL https://rclone.org/install.sh | sudo bash
           fi
           if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
