@@ -506,7 +506,13 @@ jobs:
               rm -rf "$parts_dir" "$stream"
               mkdir -p "$parts_dir"
 
-              echo "Checkpoint $generation is published. Job 2 is downloading it now."
+              ready_file="$staging/checkpoint-ready-$generation.done"
+              if ! rclone lsf "$ready_file" >/dev/null 2>&1; then
+                echo "Checkpoint $generation exists but is still uploading. Job 2 will wait for its completed marker."
+                continue
+              fi
+
+              echo "Checkpoint $generation is fully uploaded. Job 2 is downloading it now."
               rclone copy "$parts_root" "$parts_dir" \
                 --transfers 4 \
                 --checkers 4 \
@@ -533,9 +539,7 @@ jobs:
               marker_now=$(rclone cat "onedrive:$CHECKPOINT_ROOT/checkpoint.uploading" 2>/dev/null || true)
               if [[ "$marker_now" == "parts|$generation|"* ]]; then
                 rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.uploading" >/dev/null 2>&1 || true
-                echo "Job 2 finished with checkpoint $generation; its marker was deleted."
-              else
-                echo "A newer checkpoint marker is already published; leaving it untouched."
+                echo "Job 2 finished with checkpoint $generation; Job 1's marker was deleted so Job 2 can publish the next one."
               fi
               touch "$done_file"
               if [ -n "$last_downloaded_generation" ] && [ "$last_downloaded_generation" != "$generation" ]; then
@@ -810,6 +814,8 @@ jobs:
             test "$(rclone cat "$ready")" = "parts|$generation"
             rclone lsf "$manifest" >/dev/null
             rclone lsf "$parts_root/" >/dev/null
+            printf 'parts|%s\n' "$generation" | rclone rcat "$CHECKPOINT_ROOT/checkpoint-ready-$generation.done"
+            echo "Published completed checkpoint marker: $generation"
             # Keep checkpoint.uploading published so concurrent Package jobs can
             # always discover the current generation. The standalone Finalize
             # workflow removes all staging checkpoint data after packaging.
