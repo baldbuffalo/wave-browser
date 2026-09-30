@@ -542,7 +542,7 @@ jobs:
           echo "Checkpointing when Chromium work consumes approximately $CHECKPOINT_USED_GIB GiB of additional disk."
 
           checkpoint_pid=""
-          checkpoint_pending=false
+          checkpoint_pending_UNUSED=false
           next_checkpoint_gib=$CHECKPOINT_INTERVAL_GIB
 
           # Checkpointing is part of this sync step. When a guarded Chromium
@@ -669,25 +669,25 @@ jobs:
           }
 
 
-          start_or_queue_checkpoint() {
+          start_checkpoint_if_idle() {
             if [ -n "$checkpoint_pid" ]; then
               if kill -0 "$checkpoint_pid" 2>/dev/null; then
-                checkpoint_pending=true
-                echo "Checkpoint upload already running; latest checkpoint save is queued."
-                return 0
+                echo "Checkpoint upload already running; skipping this checkpoint interval."
+                return 1
               fi
               if ! wait "$checkpoint_pid"; then
                 echo "ERROR: previous checkpoint upload failed."
-                return 1
+                checkpoint_pid=""
+                return 2
               fi
               checkpoint_pid=""
             fi
 
-            checkpoint_pending=false
             echo "saving to onedrive"
             save_checkpoint &
             checkpoint_pid="$!"
             echo "Checkpoint upload started in background (PID $checkpoint_pid)."
+            return 0
           }
 
           finish_checkpoint_uploads() {
@@ -698,13 +698,6 @@ jobs:
                 return 1
               fi
               checkpoint_pid=""
-            fi
-
-            if [ "$checkpoint_pending" = true ]; then
-              checkpoint_pending=false
-              echo "Saving the latest queued Chromium state to OneDrive..."
-              start_or_queue_checkpoint
-              finish_checkpoint_uploads
             fi
           }
           disk_guarded() {
@@ -729,7 +722,7 @@ jobs:
               while (( growth_kb >= next_checkpoint_gib * 1024 * 1024 )); do
                 echo "Chromium disk growth since sync start: ${next_checkpoint_gib} GiB"
                 echo "Saving checkpoint to OneDrive..."
-                start_or_queue_checkpoint
+                start_checkpoint_if_idle
                 next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
               done
 
@@ -758,13 +751,13 @@ jobs:
             disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
             if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               exit "$rc"
             fi
@@ -782,13 +775,13 @@ jobs:
           disk_guarded 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               exit "$rc"
             fi
@@ -797,13 +790,13 @@ jobs:
           disk_guarded 'git -C "$WORK_ROOT/src" checkout --detach "$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               exit "$rc"
             fi
@@ -819,13 +812,13 @@ jobs:
           disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
           if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               exit "$rc"
             fi
@@ -839,13 +832,13 @@ jobs:
           disk_guarded 'gclient sync --nohooks --no-history --revision "src@$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               echo "checkpoint=true" >> "$GITHUB_OUTPUT"
               exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_or_queue_checkpoint
+              start_checkpoint_if_idle
               finish_checkpoint_uploads
               exit "$rc"
             fi
