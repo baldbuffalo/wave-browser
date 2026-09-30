@@ -535,10 +535,6 @@ jobs:
                 rm -rf "$root/$last_downloaded_generation" "$root/$last_downloaded_generation.tar.zst"
               fi
               last_downloaded_generation="$generation"
-              if [ -n "${last_downloaded_generation:-}" ] && [ "$last_downloaded_generation" != "$generation" ]; then
-                rm -rf "$root/$last_downloaded_generation" "$root/$last_downloaded_generation.tar.zst"
-              fi
-              last_downloaded_generation="$generation"
             done <<< "$generations"
 
             if rclone lsf "$source_ready" >/dev/null 2>&1; then
