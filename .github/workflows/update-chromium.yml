@@ -34,13 +34,14 @@ jobs:
           active_marker="onedrive:$WAVE_ONEDRIVE_PATH/active_revision.json"
           active_revision=""
 
-          # Enable man-db's package trigger so apt does not report
-          # "Not building database; man-db/auto-update is not 'true'".
-          echo 'man-db man-db/auto-update boolean true' | sudo debconf-set-selections
+          # Enable man-db's package trigger before any package installation.
+          # The trigger checks this filesystem flag, not only debconf.
+          sudo touch /var/lib/man-db/auto-update
 
           if ! command -v rclone >/dev/null 2>&1; then
             # Repair known malformed man pages on the hosted runner before
             # installing rclone. No mandb output is suppressed.
+            sudo touch /var/lib/man-db/auto-update
             sudo apt-get install --reinstall -y walinuxagent
             sudo rm -f \
               /usr/share/man/man1/run-clang-tidy-16.1.gz \
@@ -393,6 +394,7 @@ jobs:
           fi
           if ! command -v zstd >/dev/null 2>&1; then
             sudo apt-get update
+            sudo touch /var/lib/man-db/auto-update
             sudo apt-get install -y zstd
             sudo mandb
           fi
@@ -781,6 +783,7 @@ jobs:
           fi
           if ! command -v pv >/dev/null 2>&1; then
             sudo apt-get update
+            sudo touch /var/lib/man-db/auto-update
             sudo apt-get install -y pv
             sudo mandb
           fi
