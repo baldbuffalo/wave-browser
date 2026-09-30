@@ -33,13 +33,6 @@ jobs:
           set -euo pipefail
           active_marker="onedrive:$WAVE_ONEDRIVE_PATH/active_revision.json"
           active_revision=""
-          if rclone lsf "$active_marker" >/dev/null 2>&1; then
-            active_revision=$(rclone cat "$active_marker" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))')
-            if [[ ! "$active_revision" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "Ignoring invalid active Chromium revision marker."
-              active_revision=""
-            fi
-          fi
 
           if ! command -v rclone >/dev/null 2>&1; then
             curl -fsSL https://rclone.org/install.sh | sudo bash
@@ -51,6 +44,14 @@ jobs:
           mkdir -p "$HOME/.config/rclone"
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
+
+          if rclone lsf "$active_marker" >/dev/null 2>&1; then
+            active_revision=$(rclone cat "$active_marker" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))')
+            if [[ ! "$active_revision" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Ignoring invalid active Chromium revision marker."
+              active_revision=""
+            fi
+          fi
 
           if [ -n "$active_revision" ]; then
             latest="$active_revision"
@@ -938,6 +939,11 @@ jobs:
           source_root="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION"
           active_marker="onedrive:$WAVE_ONEDRIVE_PATH/active_revision.json"
 
+          old_revision=""
+          if [ -f android/chromium_revision.txt ]; then
+            old_revision=$(tr -d '\r\n ' < android/chromium_revision.txt)
+          fi
+
           echo "Removing temporary source/checkpoint data after the final package and handoff are verified..."
           rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst" >/dev/null 2>&1 || true
           rclone deletefile "$source_root/chromium-$REVISION.source.tar.zst.partial" >/dev/null 2>&1 || true
@@ -950,4 +956,20 @@ jobs:
           rclone deletefile "$source_root/chromium-$REVISION.tar.gz.partial" >/dev/null 2>&1 || true
           rclone deletefile "$source_root/chromium-$REVISION.sha256.partial" >/dev/null 2>&1 || true
           rclone deletefile "$active_marker" >/dev/null 2>&1 || true
+
+          # Keep the previous packaged revision until the replacement revision
+          # has been fully packaged, verified, and handed off.
+          if [[ "$old_revision" =~ ^[0-9a-f]{40}$ ]] && [ "$old_revision" != "$REVISION" ]; then
+            old_archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$old_revision.tar.gz"
+            old_checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$old_revision.sha256"
+            old_ready="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$old_revision.ready.json"
+            echo "New Chromium $REVISION is fully ready. Removing old packaged revision $old_revision..."
+            rclone deletefile "$old_archive" >/dev/null 2>&1 || true
+            rclone deletefile "$old_checksum" >/dev/null 2>&1 || true
+            rclone deletefile "$old_ready" >/dev/null 2>&1 || true
+            echo "Old packaged revision $old_revision removed."
+          else
+            echo "No different previous packaged Chromium revision needs removal."
+          fi
+
           echo "OneDrive temporary source/checkpoint cleanup complete."
