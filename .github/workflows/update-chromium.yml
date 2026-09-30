@@ -624,30 +624,23 @@ jobs:
             generation="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s)"
             parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
             uploading="onedrive:$CHECKPOINT_ROOT/checkpoint.uploading"
-            snapshot_dir="$RUNNER_TEMP/checkpoint-snapshot-$generation"
             batch_dir="$RUNNER_TEMP/checkpoint-parts-upload-$generation"
 
-            rm -rf "$snapshot_dir" "$batch_dir"
+            rm -rf "$batch_dir"
             mkdir -p "$batch_dir"
 
-            # This function is called only after the guarded Chromium operation has
-            # stopped. Do not hard-link the live checkout: hard links share the same
-            # inode, so gclient/git could keep modifying the supposed snapshot.
-
-            # Create the remote directory before any parallel uploads begin.
-            # This prevents the parallel rclone workers from racing to create it.
+            # The guarded Chromium operation has already stopped at the 1 GiB
+            # boundary. Archive only the Git/gclient metadata needed to resume;
+            # archiving the entire Chromium working tree caused the previous
+            # checkpoint to spend about an hour before its first 250 MiB part.
             rclone mkdir "$parts_root"
 
-            # Publish the marker only after the local snapshot exists.
             printf 'parts|%s|slot|%s\n' "$generation" "$SLOT" | rclone rcat "$uploading"
             echo "Published checkpoint upload marker for slot $SLOT: $generation"
-  
-            # Start each 250 MiB part upload immediately. Keep at most four
-            # uploads/parts outstanding so local checkpoint data stays within the
-            # runner's ~1 GiB safety headroom while upload overlaps compression.
+
             upload_pids=()
             upload_parts=()
-  
+
             wait_for_uploads() {
               local i
               for i in "${!upload_pids[@]}"; do
@@ -657,67 +650,70 @@ jobs:
               upload_pids=()
               upload_parts=()
             }
-  
+
             start_part_upload() {
               local part_path="$1"
               local part_name="$2"
               echo "Starting OneDrive upload: $part_name"
               rclone copyto "$part_path" "$parts_root/$part_name" \
                 --no-check-dest \
-                --checksum \
                 --onedrive-chunk-size 250M \
                 --stats=10s \
                 --stats-one-line &
               upload_pids+=("$!")
               upload_parts+=("$part_path")
             }
-  
-            echo "Streaming live Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
+
+            echo "Streaming Chromium Git metadata checkpoint into pipelined 250 MiB OneDrive parts..."
             part_index=0
             stream_fifo="$batch_dir/chromium-state.stream"
             mkfifo "$stream_fifo"
-  
-            # Do not put the part loop directly after a pipe. Bash executes a
-            # pipeline component in a subshell, so upload_pids/upload_parts would
-            # be lost when the loop exits and the parent could delete batch_dir
-            # while its background rclone uploads were still reading from it.
+
             (
               set -o pipefail
-              tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed                 -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
+              {
+                printf '%s\n' './.gclient'
+                if [ -f "$WORK_ROOT/.gclient_entries" ]; then
+                  printf '%s\n' './.gclient_entries'
+                fi
+                find ./src \( -type d -name .git -o -type f -name .git \) -print
+              } |
+                tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed \
+                  --verbatim-files-from -C "$WORK_ROOT" -cf - -T - |
                 zstd -T0 -1
             ) > "$stream_fifo" &
             stream_pid=$!
-  
+
             while true; do
               printf -v part_name "part-%06d" "$part_index"
               part_path="$batch_dir/$part_name"
-  
+
               dd iflag=fullblock bs=250M count=1 status=none if="$stream_fifo" of="$part_path"
-  
+
               if [ ! -s "$part_path" ]; then
                 rm -f "$part_path"
                 break
               fi
-  
+
               part_index=$((part_index + 1))
               start_part_upload "$part_path" "$part_name"
-  
+
               if (( ${#upload_pids[@]} == 4 )); then
                 wait_for_uploads
               fi
             done
-  
+
             if ! wait "$stream_pid"; then
-              echo "ERROR: live Chromium checkpoint stream failed while reading the working tree."
+              echo "ERROR: Chromium Git metadata checkpoint stream failed."
               rm -rf "$batch_dir"
               exit 1
             fi
-  
+
             rm -f "$stream_fifo"
             wait_for_uploads
             rm -rf "$batch_dir"
-  
-            part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
+
+                        part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
             if [ "$part_count" -eq 0 ]; then
               echo "ERROR: no checkpoint parts were uploaded."
               exit 1
@@ -894,14 +890,12 @@ jobs:
 
           cd "$WORK_ROOT"
 
-          # Older checkpoints may contain a .gclient generated without the
-          # public-only custom variables. Recreate the config with gclient's
-          # supported config command so custom_vars is a normal dictionary in
-          # the generated file. This is also idempotent across resumed slots.
-          rm -f "$WORK_ROOT/.gclient"
-          rc=0
-          disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
-          if [ "$rc" -eq 75 ]; then
+          # The checkpoint contains the valid .gclient file. Only create it when
+          # starting completely fresh; do not rewrite it on every resumed slot.
+          if [ ! -f "$WORK_ROOT/.gclient" ]; then
+            rc=0
+            disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
+            if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
               finish_checkpoint_uploads
@@ -913,6 +907,7 @@ jobs:
               finish_checkpoint_uploads
               exit "$rc"
             fi
+          fi
 
           # A previous failed sync can leave private-repository scratch directories
           # behind. They are not part of the public Chromium checkout and must not
@@ -920,7 +915,7 @@ jobs:
           rm -rf "$WORK_ROOT/src/agents/internal" "$WORK_ROOT/_bad_scm"
 
           rc=0
-          disk_guarded 'gclient sync --nohooks --no-history --revision "src@$REVISION"' || rc=$?
+          disk_guarded 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
               echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
               start_checkpoint_if_idle
