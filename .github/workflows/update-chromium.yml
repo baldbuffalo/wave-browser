@@ -37,9 +37,6 @@ jobs:
           # Enable man-db's package trigger so apt does not report
           # "Not building database; man-db/auto-update is not 'true'".
           echo 'man-db man-db/auto-update boolean true' | sudo debconf-set-selections
-          sudo debconf-set-selections <<'EOF'
-man-db man-db/auto-update boolean true
-EOF
 
           if ! command -v rclone >/dev/null 2>&1; then
             # Repair known malformed man pages on the hosted runner before
