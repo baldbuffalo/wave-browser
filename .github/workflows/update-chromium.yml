@@ -375,13 +375,18 @@ PY
       REVISION: ${{ needs.ResolveRevision.outputs.revision }}
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
       DEPOT_TOOLS_CACHE: ${{ runner.temp }}/depot_tools
+      RCLONE_CACHE_DIR: ${{ runner.temp }}/wave-tools
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
       - name: Install tools
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v rclone >/dev/null 2>&1; then
+          mkdir -p "$RCLONE_CACHE_DIR"
+          if [ -x "$RCLONE_CACHE_DIR/rclone" ]; then
+            sudo install -m 0755 "$RCLONE_CACHE_DIR/rclone" /usr/local/bin/rclone
+            echo "Restored rclone from this workflow run's cache."
+          elif ! command -v rclone >/dev/null 2>&1; then
             tmp_dir=$(mktemp -d)
             trap 'rm -rf "$tmp_dir"' EXIT
             curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
@@ -395,7 +400,10 @@ with zipfile.ZipFile(zip_path) as z:
     z.extract(binary, out_dir)
 print(binary)
 PY
-            sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
+            install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" "$RCLONE_CACHE_DIR/rclone"
+            sudo install -m 0755 "$RCLONE_CACHE_DIR/rclone" /usr/local/bin/rclone
+          else
+            install -m 0755 "$(command -v rclone)" "$RCLONE_CACHE_DIR/rclone"
           fi
           if ! command -v zstd >/dev/null 2>&1; then
             sudo apt-get update
@@ -483,7 +491,9 @@ PY
         id: depot_cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ env.DEPOT_TOOLS_CACHE }}
+          path: |
+            ${{ env.DEPOT_TOOLS_CACHE }}
+            ${{ env.RCLONE_CACHE_DIR }}
           key: wave-depot-tools-${{ github.run_id }}
 
       - name: Prepare depot_tools
@@ -524,7 +534,9 @@ PY
         if: steps.complete.outputs.already != 'true' && steps.depot_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ${{ env.DEPOT_TOOLS_CACHE }}
+          path: |
+            ${{ env.DEPOT_TOOLS_CACHE }}
+            ${{ env.RCLONE_CACHE_DIR }}
           key: wave-depot-tools-${{ github.run_id }}
 
       - name: Continue Chromium checkout and dependency sync
