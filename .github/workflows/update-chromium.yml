@@ -668,8 +668,11 @@ jobs:
             # pipeline component in a subshell, so upload_pids/upload_parts would
             # be lost when the loop exits and the parent could delete batch_dir
             # while its background rclone uploads were still reading from it.
-            tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed               -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
-              zstd -T0 -1 > "$stream_fifo" &
+            (
+              set -o pipefail
+              tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed                 -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
+                zstd -T0 -1
+            ) > "$stream_fifo" &
             stream_pid=$!
   
             while true; do
