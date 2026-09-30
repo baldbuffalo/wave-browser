@@ -694,8 +694,12 @@ jobs:
             local part_path="$1"
             local part_name="$2"
             echo "Starting OneDrive upload: $part_name"
-            rclone copyto "$part_path" "$parts_root/$part_name" \
+            # copy uploads the individual file into the checkpoint directory.
+            # copyto treats the destination as a file and can collide with the
+            # OneDrive directory when that directory is created concurrently.
+            rclone copy "$part_path" "$parts_root" \
               --no-check-dest \
+              --no-traverse \
               --onedrive-chunk-size 250M \
               --stats=10s \
               --stats-one-line &
