@@ -631,7 +631,7 @@ jobs:
           rclone deletefile "$ready" >/dev/null 2>&1 || true
 
           echo "Streaming the current Chromium state to OneDrive..."
-          tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . | zstd -T0 -3 | rclone rcat "$partial" --progress
+          tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . | zstd -T0 -1 | rclone rcat "$partial" --progress --stats=10s --stats-one-line --onedrive-chunk-size 250M
 
           rclone moveto "$partial" "$checkpoint"
 
@@ -666,7 +666,7 @@ jobs:
             --exclude='*/.git' \
             --exclude='./.gclient_cache' \
             .gclient .gclient_entries src |
-            zstd -T0 -3 | rclone rcat "$source_partial" --progress
+            zstd -T0 -1 | rclone rcat "$source_partial" --progress --stats=10s --stats-one-line --onedrive-chunk-size 250M
 
           rclone moveto "$source_partial" "$source_archive"
           printf '{"revision":"%s","complete":true}\n' "$REVISION" | rclone rcat "$source_manifest"
@@ -808,7 +808,7 @@ jobs:
             pv -p -t -e -r -b -s "$source_bytes" |
             zstd -d |
             gzip -1 |
-            rclone rcat "$archive_partial" --progress --stats=10s --stats-one-line
+            rclone rcat "$archive_partial" --progress --stats=10s --stats-one-line --onedrive-chunk-size 250M
           rclone moveto "$archive_partial" "$archive"
 
           echo "Calculating and verifying the final package checksum..."
