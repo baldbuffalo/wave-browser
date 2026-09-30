@@ -624,6 +624,18 @@ jobs:
             echo "Checkpoint download finished: $actual_parts/$expected_parts parts were downloaded while the previous job was uploading."
             (find "$parts_dir" -maxdepth 1 -type f -name 'part-*' -printf '%f\n' | sort | while read -r part; do cat "$parts_dir/$part"; done) |
               tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
+
+            # Job 2 has now consumed this checkpoint. Delete the producer's marker
+            # only when it still points to this exact generation. If Job 1 has
+            # already published a newer checkpoint, never delete the newer marker.
+            current_marker=$(rclone cat "$uploading" 2>/dev/null || true)
+            if [[ "$current_marker" == parts\|$generation\|* ]]; then
+              rclone deletefile "$uploading" >/dev/null 2>&1 || true
+              echo "Consumed checkpoint $generation; removed its upload marker."
+            else
+              echo "Checkpoint $generation was consumed, but the upload marker now points to a newer generation; leaving the newer marker intact."
+            fi
+
             rm -rf "$parts_dir"
           }
 
