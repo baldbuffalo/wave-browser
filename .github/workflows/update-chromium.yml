@@ -970,8 +970,6 @@ jobs:
             fi
           fi
 
-          fi
-
           # A previous failed sync can leave private-repository scratch directories
           # behind. They are not part of the public Chromium checkout and must not
           # be carried into the completed source package.
@@ -1026,7 +1024,7 @@ jobs:
           echo "Completed Chromium source saved. Finalize can now create the final tar.gz package."
 
       - name: Trigger Chromium Finalize workflow
-        if: steps.sync.outputs.checkpoint == 'false'
+        if: ${{ matrix.slot != 2 && steps.sync.outputs.checkpoint == 'false' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
