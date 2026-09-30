@@ -422,66 +422,60 @@ jobs:
           mkdir -p "$WORK_ROOT"
           checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
           ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
+          manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
 
-          ready_exists=false
-          checkpoint_exists=false
-          manifest_exists=false
-          rclone lsf "$ready" >/dev/null 2>&1 && ready_exists=true || true
-          rclone lsf "$checkpoint" >/dev/null 2>&1 && checkpoint_exists=true || true
-          rclone lsf "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 && manifest_exists=true || true
-          if $ready_exists && $checkpoint_exists && $manifest_exists; then
-            echo "All checkpoint files exist; restoring the checkpoint."
-            rclone cat "$checkpoint" | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
-
-            if [ ! -f "$WORK_ROOT/.gclient" ] || [ ! -d "$WORK_ROOT/src/.git" ]; then
-              echo "Restored checkpoint is missing required Chromium checkout metadata."
-              echo "The checkpoint will be discarded and this slot will start from a clean state."
-              rclone deletefile "$ready" >/dev/null 2>&1 || true
-              rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
-              rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 || true
-              rm -rf "$WORK_ROOT"
-              mkdir -p "$WORK_ROOT"
-            else
-              echo "Checkpoint restored and basic checkout structure verified."
-            fi
-          elif ! $ready_exists && ! $checkpoint_exists && ! $manifest_exists; then
-            echo "No checkpoint files exist. Starting a new Chromium checkout."
-          else
-            echo "Incomplete checkpoint detected. Removing incomplete checkpoint files."
-            rclone deletefile "$ready" >/dev/null 2>&1 || true
-            rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
-            rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json" >/dev/null 2>&1 || true
-            rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
+          ready_content=""
+          if rclone lsf "$ready" >/dev/null 2>&1; then
+            ready_content=$(rclone cat "$ready")
           fi
 
-      - name: Prepare depot_tools
-        if: steps.complete.outputs.already != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          depot_tools_dir="$RUNNER_TEMP/depot_tools"
-          rm -rf "$depot_tools_dir"
+          if [[ "$ready_content" == parts\|* ]]; then
+            generation=$(printf '%s\n' "$ready_content" | cut -d'|' -f2-)
+            parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
+            parts_dir="$RUNNER_TEMP/checkpoint-parts-restore"
 
-          attempt=1
-          while true; do
-            echo "Installing depot_tools (attempt $attempt)..."
-            if git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$depot_tools_dir" &&
-               [ -x "$depot_tools_dir/gclient" ]; then
-              echo "depot_tools clone succeeded."
-              break
+            echo "Complete multipart checkpoint found: $generation"
+            rm -rf "$parts_dir"
+            mkdir -p "$parts_dir"
+            rclone copy "$parts_root" "$parts_dir" --transfers 4 --checkers 4 --no-traverse --stats=10s --stats-one-line
+
+            part_count=$(find "$parts_dir" -maxdepth 1 -type f -name 'part-*' | wc -l)
+            if [ "$part_count" -eq 0 ]; then
+              echo "Multipart checkpoint is marked ready but contains no parts."
+              exit 1
             fi
 
-            echo "depot_tools clone failed or gclient is missing."
-            rm -rf "$depot_tools_dir"
-            attempt=$((attempt + 1))
-            echo "Retrying depot_tools installation (attempt $attempt) in 10 seconds..."
-            sleep 10
-          done
+            echo "Restoring $part_count checkpoint parts in order..."
+            (
+              find "$parts_dir" -maxdepth 1 -type f -name 'part-*' -printf '%f\n' |
+                sort |
+                while read -r part; do cat "$parts_dir/$part"; done
+            ) | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
 
-          export DEPOT_TOOLS_UPDATE=0
-          "$depot_tools_dir/gclient" --version
-          echo "$depot_tools_dir" >> "$GITHUB_PATH"
+            rm -rf "$parts_dir"
+          elif rclone lsf "$checkpoint" >/dev/null 2>&1 &&
+               rclone lsf "$ready" >/dev/null 2>&1 &&
+               rclone lsf "$manifest" >/dev/null 2>&1; then
+            echo "Legacy single-file checkpoint found; restoring it."
+            rclone cat "$checkpoint" | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
+          elif ! rclone lsf "$ready" >/dev/null 2>&1 &&
+               ! rclone lsf "$checkpoint" >/dev/null 2>&1 &&
+               ! rclone lsf "$manifest" >/dev/null 2>&1; then
+            echo "No checkpoint files exist. Starting a new Chromium checkout."
+          else
+            echo "Incomplete checkpoint detected. Removing incomplete legacy checkpoint files."
+            rclone deletefile "$ready" >/dev/null 2>&1 || true
+            rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
+            rclone deletefile "$manifest" >/dev/null 2>&1 || true
+            rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json.partial" >/dev/null 2>&1 || true
+          fi
 
+          if [ ! -f "$WORK_ROOT/.gclient" ] || [ ! -d "$WORK_ROOT/src/.git" ]; then
+            echo "Restored checkpoint is missing required Chromium checkout metadata."
+            exit 1
+          fi
+
+          echo "Checkpoint restore complete and checkout metadata verified."
       - name: Continue Chromium checkout and dependency sync
         if: steps.complete.outputs.already != 'true'
         id: sync
@@ -623,27 +617,96 @@ jobs:
           set -euo pipefail
           mkdir -p "$WORK_ROOT"
           checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
-          partial="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst.partial"
           ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
           manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
+          manifest_partial="onedrive:$CHECKPOINT_ROOT/checkpoint.json.partial"
 
-          rclone deletefile "$partial" >/dev/null 2>&1 || true
-          rclone deletefile "$ready" >/dev/null 2>&1 || true
+          old_ready=""
+          if rclone lsf "$ready" >/dev/null 2>&1; then
+            old_ready=$(rclone cat "$ready")
+          fi
 
-          echo "Streaming the current Chromium state to OneDrive..."
-          tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . | zstd -T0 -1 | rclone rcat "$partial" --progress --stats=10s --stats-one-line --onedrive-chunk-size 250M
+          generation="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s)"
+          parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
+          batch_dir="$RUNNER_TEMP/checkpoint-parts-upload"
+          rm -rf "$batch_dir"
+          mkdir -p "$batch_dir"
 
-          rclone moveto "$partial" "$checkpoint"
+          upload_batch() {
+            if find "$batch_dir" -maxdepth 1 -type f -name 'part-*' -print -quit | grep -q .; then
+              echo "Uploading checkpoint batch with 4 parallel OneDrive transfers..."
+              rclone copy "$batch_dir" "$parts_root" \
+                --transfers 4 \
+                --checkers 4 \
+                --no-traverse \
+                --onedrive-chunk-size 250M \
+                --stats=10s \
+                --stats-one-line
+              rm -f "$batch_dir"/part-*
+            fi
+          }
 
-          printf '{"revision":"%s","format":"tar.zst","checkpoint_slot":"%s"}\n' "$REVISION" "${{ matrix.slot }}" |
-            rclone rcat "$manifest"
+          echo "Streaming Chromium state into parallel 250 MiB OneDrive checkpoint parts..."
+          part_index=0
 
-          rclone lsf "$checkpoint" >/dev/null
+          tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
+            zstd -T0 -1 |
+            while true; do
+              printf -v part_name "part-%06d" "$part_index"
+              part_path="$batch_dir/$part_name"
+
+              dd iflag=fullblock bs=250M count=1 status=none of="$part_path"
+
+              if [ ! -s "$part_path" ]; then
+                rm -f "$part_path"
+                break
+              fi
+
+              part_index=$((part_index + 1))
+              if (( part_index % 4 == 0 )); then
+                upload_batch
+              fi
+            done
+
+          upload_batch
+          rm -rf "$batch_dir"
+
+          part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
+          if [ "$part_count" -eq 0 ]; then
+            echo "ERROR: no checkpoint parts were uploaded."
+            exit 1
+          fi
+
+          echo "Uploaded $part_count checkpoint parts."
+
+          rclone deletefile "$manifest_partial" >/dev/null 2>&1 || true
+          printf '{"revision":"%s","format":"tar.zst.parts","generation":"%s","part_size":"250M","parts":%s}\n' \
+            "$REVISION" "$generation" "$part_count" |
+            rclone rcat "$manifest_partial"
+
+          rclone moveto "$manifest_partial" "$manifest"
+
+          # Publish the ready pointer last. Until this exists, the previous valid
+          # checkpoint remains the one used by the restore step.
+          printf 'parts|%s\n' "$generation" | rclone rcat "$ready"
+
+          test "$(rclone cat "$ready")" = "parts|$generation"
           rclone lsf "$manifest" >/dev/null
-          printf 'ready\n' | rclone rcat "$ready"
-          rclone lsf "$ready" >/dev/null
-          echo "Checkpoint saved with all required files. The next GitHub-hosted runner will restore it and continue."
+          rclone lsf "$parts_root/" >/dev/null
 
+          # The new checkpoint is valid. Only now remove the previous checkpoint.
+          if [[ "$old_ready" == parts\|* ]]; then
+            old_generation=$(printf '%s\n' "$old_ready" | cut -d'|' -f2-)
+            if [ "$old_generation" != "$generation" ]; then
+              echo "Removing previous multipart checkpoint: $old_generation"
+              rclone purge "onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$old_generation" >/dev/null 2>&1 || true
+            fi
+          elif [ "$old_ready" = "ready" ]; then
+            echo "Removing previous legacy single-file checkpoint now that the new checkpoint is ready."
+            rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
+          fi
+
+          echo "Checkpoint saved as $part_count parallel OneDrive parts and published atomically."
       - name: Save completed Chromium source for Finalize
         if: steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false'
         shell: bash
