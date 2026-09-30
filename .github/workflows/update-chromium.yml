@@ -157,6 +157,18 @@ jobs:
             rclone version
           fi
 
+      - name: Install depot_tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          depot_tools_dir="$RUNNER_TEMP/depot_tools"
+          rm -rf "$depot_tools_dir"
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$depot_tools_dir"
+          echo "$depot_tools_dir" >> "$GITHUB_PATH"
+          export PATH="$depot_tools_dir:$PATH"
+          command -v gclient
+          gclient --version
+
       - name: Configure OneDrive
         shell: bash
         env:
