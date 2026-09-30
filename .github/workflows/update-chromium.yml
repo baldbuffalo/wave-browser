@@ -406,12 +406,45 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v rclone >/dev/null 2>&1; then
+            # Repair malformed runner man pages before any package trigger runs.
+            sudo touch /var/lib/man-db/auto-update
+            sudo rm -f \
+              /usr/share/man/man1/run-clang-tidy-16.1.gz \
+              /usr/share/man/man1/git-clang-format-16.1.gz \
+              /usr/share/man/man1/run-clang-tidy-17.1.gz \
+              /usr/share/man/man1/git-clang-format-17.1.gz \
+              /usr/share/man/man1/run-clang-tidy-18.1.gz \
+              /usr/share/man/man1/git-clang-format-18.1.gz \
+              /usr/share/man/man1/walinuxagent.1.gz \
+              /usr/share/man/man1/debconf-apt-progress.1.gz \
+              /usr/share/man/man1/debconf-communicate.1.gz \
+              /usr/share/man/man1/debconf-copydb.1.gz \
+              /usr/share/man/man1/debconf-escape.1.gz \
+              /usr/share/man/man1/debconf-set-selections.1.gz \
+              /usr/share/man/man1/debconf-show.1.gz \
+              /usr/share/man/man1/debconf.1.gz \
+              /usr/share/man/man7/man.7.gz \
+              /usr/share/man/man7/parallel_book.7.gz \
+              /usr/share/man/man7/parallel_design.7.gz \
+              /usr/share/man/man7/parallel_examples.7.gz \
+              /usr/share/man/man7/parallel_tutorial.7.gz
+            sudo rm -f \
+              /usr/share/man/ru/man1/debconf-apt-progress.1.gz \
+              /usr/share/man/ru/man1/debconf-communicate.1.gz \
+              /usr/share/man/ru/man1/debconf-copydb.1.gz \
+              /usr/share/man/ru/man1/debconf-escape.1.gz \
+              /usr/share/man/ru/man1/debconf-set-selections.1.gz \
+              /usr/share/man/ru/man1/debconf-show.1.gz \
+              /usr/share/man/ru/man1/debconf.1.gz \
+              /usr/share/man/ru/man8/dpkg-preconfigure.8.gz \
+              /usr/share/man/ru/man8/dpkg-reconfigure.8.gz
             sudo apt-get install --reinstall -y walinuxagent
             curl -fsSL https://rclone.org/install.sh | sudo bash
           fi
           if ! command -v zstd >/dev/null 2>&1; then
             sudo apt-get update
             sudo touch /var/lib/man-db/auto-update
+            sudo rm -f /usr/share/man/ru/man1/debconf.1.gz /usr/share/man/ru/man8/dpkg-preconfigure.8.gz /usr/share/man/ru/man8/dpkg-reconfigure.8.gz
             sudo apt-get install -y zstd
             sudo rm -f \
               /usr/share/man/man1/run-clang-tidy-16.1.gz \
@@ -827,6 +860,7 @@ jobs:
           if ! command -v pv >/dev/null 2>&1; then
             sudo apt-get update
             sudo touch /var/lib/man-db/auto-update
+            sudo rm -f /usr/share/man/ru/man1/debconf.1.gz /usr/share/man/ru/man8/dpkg-preconfigure.8.gz /usr/share/man/ru/man8/dpkg-reconfigure.8.gz
             sudo apt-get install -y pv
             sudo rm -f \
               /usr/share/man/man1/run-clang-tidy-16.1.gz \
