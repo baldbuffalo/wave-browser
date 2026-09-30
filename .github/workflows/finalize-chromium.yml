@@ -260,6 +260,13 @@ jobs:
             old_revision=$(tr -d '\r\n ' < android/chromium_revision.txt)
           fi
 
+          follower_done="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/checkpoint-follower.done"
+          echo "Waiting for Job 2 to download every checkpoint generation before deleting staging..."
+          while ! rclone lsf "$follower_done" >/dev/null 2>&1; do
+            sleep 2
+          done
+          echo "Job 2 has downloaded every checkpoint generation. Proceeding with staging cleanup."
+
           echo "Removing temporary source/checkpoint data after the final package and handoff are verified..."
           # Purge the entire revision staging directory. This removes the source
           # archive plus every checkpoint generation and the persistent
