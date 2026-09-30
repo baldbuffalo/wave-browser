@@ -1053,3 +1053,5 @@ jobs:
             if (( attempt % 10 == 0 )); then
               echo "Source is not complete yet; still waiting on OneDrive (attempt $attempt/600)."
             fi
+            sleep 30
+          done
