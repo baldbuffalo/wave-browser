@@ -602,7 +602,7 @@ jobs:
           rm -rf "$WORK_ROOT/src/agents/internal" "$WORK_ROOT/_bad_scm"
 
           rc=0
-          disk_guarded 'gclient sync --nohooks --revision "src@$REVISION"' || rc=$?
+          disk_guarded 'gclient sync --nohooks --no-history --revision "src@$REVISION"' || rc=$?
           if [ "$rc" -eq 75 ]; then
             echo "checkpoint=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -635,21 +635,36 @@ jobs:
           rm -rf "$batch_dir"
           mkdir -p "$batch_dir"
 
-          upload_batch() {
-            if find "$batch_dir" -maxdepth 1 -type f -name 'part-*' -print -quit | grep -q .; then
-              echo "Uploading checkpoint batch with 4 parallel OneDrive transfers..."
-              rclone copy "$batch_dir" "$parts_root" \
-                --transfers 4 \
-                --checkers 4 \
-                --no-traverse \
-                --onedrive-chunk-size 250M \
-                --stats=10s \
-                --stats-one-line
-              rm -f "$batch_dir"/part-*
-            fi
+          # Start each 250 MiB part upload immediately. Keep at most four
+          # uploads/parts outstanding so local checkpoint data stays within the
+          # runner's ~1 GiB safety headroom while upload overlaps compression.
+          upload_pids=()
+          upload_parts=()
+
+          wait_for_uploads() {
+            local i
+            for i in "${!upload_pids[@]}"; do
+              wait "${upload_pids[$i]}"
+              rm -f "${upload_parts[$i]}"
+            done
+            upload_pids=()
+            upload_parts=()
           }
 
-          echo "Streaming Chromium state into parallel 250 MiB OneDrive checkpoint parts..."
+          start_part_upload() {
+            local part_path="$1"
+            local part_name="$2"
+            echo "Starting OneDrive upload: $part_name"
+            rclone copyto "$part_path" "$parts_root/$part_name" \
+              --no-check-dest \
+              --onedrive-chunk-size 250M \
+              --stats=10s \
+              --stats-one-line &
+            upload_pids+=("$!")
+            upload_parts+=("$part_path")
+          }
+
+          echo "Streaming Chromium state into pipelined 250 MiB OneDrive checkpoint parts..."
           part_index=0
 
           tar -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
@@ -666,12 +681,14 @@ jobs:
               fi
 
               part_index=$((part_index + 1))
-              if (( part_index % 4 == 0 )); then
-                upload_batch
+              start_part_upload "$part_path" "$part_name"
+
+              if (( ${#upload_pids[@]} == 4 )); then
+                wait_for_uploads
               fi
             done
 
-          upload_batch
+          wait_for_uploads
           rm -rf "$batch_dir"
 
           part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
