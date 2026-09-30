@@ -374,8 +374,8 @@ jobs:
     env:
       REVISION: ${{ needs.ResolveRevision.outputs.revision }}
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
-      DEPOT_TOOLS_CACHE: ${{ runner.temp }}/depot_tools
-      RCLONE_CACHE_DIR: ${{ runner.temp }}/wave-tools
+      DEPOT_TOOLS_CACHE: $RUNNER_TEMP/depot_tools
+      RCLONE_CACHE_DIR: $RUNNER_TEMP/wave-tools
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
       - name: Install tools
