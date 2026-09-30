@@ -608,7 +608,8 @@ jobs:
           checkpoint_pid=""
           checkpoint_pending_UNUSED=false
           next_checkpoint_gib=$CHECKPOINT_INTERVAL_GIB
-          # Checkpointing is part of this sync step. When a guarded Chromium          # operation reaches the disk threshold, save the current state immediately
+          # Checkpointing is part of this sync step. When a guarded Chromium
+          # operation reaches the disk threshold, save the current state immediately
           # so the next worker can download it while this upload is still running.
           save_checkpoint() {
             mkdir -p "$WORK_ROOT"
@@ -639,37 +640,13 @@ jobs:
             printf 'parts|%s|slot|%s\n' "$generation" "$SLOT" | rclone rcat "$uploading"
             echo "Published checkpoint upload marker for slot $SLOT: $generation"
 
-            upload_pids=()
-            upload_parts=()
+            echo "Streaming Chromium Git metadata checkpoint directly to OneDrive..."
+            part_name="part-000000"
 
-            wait_for_uploads() {
-              local i
-              for i in "${!upload_pids[@]}"; do
-                wait "${upload_pids[$i]}"
-                rm -f "${upload_parts[$i]}"
-              done
-              upload_pids=()
-              upload_parts=()
-            }
-
-            start_part_upload() {
-              local part_path="$1"
-              local part_name="$2"
-              echo "Starting OneDrive upload: $part_name"
-              rclone copyto "$part_path" "$parts_root/$part_name" \
-                --no-check-dest \
-                --onedrive-chunk-size 250M \
-                --stats=10s \
-                --stats-one-line &
-              upload_pids+=("$!")
-              upload_parts+=("$part_path")
-            }
-
-            echo "Streaming Chromium Git metadata checkpoint into pipelined 250 MiB OneDrive parts..."
-            part_index=0
-            stream_fifo="$batch_dir/chromium-state.stream"
-            mkfifo "$stream_fifo"
-
+            # Do not use a FIFO + dd here. dd closes the FIFO after each 250 MiB
+            # block, which can leave the zstd writer with no reader and produce
+            # the Broken pipe seen in the previous run. rclone rcat is designed
+            # to stream stdin directly into one remote file.
             (
               set -o pipefail
               {
@@ -682,37 +659,15 @@ jobs:
                 tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed \
                   --verbatim-files-from -C "$WORK_ROOT" -cf - -T - |
                 zstd -T0 -1
-            ) > "$stream_fifo" &
-            stream_pid=$!
+            ) |
+              rclone rcat "$parts_root/$part_name" \
+                --streaming-upload-cutoff 1M \
+                --onedrive-chunk-size 250M \
+                --stats=10s \
+                --stats-one-line
 
-            while true; do
-              printf -v part_name "part-%06d" "$part_index"
-              part_path="$batch_dir/$part_name"
-
-              dd iflag=fullblock bs=250M count=1 status=none if="$stream_fifo" of="$part_path"
-
-              if [ ! -s "$part_path" ]; then
-                rm -f "$part_path"
-                break
-              fi
-
-              part_index=$((part_index + 1))
-              start_part_upload "$part_path" "$part_name"
-
-              if (( ${#upload_pids[@]} == 4 )); then
-                wait_for_uploads
-              fi
-            done
-
-            if ! wait "$stream_pid"; then
-              echo "ERROR: Chromium Git metadata checkpoint stream failed."
-              rm -rf "$batch_dir"
-              exit 1
-            fi
-
-            rm -f "$stream_fifo"
-            wait_for_uploads
-            rm -rf "$batch_dir"
+            part_count=1
+            echo "Uploaded checkpoint part: $part_name"
 
             part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
             if [ "$part_count" -eq 0 ]; then
