@@ -470,12 +470,15 @@ jobs:
             rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json.partial" >/dev/null 2>&1 || true
           fi
 
-          if [ ! -f "$WORK_ROOT/.gclient" ] || [ ! -d "$WORK_ROOT/src/.git" ]; then
-            echo "Restored checkpoint is missing required Chromium checkout metadata."
-            exit 1
+          if [ -f "$WORK_ROOT/.gclient" ] && [ -d "$WORK_ROOT/src/.git" ]; then
+            echo "Checkpoint restore complete and checkout metadata verified."
+          else
+            echo "No valid checkpoint was restored. Starting a fresh Chromium checkout."
+            # WORK_ROOT is dedicated to this Chromium checkout, so discard any
+            # incomplete restore before the sync step initializes a new checkout.
+            rm -rf "$WORK_ROOT"
+            mkdir -p "$WORK_ROOT"
           fi
-
-          echo "Checkpoint restore complete and checkout metadata verified."
       - name: Continue Chromium checkout and dependency sync
         if: steps.complete.outputs.already != 'true'
         id: sync
