@@ -867,6 +867,30 @@ jobs:
             wait "$pid"
           }
 
+          run_guarded_with_checkpoints() {
+            local command="$1"
+            while true; do
+              rc=0
+              disk_guarded "$command" || rc=$?
+
+              if [ "$rc" -ne 75 ]; then
+                return "$rc"
+              fi
+
+              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
+              start_checkpoint_if_idle
+              finish_checkpoint_uploads
+
+              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
+                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
+                return 76
+              fi
+
+              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
+              echo "Checkpoint complete. Continuing the same Chromium operation toward the next ${next_checkpoint_gib} GiB checkpoint."
+            done
+          }
+
           # Do not use depot_tools fetch for the initial src download. fetch creates
           # a temporary clone and only renames it to src after the clone completes,
           # so a checkpoint taken during that clone cannot resume it.
@@ -874,20 +898,10 @@ jobs:
           # A partial src/.git repository survives checkpoint/restore.
           if [ ! -f "$WORK_ROOT/.gclient" ]; then
             rc=0
-            disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
-            if [ "$rc" -eq 75 ]; then
-              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-
-              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
-                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
-                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-
-              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
-              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
+            run_guarded_with_checkpoints 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
+            if [ "$rc" -eq 76 ]; then
+              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
@@ -905,48 +919,28 @@ jobs:
           fi
 
           rc=0
-          disk_guarded 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"' || rc=$?
-          if [ "$rc" -eq 75 ]; then
-              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-
-              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
-                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
-                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-
-              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
-              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
-            elif [ "$rc" -ne 0 ]; then
-              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-              exit "$rc"
-            fi
+          run_guarded_with_checkpoints 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"' || rc=$?
+          if [ "$rc" -eq 76 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+            start_checkpoint_if_idle
+            finish_checkpoint_uploads
+            exit "$rc"
+          fi
 
           rc=0
-          disk_guarded 'git -C "$WORK_ROOT/src" checkout --detach "$REVISION"' || rc=$?
-          if [ "$rc" -eq 75 ]; then
-              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-
-              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
-                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
-                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-
-              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
-              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
-            elif [ "$rc" -ne 0 ]; then
-              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-              exit "$rc"
-            fi
+          run_guarded_with_checkpoints 'git -C "$WORK_ROOT/src" checkout --detach "$REVISION"' || rc=$?
+          if [ "$rc" -eq 76 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+            start_checkpoint_if_idle
+            finish_checkpoint_uploads
+            exit "$rc"
+          fi
 
           cd "$WORK_ROOT"
 
@@ -954,20 +948,10 @@ jobs:
           # starting completely fresh; do not rewrite it on every resumed slot.
           if [ ! -f "$WORK_ROOT/.gclient" ]; then
             rc=0
-            disk_guarded 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
-            if [ "$rc" -eq 75 ]; then
-              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-
-              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
-                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
-                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-
-              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
-              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
+            run_guarded_with_checkpoints 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
+            if [ "$rc" -eq 76 ]; then
+              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+              exit 0
             elif [ "$rc" -ne 0 ]; then
               echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
               start_checkpoint_if_idle
@@ -976,32 +960,24 @@ jobs:
             fi
           fi
 
+          fi
+
           # A previous failed sync can leave private-repository scratch directories
           # behind. They are not part of the public Chromium checkout and must not
           # be carried into the completed source package.
           rm -rf "$WORK_ROOT/src/agents/internal" "$WORK_ROOT/_bad_scm"
 
           rc=0
-          disk_guarded 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"' || rc=$?
-          if [ "$rc" -eq 75 ]; then
-              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-
-              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
-                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
-                echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-
-              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
-              echo "Checkpoint complete. Continuing Chromium sync toward the next ${next_checkpoint_gib} GiB checkpoint."
-            elif [ "$rc" -ne 0 ]; then
-              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-              exit "$rc"
-            fi
+          run_guarded_with_checkpoints 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"' || rc=$?
+          if [ "$rc" -eq 76 ]; then
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$rc" -ne 0 ]; then
+            echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
+            start_checkpoint_if_idle
+            finish_checkpoint_uploads
+            exit "$rc"
+          fi
 
           echo "Chromium source and dependencies completed for $REVISION."
           finish_checkpoint_uploads
