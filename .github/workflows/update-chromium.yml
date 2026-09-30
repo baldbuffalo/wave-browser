@@ -105,7 +105,7 @@ jobs:
     steps:
       - name: Restore Chromium tools cache
         id: tools-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cache/wave-browser/tools/bin
@@ -412,7 +412,7 @@ jobs:
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
     steps:
       - name: Restore cached Chromium tools
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             ~/.cache/wave-browser/tools/bin
