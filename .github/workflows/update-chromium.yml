@@ -954,129 +954,14 @@ jobs:
           rclone lsf "$source_ready" >/dev/null
           echo "Completed Chromium source saved. Finalize can now create the final tar.gz package."
 
-      - name: Publish Package completion marker
-        if: ${{ always() }}
+      - name: Trigger Chromium Finalize workflow
+        if: steps.sync.outputs.checkpoint == 'false'
         shell: bash
         env:
-          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ env.REVISION }}
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.config/rclone"
-          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
-          chmod 600 "$HOME/.config/rclone/rclone.conf"
-
-          marker="onedrive:$CHECKPOINT_ROOT/package-complete-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$SLOT.done"
-          printf 'completed|run=%s|attempt=%s|slot=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$SLOT" |
-            rclone rcat "$marker"
-          echo "Published Package completion marker for slot $SLOT."
-
-  Finalize:
-    needs: ResolveRevision
-    if: ${{ needs.ResolveRevision.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    steps:
-      - uses: actions/checkout@v7.0.1
-
-      - name: Install rclone and progress tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v rclone >/dev/null 2>&1; then
-            tmp_dir=$(mktemp -d)
-            trap 'rm -rf "$tmp_dir"' EXIT
-            curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
-            python3 -c 'import sys,zipfile; zip_path,out_dir=sys.argv[1],sys.argv[2]; z=zipfile.ZipFile(zip_path); binary=next(n for n in z.namelist() if n.endswith("/rclone")); z.extract(binary,out_dir); z.close(); print(binary)' "$tmp_dir/rclone.zip" "$tmp_dir"
-
-            sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
-          fi
-          if ! command -v pv >/dev/null 2>&1; then
-            sudo apt-get update
-            # Remove only known malformed manual pages before the package trigger runs.
-            sudo rm -f               /usr/share/man/man1/run-clang-tidy-16.1.gz               /usr/share/man/man1/git-clang-format-16.1.gz               /usr/share/man/man1/run-clang-tidy-17.1.gz               /usr/share/man/man1/git-clang-format-17.1.gz               /usr/share/man/man1/run-clang-tidy-18.1.gz               /usr/share/man/man1/git-clang-format-18.1.gz               /usr/share/man/man1/walinuxagent.1.gz               /usr/share/man/man1/debconf-apt-progress.1.gz               /usr/share/man/man1/debconf-communicate.1.gz               /usr/share/man/man1/debconf-copydb.1.gz               /usr/share/man/man1/debconf-escape.1.gz               /usr/share/man/man1/debconf-set-selections.1.gz               /usr/share/man/man1/debconf-show.1.gz               /usr/share/man/man7/man.7.gz               /usr/share/man/man7/parallel_book.7.gz               /usr/share/man/man7/parallel_design.7.gz               /usr/share/man/man7/parallel_examples.7.gz               /usr/share/man/man7/parallel_tutorial.7.gz
-            sudo rm -f               /usr/share/man/ru/man1/debconf-apt-progress.1.gz               /usr/share/man/ru/man1/debconf-communicate.1.gz               /usr/share/man/ru/man1/debconf-copydb.1.gz               /usr/share/man/ru/man1/debconf-escape.1.gz               /usr/share/man/ru/man1/debconf-set-selections.1.gz               /usr/share/man/ru/man1/debconf-show.1.gz               /usr/share/man/ru/man1/debconf.1.gz               /usr/share/man/ru/man8/dpkg-preconfigure.8.gz               /usr/share/man/ru/man8/dpkg-reconfigure.8.gz
-            sudo apt-get install -y pv
-          fi
-
-      - name: Configure OneDrive
-        shell: bash
-        env:
-          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
-        run: |
-          set -euo pipefail
-          if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
-            echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."
-            exit 1
-          fi
-          mkdir -p "$HOME/.config/rclone"
-          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
-          chmod 600 "$HOME/.config/rclone/rclone.conf"
-
-      - name: Check whether Chromium revision is already finalized
-        id: finalized
-        env:
-          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
-          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
-          ready="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.ready.json"
-
-          if rclone lsf "$archive" >/dev/null 2>&1 &&
-             rclone lsf "$checksum" >/dev/null 2>&1 &&
-             rclone lsf "$ready" >/dev/null 2>&1; then
-            ready_revision=$(rclone cat "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))')
-            if [ "$ready_revision" = "$REVISION" ]; then
-              echo "Chromium $REVISION is already fully finalized. Nothing else is required."
-              echo "already=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-
-          echo "Chromium $REVISION is not finalized yet. Finalize will continue."
-          echo "already=false" >> "$GITHUB_OUTPUT"
-
-      - name: Restore complete Chromium source and create final package
-        if: steps.finalized.outputs.already != 'true'
-        env:
-          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          source_root="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION"
-          source_archive="$source_root/chromium-$REVISION.source.tar.zst"
-          source_ready="$source_root/source.ready"
-          source_manifest="$source_root/source.json"
-          work_root="$RUNNER_TEMP/wave-chromium"
-          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
-          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
-
-          source_complete() {
-            rclone lsf "$source_archive" >/dev/null 2>&1 &&
-            rclone lsf "$source_ready" >/dev/null 2>&1 &&
-            rclone lsf "$source_manifest" >/dev/null 2>&1
-          }
-
-          echo "Finalize is waiting for Package jobs to finish before checking the completed source."
-
-          completed_count=0
-          while true; do
-            current_count=$(rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/" --files-only 2>/dev/null |
-              grep -c "^package-complete-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-" || true)
-
-            if (( current_count > completed_count )); then
-              echo "A Package job has finished ($current_count completed). Checking Chromium source now."
-
-              if source_complete; then
-                echo "Full Chromium source is ready. Streaming it directly into the final gzip package..."
-                break
-              fi
-
-              echo "Chromium source is not complete yet. No more source checks until another Package job finishes."
-              completed_count="$current_count"
-            fi
-
-            sleep 5
-          done
+          payload=$(python3 -c 'import json,os; print(json.dumps({"event_type":"chromium-source-ready","client_payload":{"revision":os.environ["REVISION"]}}))')
+          curl -fsSL             -X POST             -H "Accept: application/vnd.github+json"             -H "Authorization: Bearer $GH_TOKEN"             -H "X-GitHub-Api-Version: 2022-11-28"             "https://api.github.com/repos/$GITHUB_REPOSITORY/dispatches"             -d "$payload"
+          echo "Triggered Finalize workflow for Chromium $REVISION."
