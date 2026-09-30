@@ -720,7 +720,33 @@ jobs:
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
+      - name: Check whether Chromium revision is already finalized
+        id: finalized
+        env:
+          REVISION: ${{ needs.ResolveRevision.outputs.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz"
+          checksum="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.sha256"
+          ready="onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.ready.json"
+
+          if rclone lsf "$archive" >/dev/null 2>&1 &&
+             rclone lsf "$checksum" >/dev/null 2>&1 &&
+             rclone lsf "$ready" >/dev/null 2>&1; then
+            ready_revision=$(rclone cat "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))')
+            if [ "$ready_revision" = "$REVISION" ]; then
+              echo "Chromium $REVISION is already fully finalized. Nothing else is required."
+              echo "already=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "Chromium $REVISION is not finalized yet. Finalize will continue."
+          echo "already=false" >> "$GITHUB_OUTPUT"
+
       - name: Restore complete Chromium source and create final package
+        if: steps.finalized.outputs.already != 'true'
         env:
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         shell: bash
@@ -805,6 +831,7 @@ jobs:
           echo "Final Chromium package is checksum-valid and structurally readable."
 
       - name: Commit Chromium revision
+        if: steps.finalized.outputs.already != 'true'
         shell: bash
         env:
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
@@ -819,6 +846,7 @@ jobs:
           git push
 
       - name: Summary
+        if: steps.finalized.outputs.already != 'true'
         env:
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
         run: |
@@ -826,6 +854,7 @@ jobs:
           echo "The source download used serial GitHub-hosted runners with OneDrive checkpoints."
 
       - name: Prepare platform build handoff
+        if: steps.finalized.outputs.already != 'true'
         shell: bash
         env:
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
@@ -846,6 +875,7 @@ jobs:
           echo "Android and Windows workflows will restore this verified source package and compile their own platform engine."
 
       - name: Clean temporary OneDrive source/checkpoint state
+        if: steps.finalized.outputs.already != 'true'
         shell: bash
         env:
           REVISION: ${{ needs.ResolveRevision.outputs.revision }}
