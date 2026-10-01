@@ -66,9 +66,9 @@ jobs:
           if rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
             echo "Restoring Android build checkpoint for $REVISION."
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
-          elif rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" >/dev/null 2>&1; then
-            echo "No build checkpoint exists; restoring Chromium source package."
-            rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/chromium-$REVISION.tar.gz" | tar -xzf - -C "$ROOT"
+          elif rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" >/dev/null 2>&1; then
+            echo "No build checkpoint exists; restoring finalized Chromium source package."
+            rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" | tar -xzf - -C "$ROOT"
           else
             echo "Chromium package $REVISION is missing from OneDrive. Run update-chromium.yml first."
             exit 1
