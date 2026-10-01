@@ -242,6 +242,7 @@ jobs:
           # instead of being allowed to consume the runner's disk rapidly.
           DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
           DISK_MONITOR_INTERVAL=1
+          DOWNLOAD_START_TIME=$(date +%s)
 
           # Report progress only when the 13 GiB local-disk safety limit is reached.
           report_remote_progress() {
@@ -256,9 +257,14 @@ jobs:
           print(f"{int(sys.argv[1]) / (1024**3):.2f}")
           PY
               )
-              echo "Chromium download progress: ${size_gib} GiB persisted to OneDrive."
-              printf '{"revision":"%s","status":"progress","downloaded_bytes":%s,"downloaded_gib":%s,"updated_at":"%s"}\n' \
-                "$REVISION" "$size_bytes" "$size_gib" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+              local elapsed_seconds
+              elapsed_seconds=$(( $(date +%s) - DOWNLOAD_START_TIME ))
+              local elapsed_hours=$((elapsed_seconds / 3600))
+              local elapsed_minutes=$(((elapsed_seconds % 3600) / 60))
+              local elapsed_remaining=$((elapsed_seconds % 60))
+              echo "Chromium download progress: ${size_gib} GiB downloaded; time spent: ${elapsed_hours}h ${elapsed_minutes}m ${elapsed_remaining}s."
+              printf '{"revision":"%s","status":"progress","downloaded_bytes":%s,"downloaded_gib":%s,"elapsed_seconds":%s,"updated_at":"%s"}\n' \
+                "$REVISION" "$size_bytes" "$size_gib" "$elapsed_seconds" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
                 rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
             fi
           }
