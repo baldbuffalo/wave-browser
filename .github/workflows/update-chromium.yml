@@ -243,15 +243,45 @@ jobs:
           DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
           DISK_MONITOR_INTERVAL=1
 
+          # Report the amount already persisted to OneDrive once per minute.
+          # This is the real remote checkout size, not local runner disk usage.
+          report_remote_progress() {
+            local size_bytes
+            size_bytes=$(rclone size "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" --json 2>/dev/null |
+              python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("bytes",0)))' 2>/dev/null || true)
+
+            if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
+              local size_gib
+              size_gib=$(python3 - "$size_bytes" <<'PY'
+          import sys
+          print(f"{int(sys.argv[1]) / (1024**3):.2f}")
+          PY
+              )
+              echo "Chromium download progress: ${size_gib} GiB persisted to OneDrive."
+              printf '{"revision":"%s","status":"progress","downloaded_bytes":%s,"downloaded_gib":%s,"updated_at":"%s"}\n' \
+                "$REVISION" "$size_bytes" "$size_gib" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+                rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
+            fi
+          }
+
           monitor_disk() {
+            local last_progress=0
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
               used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d ' ')
               if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
+                report_remote_progress
                 echo "Local runner disk usage reached 13 GiB; stopping Chromium download to protect the runner."
                 echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
                 kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
                 return
               fi
+
+              now=$(date +%s)
+              if [ $((now - last_progress)) -ge 60 ]; then
+                report_remote_progress
+                last_progress="$now"
+              fi
+
               sleep "$DISK_MONITOR_INTERVAL"
             done
           }
