@@ -233,19 +233,21 @@ jobs:
 
           set +e
 
-          # Keep at least about 1 GiB of the runner's local disk free. The
-          # Chromium checkout itself lives on OneDrive, but rclone's VFS cache,
-          # Git metadata, depot_tools, and temporary files still use local disk.
-          # Stop the active Chromium operation before local usage reaches 13 GiB.
-          # The readiness step below will cleanly hand off to another run.
-          DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
+          # Protect the runner's local disk by watching FREE space, not total
+          # space used. GitHub-hosted runners already contain tools and system
+          # files before this job starts, so an absolute "13 GiB used" limit
+          # can be reached after only a small amount of Chromium data is cached.
+          # Chromium source/dependencies live on OneDrive; only rclone's VFS
+          # cache, Git metadata, depot_tools, and temporary files are local.
+          # Stop only when about 1 GiB of local disk remains available.
+          DISK_MIN_FREE_BYTES=$((1 * 1024 * 1024 * 1024))
           DISK_MONITOR_INTERVAL=1
 
           monitor_disk() {
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
-              used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d ' ')
-              if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
-                echo "Local runner disk usage reached 13 GiB; stopping Chromium download to protect remaining disk space."
+              free_bytes=$(df -B1 --output=avail "$HOME" 2>/dev/null | tail -n 1 | tr -d ' ')
+              if [[ "$free_bytes" =~ ^[0-9]+$ ]] && [ "$free_bytes" -le "$DISK_MIN_FREE_BYTES" ]; then
+                echo "Local runner disk has only $((free_bytes / 1024 / 1024)) MiB free; stopping Chromium download to protect the runner."
                 echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
                 kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
                 return
