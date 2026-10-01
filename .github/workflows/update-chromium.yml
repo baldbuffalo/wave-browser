@@ -202,8 +202,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf "$WORK_ROOT"
-          mkdir -p "$WORK_ROOT"
+
+          # Put Chromium on its own filesystem so checkpoint growth can be
+          # measured instantly with df instead of recursively scanning the
+          # entire Chromium tree with du. A du scan can take long enough for
+          # several GiB to be written before the threshold is noticed.
+          workspace_image="$RUNNER_TEMP/wave-chromium-workspace.img"
+          workspace_mount="$WORK_ROOT"
+          rm -rf "$workspace_mount"
+          mkdir -p "$workspace_mount"
+
+          truncate -s 15G "$workspace_image"
+          mkfs.ext4 -F -q "$workspace_image"
+          mount -o loop "$workspace_image" "$workspace_mount"
+          chown "$(id -u):$(id -g)" "$workspace_mount"
+
+          echo "Chromium workspace filesystem:"
+          df -h "$workspace_mount"
 
       - name: Prefetch latest checkpoint while predecessor works
         id: prefetch
@@ -278,9 +293,14 @@ jobs:
           max_growth_kb=$((13 * 1024 * 1024))
           state="onedrive:$CHECKPOINT_ROOT/state.json"
 
-          # Measure the actual Chromium workspace, not free space on the runner.
-          # Runner background files can otherwise move the checkpoint threshold.
-          start_used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
+          # Measure the dedicated Chromium filesystem, not the whole runner.
+          # df reads filesystem accounting directly and returns immediately,
+          # unlike du, which recursively scans the Chromium tree.
+          workspace_used_kb() {
+            df -Pk "$WORK_ROOT" | awk 'NR==2 {print $3}'
+          }
+
+          start_used_kb=$(workspace_used_kb)
           checkpointed_growth_kb=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("growth_kb",0)))' 2>/dev/null || echo 0)
           generation=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null || echo 0)
           next_checkpoint_kb=$((generation + 1))
@@ -290,7 +310,7 @@ jobs:
             local status="$1"
             local pid="${2:-}"
             local used_kb growth_kb
-            used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
+            used_kb=$(workspace_used_kb)
             growth_kb=$((used_kb - start_used_kb))
             generation=$((generation + 1))
             checkpoint_dir="checkpoint-$generation"
@@ -354,13 +374,15 @@ jobs:
             local pid=$!
             while kill -0 "$pid" 2>/dev/null; do
               local used_kb growth_kb total_growth_kb
-              used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
+              used_kb=$(workspace_used_kb)
               growth_kb=$((used_kb - start_used_kb))
               total_growth_kb=$((checkpointed_growth_kb + growth_kb))
 
-              # Checkpoint at every 1 GiB cumulative boundary. The 13 GiB
-              # checkpoint is the handoff checkpoint, so it is uploaded once
-              # with status=handoff and then this job exits.
+              # Checkpoint at every 1 GiB cumulative boundary. Because
+              # workspace_used_kb() reads the dedicated filesystem directly,
+              # the threshold check is not delayed by a recursive tree scan.
+              # The 13 GiB checkpoint is the handoff checkpoint, so it is
+              # uploaded once with status=handoff and then this job exits.
               if (( total_growth_kb >= next_checkpoint_kb )); then
                 if (( total_growth_kb >= max_growth_kb )); then
                   echo "Reached the ~13 GiB boundary; saving the normal checkpoint as the handoff checkpoint."
@@ -375,7 +397,7 @@ jobs:
 
                 publish_checkpoint "checkpoint" "$pid"
                 checkpointed_growth_kb=$((generation * interval_kb))
-                start_used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
+                start_used_kb=$(workspace_used_kb)
                 next_checkpoint_kb=$(((generation + 1) * interval_kb))
               fi
               sleep 0.2
