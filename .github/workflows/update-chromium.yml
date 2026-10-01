@@ -275,9 +275,10 @@ jobs:
           interval_kb=$((1 * 1024 * 1024))
           max_growth_kb=$((13 * 1024 * 1024))
           next_checkpoint_kb=$interval_kb
-          generation=0
           state="onedrive:$CHECKPOINT_ROOT/state.json"
           ack="onedrive:$CHECKPOINT_ROOT/prefetched-$((SLOT + 1)).json"
+          # Continue the persistent checkpoint generation counter across job handoffs.
+          generation=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null || echo 0)
 
           publish_checkpoint() {
             local status="$1"
