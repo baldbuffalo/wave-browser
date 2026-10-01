@@ -223,18 +223,57 @@ jobs:
           DOWNLOAD_SCRIPT
 
           set +e
-          timeout --foreground --signal=TERM --kill-after=60s 330m \
-            bash "$RUNNER_TEMP/chromium-download.sh"
+
+          # Keep at least about 1 GiB of the runner's local disk free. The
+          # Chromium checkout itself lives on OneDrive, but rclone's VFS cache,
+          # Git metadata, depot_tools, and temporary files still use local disk.
+          # Stop the active Chromium operation before local usage reaches 13 GiB.
+          # The readiness step below will cleanly hand off to another run.
+          DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
+          DISK_MONITOR_INTERVAL=30
+
+          monitor_disk() {
+            while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
+              used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d ' ')
+              if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
+                echo "Local runner disk usage reached 13 GiB; stopping Chromium download to protect remaining disk space."
+                echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
+                kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
+                return
+              fi
+              sleep "$DISK_MONITOR_INTERVAL"
+            done
+          }
+
+          # setsid gives the download its own process group so a disk-pressure
+          # stop reaches gclient and its child processes instead of only the
+          # timeout wrapper.
+          setsid timeout --foreground --signal=TERM --kill-after=60s 330m \
+            bash "$RUNNER_TEMP/chromium-download.sh" &
+          DOWNLOAD_PID=$!
+
+          monitor_disk &
+          MONITOR_PID=$!
+
+          wait "$DOWNLOAD_PID"
           status=$?
+
+          kill "$MONITOR_PID" 2>/dev/null || true
+          wait "$MONITOR_PID" 2>/dev/null || true
           set -e
 
-          if [ "$status" -eq 124 ] || [ "$status" -eq 143 ] || [ "$status" -eq 137 ]; then
-            # timeout terminated the download. Do not trigger another workflow
-            # here. The readiness step below runs after cleanup and decides
-            # whether to resume this workflow or start Finalize.
+          if [ "$status" -eq 124 ] || [ "$status" -eq 143 ] || [ "$status" -eq 137 ] || [ -f "$RUNNER_TEMP/disk-handoff" ]; then
+            # The download was stopped by the 5h30m deadline or local-disk
+            # protection. Do not trigger another workflow here. The readiness
+            # step below runs after cleanup and decides whether to resume this
+            # workflow or start Finalize.
             printf '{"revision":"%s","status":"handoff","updated_at":"%s","next_run":true}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
               rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json" || true
-            echo "5h30m download deadline reached; readiness step will verify after cleanup."
+            if [ -f "$RUNNER_TEMP/disk-handoff" ]; then
+              echo "Local disk reached 13 GiB; readiness step will verify after cleanup."
+            else
+              echo "5h30m download deadline reached; readiness step will verify after cleanup."
+            fi
             echo "handoff=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
