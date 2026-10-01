@@ -67,10 +67,22 @@ jobs:
             exit 0
           fi
 
-          rclone lsf "$root/source.ready.json" >/dev/null 2>&1 || {
+          if ! rclone cat "$root/source.ready.json" > "$RUNNER_TEMP/source.ready.json" 2>/dev/null; then
             echo "Chromium source-ready marker is missing: $root/source.ready.json"
             exit 1
-          }
+          fi
+
+          python3 - "$RUNNER_TEMP/source.ready.json" "$REVISION" <<'PY'
+          import json
+          import sys
+
+          path, expected_revision = sys.argv[1:]
+          with open(path, encoding="utf-8") as f:
+              data = json.load(f)
+
+          if data.get("revision") != expected_revision or data.get("status") != "source-ready":
+              raise SystemExit("source.ready.json does not confirm the expected Chromium revision is ready.")
+          PY
 
           echo "already=false" >> "$GITHUB_OUTPUT"
 
@@ -144,11 +156,7 @@ jobs:
           test "$expected" = "$actual"
           rclone cat "$package" | tar -tzf - >/dev/null
 
-          printf '{"revision":"%s","package_path":"package/chromium-%s.tar.gz","checksum_path":"package/chromium-%s.sha256","ready_for_platform_builds":true}\n' \
-            "$REVISION" "$REVISION" "$REVISION" |
-            rclone rcat "$root/package.ready.json"
-
-          echo "Verified Chromium source package is ready for platform-specific builds."
+          echo "Verified Chromium source package and checksum are ready; final completion marker will be written after repository and source cleanup succeed."
 
       - name: Commit Chromium revision
         if: steps.state.outputs.already != 'true'
@@ -181,6 +189,13 @@ jobs:
           rclone lsf "$root/package/chromium-$REVISION.sha256" >/dev/null
           rclone lsf "$root/package.ready.json" >/dev/null
 
+          # Write package.ready.json only after every finalization operation above
+          # has succeeded. This is the durable "fully finalized" marker used by
+          # update-chromium.yml, so it must never exist after a partial finalize.
+          printf '{"revision":"%s","package_path":"package/chromium-%s.tar.gz","checksum_path":"package/chromium-%s.sha256","ready_for_platform_builds":true}\n' \
+            "$REVISION" "$REVISION" "$REVISION" |
+            rclone rcat "$root/package.ready.json"
+
           printf '{"revision":"%s","status":"finalized","source_deleted":true,"package_path":"package"}\n' "$REVISION" |
             rclone rcat "$root/finalized.json"
 
@@ -191,7 +206,14 @@ jobs:
         shell: bash
         run: |
           set +e
-          if [ -f "$RUNNER_TEMP/rclone-finalize-mount.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/rclone-finalize-mount.pid")" 2>/dev/null || true
-          fi
+          # Unmount first, then stop rclone. The finalize mount is read-only,
+          # but this ordering is still safer and consistent with the download workflow.
           fusermount3 -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || fusermount -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/rclone-finalize-mount.pid" ]; then
+            mount_pid="$(cat "$RUNNER_TEMP/rclone-finalize-mount.pid")"
+            for _ in $(seq 1 30); do
+              kill -0 "$mount_pid" 2>/dev/null || break
+              sleep 1
+            done
+            kill "$mount_pid" 2>/dev/null || true
+          fi
