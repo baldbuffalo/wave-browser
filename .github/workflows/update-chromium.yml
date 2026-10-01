@@ -135,7 +135,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          trap 'fusermount3 -u "$WORK_ROOT" 2>/dev/null || fusermount -u "$WORK_ROOT" 2>/dev/null || true; if [ -f "$RUNNER_TEMP/rclone-mount.pid" ]; then kill "$(cat "$RUNNER_TEMP/rclone-mount.pid")" 2>/dev/null || true; fi' EXIT
+
+          # Cleanup is handled by the dedicated unmount step below. Keeping
+          # rclone alive until that step gives VFS writes time to flush.
 
           # The actual Chromium operation is limited to 5h30m. When that deadline
           # is reached, timeout stops the download before the runner hard limit.
@@ -149,8 +151,10 @@ jobs:
           update_status() {
             local status="$1"
             local extra="${2:-}"
-            printf '{"revision":"%s","status":"%s","updated_at":"%s"%s}\n' "$REVISION" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$extra" |
-              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json"
+            if ! printf '{"revision":"%s","status":"%s","updated_at":"%s"%s}\n' "$REVISION" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$extra" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json"; then
+              echo "Warning: could not update download.json; continuing Chromium sync."
+            fi
           }
 
           update_status "running"
@@ -229,7 +233,7 @@ jobs:
             # here. The readiness step below runs after cleanup and decides
             # whether to resume this workflow or start Finalize.
             printf '{"revision":"%s","status":"handoff","updated_at":"%s","next_run":true}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
-              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json"
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json" || true
             echo "5h30m download deadline reached; readiness step will verify after cleanup."
             echo "handoff=true" >> "$GITHUB_OUTPUT"
             exit 0
