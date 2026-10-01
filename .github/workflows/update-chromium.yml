@@ -135,22 +135,27 @@ jobs:
               "$CHROMIUM_URL"
           fi
 
-          if [ ! -d "$RUNNER_TEMP/chromium-git" ] || [ ! -f "$WORK_ROOT/src/.git" ]; then
-            rm -rf "$RUNNER_TEMP/chromium-git"
-            rm -rf "$WORK_ROOT/src"
-            mkdir -p "$WORK_ROOT/src"
-            git init --separate-git-dir="$RUNNER_TEMP/chromium-git" -b main "$WORK_ROOT/src"
-            git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
-          elif ! git -C "$WORK_ROOT/src" remote get-url origin >/dev/null 2>&1; then
-            git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
+          GIT_DIR="$RUNNER_TEMP/chromium-git"
+          GIT_WORK_TREE="$WORK_ROOT/src"
+          mkdir -p "$GIT_WORK_TREE"
+
+          if [ ! -d "$GIT_DIR" ] || [ ! -f "$GIT_WORK_TREE/.git" ]; then
+            rm -rf "$GIT_DIR"
+            rm -rf "$GIT_WORK_TREE"
+            mkdir -p "$GIT_WORK_TREE"
+            git init --separate-git-dir="$GIT_DIR" -b main "$GIT_WORK_TREE"
+            git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
+          elif ! git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote get-url origin >/dev/null 2>&1; then
+            git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
           fi
 
-          git -C src config http.version HTTP/1.1
-          git -C src config http.lowSpeedLimit 0
-          git -C src config http.lowSpeedTime 999999
+          cd "$RUNNER_TEMP"
+          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.version HTTP/1.1
+          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.lowSpeedLimit 0
+          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.lowSpeedTime 999999
 
           for attempt in 1 2 3; do
-            if git -C src fetch --no-tags --depth=1 origin "$REVISION"; then
+            if git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" fetch --no-tags --depth=1 origin "$REVISION"; then
               break
             fi
             echo "Chromium source fetch attempt $attempt failed; retrying..."
@@ -158,7 +163,7 @@ jobs:
             if [ "$attempt" -eq 3 ]; then exit 1; fi
           done
 
-          git -C src checkout --detach "$REVISION"
+          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" checkout --detach "$REVISION"
           gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"
 
           test -d "$WORK_ROOT/src"
