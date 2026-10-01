@@ -15,9 +15,7 @@ permissions:
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
-  RUNNER_STORAGE_BUDGET_GIB: "14"
-  CHECKPOINT_USED_GIB: "13"
-  CHECKPOINT_INTERVAL_GIB: "1"
+  CHECKPOINT_INTERVAL_GIB: "3"
 
 jobs:
   ResolveRevision:
@@ -239,7 +237,6 @@ jobs:
             rclone deletefile "onedrive:$CHECKPOINT_ROOT/tree.ready" >/dev/null 2>&1 || true
             echo "Uploading incremental checkpoint to OneDrive..."
             rclone sync "$WORK_ROOT/" "onedrive:$CHECKPOINT_ROOT/tree" \
-              --exclude ".gclient_cache/**" \
               --exclude "src/out/**" \
               --exclude "src/.cipd/**" \
               --transfers 8 --checkers 8 --fast-list \
