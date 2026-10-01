@@ -320,12 +320,20 @@ jobs:
               for _ in $(seq 1 720); do
                 if rclone cat "$ack" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null | grep -qx "$generation"; then
                   echo "Slot $((SLOT + 1)) confirmed checkpoint $generation."
-                  if [ -n "$previous_checkpoint" ] && [ "$previous_checkpoint" != "$checkpoint_dir" ]; then
-                    echo "New checkpoint is acknowledged. Deleting previous OneDrive checkpoint: $previous_checkpoint"
-                    rclone purge "onedrive:$CHECKPOINT_ROOT/$previous_checkpoint"
-                  fi
+                  # The new checkpoint is now safely downloaded and verified by
+                  # the next slot. Chromium must be allowed to continue immediately.
+                  # Cleanup of the previous checkpoint must NOT delay the resume.
                   if [ -n "$pid" ]; then
+                    echo "Slot $((SLOT + 1)) confirmed checkpoint $generation; resuming Chromium now."
                     kill -CONT -- "-$pid" 2>/dev/null || true
+                  fi
+
+                  # Delete the previous checkpoint only after the new checkpoint has
+                  # been acknowledged. Run cleanup in the background so it cannot
+                  # block Chromium from continuing.
+                  if [ -n "$previous_checkpoint" ] && [ "$previous_checkpoint" != "$checkpoint_dir" ]; then
+                    echo "Starting background cleanup of previous OneDrive checkpoint: $previous_checkpoint"
+                    rclone purge "onedrive:$CHECKPOINT_ROOT/$previous_checkpoint" >/tmp/wave-checkpoint-cleanup.log 2>&1 &
                   fi
                   return 0
                 fi
@@ -370,7 +378,7 @@ jobs:
                 start_used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
                 next_checkpoint_kb=$(((generation + 1) * interval_kb))
               fi
-              sleep 1
+              sleep 0.2
             done
             wait "$pid"
           }
