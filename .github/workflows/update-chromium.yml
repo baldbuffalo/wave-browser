@@ -757,27 +757,17 @@ jobs:
             # checkpoint to spend about an hour before its first 250 MiB part.
             rclone mkdir "$parts_root"
 
-            echo "Streaming Chromium Git metadata checkpoint directly to OneDrive..."
+            echo "Streaming complete Chromium working-tree checkpoint directly to OneDrive..."
             part_name="part-000000"
 
-            # Do not use a FIFO + dd here. dd closes the FIFO after each 250 MiB
-            # block, which can leave the zstd writer with no reader and produce
-            # the Broken pipe seen in the previous run. rclone rcat is designed
-            # to stream stdin directly into one remote file.
+            # The checkpoint must contain the checked-out files as well as Git
+            # metadata. A metadata-only checkpoint restores an index whose files
+            # are absent, which makes gclient report the entire tree as uncommitted
+            # deletions on the next worker.
             (
               set -o pipefail
-              {
-                printf '%s\n' './.gclient'
-                if [ -f "$WORK_ROOT/.gclient_entries" ]; then
-                  printf '%s\n' './.gclient_entries'
-                fi
-                find ./src \( -type d -name .git -o -type f -name .git \) -print
-              } |
-                tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed \
-                  --exclude='*/.git/*.lock' \
-                  --exclude='*/.git/*/*.lock' \
-                  --exclude='*/.git/objects/pack/tmp_*' \
-                  --verbatim-files-from -C "$WORK_ROOT" -cf - -T - |
+              tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed \
+                -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
                 zstd -T0 -1
             ) |
               rclone rcat "$parts_root/$part_name" \
@@ -1001,6 +991,11 @@ jobs:
               exit "$rc"
             fi
           fi
+
+          # Remove stale Git locks left by an interrupted previous worker.
+          # That worker's VM is gone, so these locks cannot represent a live Git
+          # process on this fresh runner.
+          find "$WORK_ROOT/src" -type f \( -name 'shallow.lock' -o -name 'index.lock' -o -name 'HEAD.lock' -o -name 'config.lock' \) -delete 2>/dev/null || true
 
           # A previous failed sync can leave private-repository scratch directories
           # behind. They are not part of the public Chromium checkout and must not
