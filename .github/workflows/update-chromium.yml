@@ -155,266 +155,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
-      fail-fast: false
-      max-parallel: 2
+      fail-fast: true
+      max-parallel: 1
       matrix:
-        slot:
-          - 1
-          - 2
-          - 3
-          - 4
-          - 5
-          - 6
-          - 7
-          - 8
-          - 9
-          - 10
-          - 11
-          - 12
-          - 13
-          - 14
-          - 15
-          - 16
-          - 17
-          - 18
-          - 19
-          - 20
-          - 21
-          - 22
-          - 23
-          - 24
-          - 25
-          - 26
-          - 27
-          - 28
-          - 29
-          - 30
-          - 31
-          - 32
-          - 33
-          - 34
-          - 35
-          - 36
-          - 37
-          - 38
-          - 39
-          - 40
-          - 41
-          - 42
-          - 43
-          - 44
-          - 45
-          - 46
-          - 47
-          - 48
-          - 49
-          - 50
-          - 51
-          - 52
-          - 53
-          - 54
-          - 55
-          - 56
-          - 57
-          - 58
-          - 59
-          - 60
-          - 61
-          - 62
-          - 63
-          - 64
-          - 65
-          - 66
-          - 67
-          - 68
-          - 69
-          - 70
-          - 71
-          - 72
-          - 73
-          - 74
-          - 75
-          - 76
-          - 77
-          - 78
-          - 79
-          - 80
-          - 81
-          - 82
-          - 83
-          - 84
-          - 85
-          - 86
-          - 87
-          - 88
-          - 89
-          - 90
-          - 91
-          - 92
-          - 93
-          - 94
-          - 95
-          - 96
-          - 97
-          - 98
-          - 99
-          - 100
-          - 101
-          - 102
-          - 103
-          - 104
-          - 105
-          - 106
-          - 107
-          - 108
-          - 109
-          - 110
-          - 111
-          - 112
-          - 113
-          - 114
-          - 115
-          - 116
-          - 117
-          - 118
-          - 119
-          - 120
-          - 121
-          - 122
-          - 123
-          - 124
-          - 125
-          - 126
-          - 127
-          - 128
-          - 129
-          - 130
-          - 131
-          - 132
-          - 133
-          - 134
-          - 135
-          - 136
-          - 137
-          - 138
-          - 139
-          - 140
-          - 141
-          - 142
-          - 143
-          - 144
-          - 145
-          - 146
-          - 147
-          - 148
-          - 149
-          - 150
-          - 151
-          - 152
-          - 153
-          - 154
-          - 155
-          - 156
-          - 157
-          - 158
-          - 159
-          - 160
-          - 161
-          - 162
-          - 163
-          - 164
-          - 165
-          - 166
-          - 167
-          - 168
-          - 169
-          - 170
-          - 171
-          - 172
-          - 173
-          - 174
-          - 175
-          - 176
-          - 177
-          - 178
-          - 179
-          - 180
-          - 181
-          - 182
-          - 183
-          - 184
-          - 185
-          - 186
-          - 187
-          - 188
-          - 189
-          - 190
-          - 191
-          - 192
-          - 193
-          - 194
-          - 195
-          - 196
-          - 197
-          - 198
-          - 199
-          - 200
-          - 201
-          - 202
-          - 203
-          - 204
-          - 205
-          - 206
-          - 207
-          - 208
-          - 209
-          - 210
-          - 211
-          - 212
-          - 213
-          - 214
-          - 215
-          - 216
-          - 217
-          - 218
-          - 219
-          - 220
-          - 221
-          - 222
-          - 223
-          - 224
-          - 225
-          - 226
-          - 227
-          - 228
-          - 229
-          - 230
-          - 231
-          - 232
-          - 233
-          - 234
-          - 235
-          - 236
-          - 237
-          - 238
-          - 239
-          - 240
-          - 241
-          - 242
-          - 243
-          - 244
-          - 245
-          - 246
-          - 247
-          - 248
-          - 249
-          - 250
-          - 251
-          - 252
-          - 253
-          - 254
-          - 255
-          - 256
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     env:
       REVISION: ${{ needs.ResolveRevision.outputs.revision }}
       SLOT: ${{ matrix.slot }}
@@ -435,11 +179,8 @@ jobs:
           set -euo pipefail
           echo "$HOME/.cache/wave-browser/tools/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cache/wave-browser/tools/depot_tools" >> "$GITHUB_PATH"
-          export PATH="$HOME/.cache/wave-browser/tools/bin:$HOME/.cache/wave-browser/tools/depot_tools:$PATH"
           command -v rclone
-          rclone version
           command -v gclient
-          gclient --version
 
       - name: Configure OneDrive
         shell: bash
@@ -447,623 +188,135 @@ jobs:
           RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
-          if [ -z "$RCLONE_CONFIG_CONTENT" ]; then
-            echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."
-            exit 1
-          fi
+          test -n "$RCLONE_CONFIG_CONTENT"
           mkdir -p "$HOME/.config/rclone"
-          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          printf "%s\n" "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
-      - name: Check for completed Chromium source
-        id: complete
-        shell: bash
-        run: |
-          set -euo pipefail
-          source_archive="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst"
-          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
-          source_manifest="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.json"
-
-          if rclone lsf "$source_archive" >/dev/null 2>&1 &&
-             rclone lsf "$source_ready" >/dev/null 2>&1 &&
-             rclone lsf "$source_manifest" >/dev/null 2>&1; then
-            echo "already=true" >> "$GITHUB_OUTPUT"
-            echo "Full Chromium source and dependencies are already downloaded for $REVISION."
-          else
-            echo "already=false" >> "$GITHUB_OUTPUT"
-            echo "Chromium $REVISION still needs the full source/dependency download to complete."
-          fi
-
-      - name: Job 2 checkpoint follower
-        if: ${{ matrix.slot == 2 && steps.complete.outputs.already != 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          staging="onedrive:$CHECKPOINT_ROOT"
-          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
-          root="$RUNNER_TEMP/checkpoint-follower"
-          done_marker="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/checkpoint-follower.done"
-
-          rm -rf "$root"
-          mkdir -p "$root"
-
-          last_downloaded_generation=""
-
-          echo "Package (2) is the dedicated Chromium checkpoint follower."
-          echo "It will download every completed checkpoint generation published during this run."
-
-          while true; do
-            pending=0
-            generations=$(rclone lsf "$staging/" --dirs-only 2>/dev/null |
-              grep "^checkpoint-parts-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-" |
-              sed 's#/$##' | sort || true)
-
-            while IFS= read -r parts_dir_name; do
-              [ -n "$parts_dir_name" ] || continue
-              generation=${parts_dir_name#checkpoint-parts-}
-              done_file="$root/done-$generation"
-              [ -f "$done_file" ] && continue
-
-              pending=1
-              parts_root="$staging/$parts_dir_name"
-              parts_dir="$root/$generation"
-              stream="$root/$generation.tar.zst"
-              rm -rf "$parts_dir" "$stream"
-              mkdir -p "$parts_dir"
-
-              ready_file="$staging/checkpoint-ready-$generation.done"
-              if ! rclone lsf "$ready_file" >/dev/null 2>&1; then
-                echo "Checkpoint $generation exists but is still uploading. Job 2 will wait for its completed marker."
-                continue
-              fi
-
-              echo "Checkpoint $generation is fully uploaded. Job 2 is downloading it now."
-              rclone copy "$parts_root" "$parts_dir" \
-                --transfers 4 \
-                --checkers 4 \
-                --no-traverse \
-                --checksum \
-                --stats=10s \
-                --stats-one-line
-
-              part_count=$(find "$parts_dir" -maxdepth 1 -type f -name 'part-*' | wc -l)
-              if [ "$part_count" -ne 1 ]; then
-                echo "Checkpoint $generation is incomplete ($part_count parts). It will be retried."
-                rm -rf "$parts_dir" "$stream"
-                continue
-              fi
-
-              cat "$parts_dir/part-000000" > "$stream"
-              if ! zstd -t "$stream"; then
-                echo "Checkpoint $generation failed validation. It will be retried."
-                rm -rf "$parts_dir" "$stream"
-                continue
-              fi
-
-              echo "Job 2 downloaded and validated checkpoint $generation."
-              marker_now=$(rclone cat "onedrive:$CHECKPOINT_ROOT/checkpoint.uploading" 2>/dev/null || true)
-              if [[ "$marker_now" == "parts|$generation|"* ]]; then
-                rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.uploading" >/dev/null 2>&1 || true
-                echo "Job 2 finished with checkpoint $generation; Job 1's marker was deleted so Job 2 can publish the next one."
-              fi
-              touch "$done_file"
-              if [ -n "$last_downloaded_generation" ] && [ "$last_downloaded_generation" != "$generation" ]; then
-                rm -rf "$root/$last_downloaded_generation" "$root/$last_downloaded_generation.tar.zst"
-              fi
-              last_downloaded_generation="$generation"
-            done <<< "$generations"
-
-            if rclone lsf "$source_ready" >/dev/null 2>&1; then
-              remaining=$(rclone lsf "$staging/" --dirs-only 2>/dev/null |
-                grep "^checkpoint-parts-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-" |
-                sed 's#/$##' | sort || true)
-              all_done=1
-              while IFS= read -r parts_dir_name; do
-                [ -n "$parts_dir_name" ] || continue
-                generation=${parts_dir_name#checkpoint-parts-}
-                [ -f "$root/done-$generation" ] || all_done=0
-              done <<< "$remaining"
-              if [ "$all_done" -eq 1 ]; then
-                echo "Chromium source is complete and every checkpoint generation from this run has been downloaded."
-                printf 'completed|run=%s|attempt=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | rclone rcat "$done_marker"
-                rm -rf "$root"
-                break
-              fi
-            fi
-
-            sleep 2
-          done
-
-      - name: Restore latest checkpoint from OneDrive
-        if: ${{ matrix.slot != 2 && steps.complete.outputs.already != 'true' }}
+      - name: Restore incremental Chromium checkpoint
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$WORK_ROOT"
-          checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
-          ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
-          manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
-          uploading="onedrive:$CHECKPOINT_ROOT/checkpoint.uploading"
-
-          restore_complete_checkpoint() {
-            local ready_content="$1" generation
-            generation=$(printf '%s\n' "$ready_content" | cut -d'|' -f2)
-            local parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
-            local parts_dir="$RUNNER_TEMP/checkpoint-parts-restore"
-            echo "Restoring completed checkpoint generation: $generation"
-            rm -rf "$parts_dir"; mkdir -p "$parts_dir"
-            rclone copy "$parts_root" "$parts_dir" --transfers 4 --checkers 4 --no-traverse --checksum --stats=10s --stats-one-line
-            local part_count
-            part_count=$(find "$parts_dir" -maxdepth 1 -type f -name 'part-*' | wc -l)
-            test "$part_count" -gt 0
-
-            # Validate the complete compressed stream before tar ever sees it.
-            local checkpoint_stream="$RUNNER_TEMP/checkpoint-$generation.tar.zst"
-            rm -f "$checkpoint_stream"
-            find "$parts_dir" -maxdepth 1 -type f -name 'part-*' -printf '%f\n' | sort |
-              while read -r part; do cat "$parts_dir/$part"; done > "$checkpoint_stream"
-            if ! zstd -t "$checkpoint_stream"; then
-              echo "ERROR: checkpoint generation $generation is corrupted or truncated."
-              echo "Removing its ready marker so a later slot cannot consume an invalid checkpoint."
-              rclone deletefile "$ready" >/dev/null 2>&1 || true
-              rm -f "$checkpoint_stream"
-              rm -rf "$parts_dir"
-              return 1
-            fi
-            zstd -T0 -d -c "$checkpoint_stream" |
-              tar -xpf - -C "$WORK_ROOT"
-            rm -f "$checkpoint_stream"
-            rm -rf "$parts_dir"
-          }
-
-          download_uploading_checkpoint() {
-            local marker="$1" generation
-            generation=$(printf '%s\n' "$marker" | cut -d'|' -f2)
-            local parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
-            local parts_dir="$RUNNER_TEMP/checkpoint-parts-restore"
-            echo "Downloading checkpoint $generation while the previous worker uploads it..."
-            rm -rf "$parts_dir"; mkdir -p "$parts_dir"
-            while true; do
-              rclone copy "$parts_root" "$parts_dir" --transfers 4 --checkers 4 --no-traverse --checksum --stats=10s --stats-one-line || true
-              if rclone lsf "$ready" >/dev/null 2>&1 && [ "$(rclone cat "$ready" 2>/dev/null || true)" = "parts|$generation" ]; then break; fi
-              current_marker=$(rclone cat "$uploading" 2>/dev/null || true)
-              if [[ "$current_marker" == parts\|* ]] && [[ "$current_marker" != parts\|$generation\|* ]]; then
-                echo "A newer checkpoint generation is being published; continuing the current checkpoint download."
-              fi
-              sleep 5
-            done
-            rclone copy "$parts_root" "$parts_dir" --transfers 4 --checkers 4 --no-traverse --checksum --stats=10s --stats-one-line
-            local expected_parts actual_parts
-            expected_parts=$(rclone cat "$manifest" | python3 -c 'import json,sys; print(json.load(sys.stdin)["parts"])')
-            actual_parts=$(find "$parts_dir" -maxdepth 1 -type f -name 'part-*' | wc -l)
-            test "$actual_parts" -eq "$expected_parts"
-            echo "Checkpoint download finished: $actual_parts/$expected_parts parts were downloaded while the previous job was uploading."
-            (find "$parts_dir" -maxdepth 1 -type f -name 'part-*' -printf '%f\n' | sort | while read -r part; do cat "$parts_dir/$part"; done) |
-              tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
-
-            # Job 2 has now consumed this checkpoint. Delete the producer's marker
-            # only when it still points to this exact generation. If Job 1 has
-            # already published a newer checkpoint, never delete the newer marker.
-            current_marker=$(rclone cat "$uploading" 2>/dev/null || true)
-            if [[ "$current_marker" == parts\|$generation\|* ]]; then
-              rclone deletefile "$uploading" >/dev/null 2>&1 || true
-              echo "Consumed checkpoint $generation; removed its upload marker."
-            else
-              echo "Checkpoint $generation was consumed, but the upload marker now points to a newer generation; leaving the newer marker intact."
-            fi
-
-            rm -rf "$parts_dir"
-          }
-
+          remote="onedrive:$CHECKPOINT_ROOT/tree"
+          ready="onedrive:$CHECKPOINT_ROOT/tree.ready"
           if [ "$SLOT" -gt 1 ]; then
-            while true; do
-              if rclone lsf "$uploading" >/dev/null 2>&1; then
-                marker=$(rclone cat "$uploading" 2>/dev/null || true)
-                if [[ "$marker" == *"|run|$GITHUB_RUN_ID|attempt|$GITHUB_RUN_ATTEMPT|"* ]]; then
-                  [[ "$marker" == parts\|* ]] && { download_uploading_checkpoint "$marker"; break; }
-                else
-                  echo "Ignoring stale checkpoint upload marker from another workflow run."
-                fi
-              elif rclone lsf "$ready" >/dev/null 2>&1; then
-                ready_content=$(rclone cat "$ready")
-                [[ "$ready_content" == parts\|* ]] && { restore_complete_checkpoint "$ready_content"; break; }
-              elif rclone lsf "$checkpoint" >/dev/null 2>&1 && rclone lsf "$ready" >/dev/null 2>&1 && rclone lsf "$manifest" >/dev/null 2>&1; then
-                rclone cat "$checkpoint" | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"; break
-              else
-                echo "Waiting for the previous worker to publish its checkpoint upload marker..."
-              fi
+            echo "Waiting for the previous Chromium worker to publish its checkpoint..."
+            for _ in $(seq 1 720); do
+              if rclone lsf "$ready" >/dev/null 2>&1; then break; fi
               sleep 5
             done
+          fi
+          if rclone lsf "$ready" >/dev/null 2>&1; then
+            echo "Restoring incremental Chromium checkpoint from OneDrive..."
+            rclone copy "$remote" "$WORK_ROOT" --transfers 8 --checkers 8 --fast-list --stats=10s --stats-one-line
           else
-            ready_content=""
-            if rclone lsf "$ready" >/dev/null 2>&1; then ready_content=$(rclone cat "$ready"); fi
-            if [[ "$ready_content" == parts\|* ]]; then
-              restore_complete_checkpoint "$ready_content"
-            elif rclone lsf "$checkpoint" >/dev/null 2>&1 && rclone lsf "$ready" >/dev/null 2>&1 && rclone lsf "$manifest" >/dev/null 2>&1; then
-              rclone cat "$checkpoint" | tar -I 'zstd -T0 -3' -xpf - -C "$WORK_ROOT"
-            elif ! rclone lsf "$ready" >/dev/null 2>&1 && ! rclone lsf "$checkpoint" >/dev/null 2>&1 && ! rclone lsf "$manifest" >/dev/null 2>&1; then
-              echo "No checkpoint files exist. Starting a new Chromium checkout."
-            else
-              rclone deletefile "$ready" >/dev/null 2>&1 || true
-              rclone deletefile "$checkpoint" >/dev/null 2>&1 || true
-              rclone deletefile "$manifest" >/dev/null 2>&1 || true
-              rclone deletefile "onedrive:$CHECKPOINT_ROOT/checkpoint.json.partial" >/dev/null 2>&1 || true
-            fi
+            echo "No checkpoint exists; starting fresh."
+          fi
+          find "$WORK_ROOT" -type f -name "*.lock" -delete 2>/dev/null || true
+          if [ ! -f "$WORK_ROOT/.gclient" ] || [ ! -d "$WORK_ROOT/src/.git" ]; then
+            rm -rf "$WORK_ROOT"
+            mkdir -p "$WORK_ROOT"
           fi
 
-          if [ ! -f "$WORK_ROOT/.gclient" ] || [ ! -d "$WORK_ROOT/src/.git" ]; then
-            rm -rf "$WORK_ROOT"; mkdir -p "$WORK_ROOT"
-          else
-            echo "Checkpoint restore/download complete and checkout metadata verified."
-          fi
       - name: Continue Chromium checkout and dependency sync
-        if: ${{ matrix.slot != 2 && steps.complete.outputs.already != 'true' }}
         id: sync
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$WORK_ROOT"
           cd "$WORK_ROOT"
-
-          # The standard runner image consumes substantial disk before the Chromium
-          # checkout starts, and df exposes the full backing filesystem. Track the
-          # disk growth caused by Chromium work from this point instead of rescanning
-          # the entire checkout with du. This keeps the guard cheap enough to run
-          # during a large git clone.
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
+          start_free_kb=$(df -Pk "$WORK_ROOT" | awk "NR==2 {print \$4}")
+          checkpoint_kb=$((3 * 1024 * 1024))
 
-          start_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
-          used_limit_kb=$((CHECKPOINT_USED_GIB * 1024 * 1024))
-          headroom_gib=$((RUNNER_STORAGE_BUDGET_GIB - CHECKPOINT_USED_GIB))
-          start_free_gib=$((start_free_kb / 1024 / 1024))
-
-          if (( CHECKPOINT_USED_GIB >= RUNNER_STORAGE_BUDGET_GIB )); then
-            echo "ERROR: CHECKPOINT_USED_GIB must be lower than RUNNER_STORAGE_BUDGET_GIB."
-            exit 1
-          fi
-
-          echo "Runner filesystem view: $(df -h "$WORK_ROOT" | awk 'NR==2 {print $2 " total, " $3 " used, " $4 " free"}')"
-          echo "GitHub standard runner storage budget used by this guard: ${RUNNER_STORAGE_BUDGET_GIB} GiB"
-          echo "Disk free at Chromium work start (df): ${start_free_gib} GiB"
-          echo "Chromium checkpoint interval: ${CHECKPOINT_INTERVAL_GIB} GiB of additional Chromium disk growth"
-          echo "Hard safety limit: ${CHECKPOINT_USED_GIB} GiB of additional Chromium disk growth"
-          echo "Reserved safety headroom: ${headroom_gib} GiB"
-          echo "Checkpointing every 1 GiB of additional Chromium disk growth."
-
-          checkpoint_pid=""
-          checkpoint_pending_UNUSED=false
-          next_checkpoint_gib=$CHECKPOINT_INTERVAL_GIB
-          # Checkpointing is part of this sync step. When a guarded Chromium
-          # operation reaches the disk threshold, save the current state immediately
-          # so the next worker can download it while this upload is still running.
-          save_checkpoint() {
-            mkdir -p "$WORK_ROOT"
-            checkpoint="onedrive:$CHECKPOINT_ROOT/checkpoint.tar.zst"
-            ready="onedrive:$CHECKPOINT_ROOT/checkpoint.ready"
-            manifest="onedrive:$CHECKPOINT_ROOT/checkpoint.json"
-            manifest_partial="onedrive:$CHECKPOINT_ROOT/checkpoint.json.partial"
-  
-            old_ready=""
-            if rclone lsf "$ready" >/dev/null 2>&1; then
-              old_ready=$(rclone cat "$ready")
-            fi
-  
-            generation="$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$(date +%s)"
-            parts_root="onedrive:$CHECKPOINT_ROOT/checkpoint-parts-$generation"
-            uploading="onedrive:$CHECKPOINT_ROOT/checkpoint.uploading"
-            batch_dir="$RUNNER_TEMP/checkpoint-parts-upload-$generation"
-
-            rm -rf "$batch_dir"
-            mkdir -p "$batch_dir"
-
-            # The guarded Chromium operation has already stopped at the 1 GiB
-            # boundary. Archive only the Git/gclient metadata needed to resume;
-            # archiving the entire Chromium working tree caused the previous
-            # checkpoint to spend about an hour before its first 250 MiB part.
-            rclone mkdir "$parts_root"
-
-            echo "Streaming complete Chromium working-tree checkpoint directly to OneDrive..."
-            part_name="part-000000"
-
-            # The checkpoint must contain the checked-out files as well as Git
-            # metadata. A metadata-only checkpoint restores an index whose files
-            # are absent, which makes gclient report the entire tree as uncommitted
-            # deletions on the next worker.
-            (
-              set -o pipefail
-              tar --ignore-failed-read --warning=no-file-changed --warning=no-file-removed \
-                -C "$WORK_ROOT" -cf - --exclude='./.gclient_cache' . |
-                zstd -T0 -1
-            ) |
-              rclone rcat "$parts_root/$part_name" \
-                --streaming-upload-cutoff 1M \
-                --onedrive-chunk-size 250M \
-                --stats=10s \
-                --stats-one-line
-
-            part_count=1
-            echo "Uploaded checkpoint part: $part_name"
-
-            part_count=$(rclone lsf "$parts_root/" --files-only | grep -c '^part-' || true)
-            if [ "$part_count" -eq 0 ]; then
-              echo "ERROR: no checkpoint parts were uploaded."
-              exit 1
-            fi
-
-            # The checkpoint is now fully uploaded. Only now publish the marker.
-            # Job 2 treats this marker as permission to download this generation.
-            printf 'parts|%s|run|%s|attempt|%s|slot|%s\n' "$generation" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$SLOT" |
-              rclone rcat "$uploading"
-            echo "Published completed checkpoint marker for slot $SLOT: $generation"
-  
-            echo "Uploaded $part_count checkpoint parts."
-  
-            rclone deletefile "$manifest_partial" >/dev/null 2>&1 || true
-            printf '{"revision":"%s","format":"tar.zst.parts","generation":"%s","part_size":"250M","parts":%s}\n' \
-              "$REVISION" "$generation" "$part_count" |
-              rclone rcat "$manifest_partial"
-  
-            rclone moveto "$manifest_partial" "$manifest"
-  
-            # Publish the ready pointer last. Until this exists, the previous valid
-            # checkpoint remains the one used by the restore step.
-            printf 'parts|%s\n' "$generation" | rclone rcat "$ready"
-  
-            test "$(rclone cat "$ready")" = "parts|$generation"
-            rclone lsf "$manifest" >/dev/null
-            rclone lsf "$parts_root/" >/dev/null
-            printf 'parts|%s\n' "$generation" | rclone rcat "$CHECKPOINT_ROOT/checkpoint-ready-$generation.done"
-            echo "Published completed checkpoint marker: $generation"
-            # Keep checkpoint.uploading published so concurrent Package jobs can
-            # always discover the current generation. The standalone Finalize
-            # workflow removes all staging checkpoint data after packaging.
-
-            # Keep older checkpoint generations too. A concurrent worker may still
-            # be downloading the previous generation when the next one is published.
-            echo "Checkpoint saved as $part_count parallel OneDrive parts and published atomically."
+          checkpoint_and_exit() {
+            local pid="$1"
+            echo "3 GiB checkpoint threshold reached; stopping this worker."
+            kill -TERM -- "-$pid" 2>/dev/null || true
+            sleep 5
+            kill -KILL -- "-$pid" 2>/dev/null || true
+            wait "$pid" || true
+            rclone deletefile "onedrive:$CHECKPOINT_ROOT/tree.ready" >/dev/null 2>&1 || true
+            echo "Uploading incremental checkpoint to OneDrive..."
+            rclone sync "$WORK_ROOT/" "onedrive:$CHECKPOINT_ROOT/tree" \
+              --exclude ".gclient_cache/**" \
+              --exclude "src/out/**" \
+              --exclude "src/.cipd/**" \
+              --transfers 8 --checkers 8 --fast-list \
+              --onedrive-chunk-size 250M --stats=10s --stats-one-line
+            printf "ready|%s|slot|%s|run|%s\n" "$REVISION" "$SLOT" "$GITHUB_RUN_ID" |
+              rclone rcat "onedrive:$CHECKPOINT_ROOT/tree.ready"
+            echo "Checkpoint published for slot $SLOT."
+            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
+            exit 0
           }
 
-
-          start_checkpoint_if_idle() {
-            if [ -n "$checkpoint_pid" ]; then
-              if kill -0 "$checkpoint_pid" 2>/dev/null; then
-                echo "Checkpoint upload already running; skipping this checkpoint interval."
-                return 1
-              fi
-              if ! wait "$checkpoint_pid"; then
-                echo "ERROR: previous checkpoint upload failed."
-                checkpoint_pid=""
-                return 2
-              fi
-              checkpoint_pid=""
-            fi
-
-            echo "saving to onedrive"
-            save_checkpoint &
-            checkpoint_pid="$!"
-            echo "Checkpoint upload started in background (PID $checkpoint_pid)."
-            return 0
-          }
-
-          finish_checkpoint_uploads() {
-            if [ -n "$checkpoint_pid" ]; then
-              if ! wait "$checkpoint_pid"; then
-                echo "ERROR: checkpoint upload failed."
-                checkpoint_pid=""
-                return 1
-              fi
-              checkpoint_pid=""
-            fi
-          }
-          disk_guarded() {
+          run_guarded() {
             local command="$1"
             setsid bash -c "$command" &
             local pid=$!
-            local last_reported_gib=-1
-
             while kill -0 "$pid" 2>/dev/null; do
-              current_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
-              growth_kb=$((start_free_kb - current_free_kb))
-              if (( growth_kb < 0 )); then
-                growth_kb=0
-              fi
-
-              current_growth_gib=$((growth_kb / 1024 / 1024))
-              if (( current_growth_gib != last_reported_gib )); then
-                echo "Chromium disk growth since sync start: ${current_growth_gib} GiB"
-                last_reported_gib="$current_growth_gib"
-              fi
-
-              while (( growth_kb >= next_checkpoint_gib * 1024 * 1024 )); do
-                echo "Chromium disk growth since sync start: $next_checkpoint_gib GiB"
-                echo "Starting a background checkpoint at the $next_checkpoint_gib GiB interval; Chromium will continue running."
-                start_checkpoint_if_idle
-                next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
-              done
-
-              if (( growth_kb >= used_limit_kb )); then
-                echo "Chromium work has consumed approximately ${current_growth_gib} GiB of additional disk."
-                echo "Stopping the current Chromium operation safely so this runner can checkpoint to OneDrive."
-                kill -TERM -- "-$pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL -- "-$pid" 2>/dev/null || true
-                wait "$pid" || true
-                return 75
+              free_kb=$(df -Pk "$WORK_ROOT" | awk "NR==2 {print \$4}")
+              growth_kb=$((start_free_kb - free_kb))
+              if (( growth_kb >= checkpoint_kb )); then
+                checkpoint_and_exit "$pid"
               fi
               sleep 5
             done
-
             wait "$pid"
           }
 
-          run_guarded_with_checkpoints() {
-            local command="$1"
-            while true; do
-              rc=0
-              disk_guarded "$command" || rc=$?
-
-              if [ "$rc" -ne 75 ]; then
-                return "$rc"
-              fi
-
-              echo "Checkpoint threshold reached. Saving the current Chromium state to OneDrive now."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-
-              if (( next_checkpoint_gib >= CHECKPOINT_USED_GIB )); then
-                echo "Chromium reached the 13 GiB hard safety limit. Final checkpoint is saved; ending this Package job so the next worker can resume."
-                return 76
-              fi
-
-              next_checkpoint_gib=$((next_checkpoint_gib + CHECKPOINT_INTERVAL_GIB))
-              echo "Checkpoint complete. Continuing the same Chromium operation toward the next ${next_checkpoint_gib} GiB checkpoint."
-            done
-          }
-
-          # Do not use depot_tools fetch for the initial src download. fetch creates
-          # a temporary clone and only renames it to src after the clone completes,
-          # so a checkpoint taken during that clone cannot resume it.
-          # Instead, create the gclient config and fetch Chromium directly into src.
-          # A partial src/.git repository survives checkpoint/restore.
           if [ ! -f "$WORK_ROOT/.gclient" ]; then
-            rc=0
-            run_guarded_with_checkpoints 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
-            if [ "$rc" -eq 76 ]; then
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            elif [ "$rc" -ne 0 ]; then
-              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-              exit "$rc"
-            fi
+            gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"
           fi
-
-          # Never restore transient Git lock files from checkpoints. A stale
-          # shallow.lock/index.lock/packed-refs.lock would make the resumed
-          # repository look as if another Git process is still running.
-          find "$WORK_ROOT" -type f \( \
-            -path '*/.git/*.lock' -o \
-            -path '*/.git/*/*.lock' \
-          \) -delete 2>/dev/null || true
-
           if [ ! -d "$WORK_ROOT/src/.git" ]; then
             mkdir -p "$WORK_ROOT/src"
             git -C "$WORK_ROOT/src" init -b main
-            git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
-          elif ! git -C "$WORK_ROOT/src" remote get-url origin >/dev/null 2>&1; then
-            git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
           fi
+          git -C "$WORK_ROOT/src" remote get-url origin >/dev/null 2>&1 || git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
+          find "$WORK_ROOT" -type f -name "*.lock" -delete 2>/dev/null || true
 
-          rc=0
-          run_guarded_with_checkpoints 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"' || rc=$?
-          if [ "$rc" -eq 76 ]; then
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-            start_checkpoint_if_idle
-            finish_checkpoint_uploads
-            exit "$rc"
-          fi
+          run_guarded 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"'
+          git -C "$WORK_ROOT/src" checkout --detach "$REVISION"
+          run_guarded 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"'
 
-          rc=0
-          run_guarded_with_checkpoints 'git -C "$WORK_ROOT/src" checkout --detach "$REVISION"' || rc=$?
-          if [ "$rc" -eq 76 ]; then
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-            start_checkpoint_if_idle
-            finish_checkpoint_uploads
-            exit "$rc"
-          fi
-
-          cd "$WORK_ROOT"
-
-          # The checkpoint contains the valid .gclient file. Only create it when
-          # starting completely fresh; do not rewrite it on every resumed slot.
-          if [ ! -f "$WORK_ROOT/.gclient" ]; then
-            rc=0
-            run_guarded_with_checkpoints 'gclient config --name src --custom-var=checkout_src_internal=False --custom-var=checkout_agents_internal=False "$CHROMIUM_URL"' || rc=$?
-            if [ "$rc" -eq 76 ]; then
-              echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            elif [ "$rc" -ne 0 ]; then
-              echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-              start_checkpoint_if_idle
-              finish_checkpoint_uploads
-              exit "$rc"
-            fi
-          fi
-
-          # Remove stale Git locks left by an interrupted previous worker.
-          # That worker's VM is gone, so these locks cannot represent a live Git
-          # process on this fresh runner.
-          find "$WORK_ROOT/src" -type f \( -name 'shallow.lock' -o -name 'index.lock' -o -name 'HEAD.lock' -o -name 'config.lock' \) -delete 2>/dev/null || true
-
-          # A previous failed sync can leave private-repository scratch directories
-          # behind. They are not part of the public Chromium checkout and must not
-          # be carried into the completed source package.
-          rm -rf "$WORK_ROOT/src/agents/internal" "$WORK_ROOT/_bad_scm"
-
-          rc=0
-          run_guarded_with_checkpoints 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"' || rc=$?
-          if [ "$rc" -eq 76 ]; then
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          elif [ "$rc" -ne 0 ]; then
-            echo "Chromium operation failed (exit $rc). Saving a recovery checkpoint before failing."
-            start_checkpoint_if_idle
-            finish_checkpoint_uploads
-            exit "$rc"
-          fi
-
-          echo "Chromium source and dependencies completed for $REVISION."
-          finish_checkpoint_uploads
+          echo "Chromium source and dependencies completed."
           echo "checkpoint=false" >> "$GITHUB_OUTPUT"
 
       - name: Save completed Chromium source for Finalize
-        if: ${{ matrix.slot != 2 && steps.complete.outputs.already != 'true' && steps.sync.outputs.checkpoint == 'false' }}
+        if: steps.sync.outputs.checkpoint == "false"
         shell: bash
         run: |
           set -euo pipefail
           cd "$WORK_ROOT"
-
-          source_archive="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst"
-          source_partial="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/chromium-$REVISION.source.tar.zst.partial"
-          source_ready="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.ready"
-          source_manifest="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION/source.json"
-
-          rclone deletefile "$source_partial" >/dev/null 2>&1 || true
+          source_root="onedrive:$WAVE_ONEDRIVE_PATH/staging/$REVISION"
+          source_archive="$source_root/chromium-$REVISION.source.tar.zst"
+          source_partial="$source_archive.partial"
+          source_ready="$source_root/source.ready"
+          source_manifest="$source_root/source.json"
           rclone deletefile "$source_ready" >/dev/null 2>&1 || true
-
-          echo "Chromium source/dependencies are complete. Saving them for Finalize to package..."
-          tar -C "$WORK_ROOT" -cf - \
-            --exclude='./src/out' \
-            --exclude='./src/.cipd' \
-            --exclude='*/.git' \
-            --exclude='./.gclient_cache' \
-            .gclient .gclient_entries src |
-            zstd -T0 -1 | rclone rcat "$source_partial" --progress --stats=10s --stats-one-line --onedrive-chunk-size 250M
-
+          rclone deletefile "$source_partial" >/dev/null 2>&1 || true
+          echo "Streaming completed Chromium source to OneDrive..."
+          tar -C "$WORK_ROOT" -cf - --exclude="./src/out" --exclude="./src/.cipd" --exclude="*/.git" --exclude="./.gclient_cache" .gclient .gclient_entries src |
+            zstd -T0 -1 |
+            rclone rcat "$source_partial" --stats=10s --stats-one-line --onedrive-chunk-size 250M
           rclone moveto "$source_partial" "$source_archive"
           printf '{"revision":"%s","complete":true}\n' "$REVISION" | rclone rcat "$source_manifest"
+          printf "ready\n" | rclone rcat "$source_ready"
           rclone lsf "$source_archive" >/dev/null
-          rclone lsf "$source_manifest" >/dev/null
-          printf 'ready\n' | rclone rcat "$source_ready"
           rclone lsf "$source_ready" >/dev/null
-          echo "Completed Chromium source saved. Finalize can now create the final tar.gz package."
 
       - name: Trigger Chromium Finalize workflow
-        if: ${{ matrix.slot != 2 && steps.sync.outputs.checkpoint == 'false' }}
+        if: steps.sync.outputs.checkpoint == "false"
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REVISION: ${{ env.REVISION }}
         run: |
           set -euo pipefail
           payload=$(python3 -c 'import json,os; print(json.dumps({"event_type":"chromium-source-ready","client_payload":{"revision":os.environ["REVISION"]}}))')
-          curl -fsSL             -X POST             -H "Accept: application/vnd.github+json"             -H "Authorization: Bearer $GH_TOKEN"             -H "X-GitHub-Api-Version: 2022-11-28"             "https://api.github.com/repos/$GITHUB_REPOSITORY/dispatches"             -d "$payload"
+          curl -fsSL -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/dispatches" -d "$payload"
           echo "Triggered Finalize workflow for Chromium $REVISION."
