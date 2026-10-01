@@ -274,34 +274,31 @@ jobs:
           cd "$WORK_ROOT"
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
 
-          start_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
           interval_kb=$((1 * 1024 * 1024))
           max_growth_kb=$((13 * 1024 * 1024))
           state="onedrive:$CHECKPOINT_ROOT/state.json"
 
-          # The checkpoint interval is cumulative across handoffs. A successor
-          # starts with the previous checkpoint already downloaded, so its local
-          # disk-growth counter starts at zero. Restore the cumulative growth
-          # recorded by the predecessor and checkpoint after each additional GiB.
+          # Measure the actual Chromium workspace, not free space on the runner.
+          # Runner background files can otherwise move the checkpoint threshold.
+          start_used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
           checkpointed_growth_kb=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("growth_kb",0)))' 2>/dev/null || echo 0)
-          next_checkpoint_kb=$((checkpointed_growth_kb + interval_kb))
-          ack="onedrive:$CHECKPOINT_ROOT/prefetched-$((SLOT + 1)).json"
-          # Continue the persistent checkpoint generation counter across job handoffs.
           generation=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null || echo 0)
-
+          next_checkpoint_kb=$((generation + 1))
+          next_checkpoint_kb=$((next_checkpoint_kb * interval_kb))
+          ack="onedrive:$CHECKPOINT_ROOT/prefetched-$((SLOT + 1)).json"
           publish_checkpoint() {
             local status="$1"
             local pid="${2:-}"
-            local free_kb growth_kb
-            free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
-            growth_kb=$((start_free_kb - free_kb))
+            local used_kb growth_kb
+            used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
+            growth_kb=$((used_kb - start_used_kb))
             generation=$((generation + 1))
             checkpoint_dir="checkpoint-$generation"
             remote="onedrive:$CHECKPOINT_ROOT/$checkpoint_dir"
             previous_checkpoint=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("checkpoint_path",""))' 2>/dev/null || true)
 
-            cumulative_growth_kb=$((checkpointed_growth_kb + growth_kb))
-            echo "Publishing checkpoint $generation at about $((cumulative_growth_kb / 1024 / 1024)) GiB cumulative growth..."
+            cumulative_growth_kb=$((generation * interval_kb))
+            echo "Publishing checkpoint $generation at the $((cumulative_growth_kb / 1024 / 1024)) GiB checkpoint boundary (workspace grew $((growth_kb / 1024 / 1024)) GiB on this runner)..."
             if [ -n "$pid" ]; then
               # Freeze the active Chromium operation so the snapshot is consistent.
               kill -STOP -- "-$pid" 2>/dev/null || true
@@ -348,10 +345,9 @@ jobs:
             setsid bash -c "$command" &
             local pid=$!
             while kill -0 "$pid" 2>/dev/null; do
-              local free_kb growth_kb
-              free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
-              growth_kb=$((start_free_kb - free_kb))
-
+              local used_kb growth_kb total_growth_kb
+              used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
+              growth_kb=$((used_kb - start_used_kb))
               total_growth_kb=$((checkpointed_growth_kb + growth_kb))
 
               # Checkpoint at every 1 GiB cumulative boundary. The 13 GiB
@@ -370,8 +366,9 @@ jobs:
                 fi
 
                 publish_checkpoint "checkpoint" "$pid"
-                checkpointed_growth_kb=$((checkpointed_growth_kb + growth_kb))
-                next_checkpoint_kb=$((checkpointed_growth_kb + interval_kb))
+                checkpointed_growth_kb=$((generation * interval_kb))
+                start_used_kb=$(du -sxk "$WORK_ROOT" | awk '{print $1}')
+                next_checkpoint_kb=$(((generation + 1) * interval_kb))
               fi
               sleep 1
             done
@@ -388,7 +385,10 @@ jobs:
           git -C "$WORK_ROOT/src" remote get-url origin >/dev/null 2>&1 || git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
           find "$WORK_ROOT" -type f -name "*.lock" -delete 2>/dev/null || true
 
-          run_guarded 'git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION"'
+          git -C "$WORK_ROOT/src" config http.version HTTP/1.1
+          git -C "$WORK_ROOT/src" config http.lowSpeedLimit 0
+          git -C "$WORK_ROOT/src" config http.lowSpeedTime 999999
+          run_guarded 'for attempt in 1 2 3; do git -C "$WORK_ROOT/src" fetch --no-tags --depth=1 origin "$REVISION" && exit 0; echo "Chromium git fetch attempt $attempt failed; retrying..." >&2; sleep 10; done; exit 1'
           git -C "$WORK_ROOT/src" checkout --detach "$REVISION"
           run_guarded 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"'
 
