@@ -275,12 +275,18 @@ jobs:
 
           publish_checkpoint() {
             local status="$1"
+            local pid="${2:-}"
             local free_kb growth_kb
             free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
             growth_kb=$((start_free_kb - free_kb))
             generation=$((generation + 1))
 
             echo "Publishing checkpoint $generation at about $((growth_kb / 1024 / 1024)) GiB growth..."
+            if [ -n "$pid" ]; then
+              # Freeze the active Chromium operation so the snapshot is consistent.
+              kill -STOP -- "-$pid" 2>/dev/null || true
+            fi
+
             rclone deletefile "$state" >/dev/null 2>&1 || true
             rclone sync "$WORK_ROOT/" "$remote" \
               --exclude "src/out/**" \
@@ -295,12 +301,19 @@ jobs:
               for _ in $(seq 1 720); do
                 if rclone cat "$ack" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null | grep -qx "$generation"; then
                   echo "Slot $((SLOT + 1)) confirmed checkpoint $generation."
+                  if [ -n "$pid" ]; then
+                    kill -CONT -- "-$pid" 2>/dev/null || true
+                  fi
                   return 0
                 fi
                 sleep 5
               done
               echo "Next slot did not acknowledge checkpoint $generation within 60 minutes."
               exit 1
+            fi
+
+            if [ -n "$pid" ]; then
+              kill -CONT -- "-$pid" 2>/dev/null || true
             fi
           }
 
@@ -313,11 +326,6 @@ jobs:
               free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
               growth_kb=$((start_free_kb - free_kb))
 
-              if (( growth_kb >= next_checkpoint_kb )); then
-                publish_checkpoint "checkpoint"
-                next_checkpoint_kb=$((next_checkpoint_kb + interval_kb))
-              fi
-
               if (( growth_kb >= max_growth_kb )); then
                 echo "Reached the ~13 GiB runner work budget; handing off to the next runner."
                 kill -TERM -- "-$pid" 2>/dev/null || true
@@ -327,6 +335,11 @@ jobs:
                 publish_checkpoint "handoff"
                 echo "checkpoint=false" >> "$GITHUB_OUTPUT"
                 return 0
+              fi
+
+              if (( growth_kb >= next_checkpoint_kb )); then
+                publish_checkpoint "checkpoint" "$pid"
+                next_checkpoint_kb=$((next_checkpoint_kb + interval_kb))
               fi
               sleep 5
             done
