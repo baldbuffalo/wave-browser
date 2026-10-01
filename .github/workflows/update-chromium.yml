@@ -2,7 +2,6 @@ name: Package Chromium for WaveBrowser
 
 on:
   workflow_dispatch:
-    inputs:
 concurrency:
   group: wave-browser-chromium-packaging
   cancel-in-progress: false
@@ -65,8 +64,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          latest=$(timeout 90s git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
-          [[ "$latest" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not determine a valid Chromium revision."; exit 1; }
+          # Select one persistent Chromium revision for this entire
+          # packaging job. Once chosen, every automatic restart reuses it
+          # instead of resolving Chromium main again.
+          lock_path="onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json"
+
+          if rclone cat "$lock_path" > "$RUNNER_TEMP/current_revision.json" 2>/dev/null; then
+            latest=$(python3 - "$RUNNER_TEMP/current_revision.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              data = json.load(f)
+          print(data["revision"])
+          PY
+            )
+          else
+            latest=$(timeout 90s git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+            [[ "$latest" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not determine a valid Chromium revision."; exit 1; }
+            printf '{"revision":"%s","created_at":"%s"}\n' "$latest" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+              rclone rcat "$lock_path"
+            echo "Locked Chromium revision to $latest for this packaging job."
+          fi
+
+          [[ "$latest" =~ ^[0-9a-f]{40}$ ]] || { echo "Persistent Chromium revision lock is invalid."; exit 1; }
 
           revision_root="onedrive:$WAVE_ONEDRIVE_PATH/$latest"
           ready="$revision_root/package.ready.json"
