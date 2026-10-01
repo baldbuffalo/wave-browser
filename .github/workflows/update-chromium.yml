@@ -368,6 +368,9 @@ jobs:
             fi
           fi
 
+          # If this workflow was manually cancelled, GitHub terminates the job
+          # instead of allowing the workflow to reach this section. Only automatic
+          # handoffs from the 5h30m/disk-limit logic reach this restart decision.
           if [ "$ready" = "true" ]; then
             echo "Chromium $REVISION is fully ready. Triggering Finalize."
             payload=$(python3 -c 'import json,os; print(json.dumps({"event_type":"chromium-source-ready","client_payload":{"revision":os.environ["REVISION"]}}))')
