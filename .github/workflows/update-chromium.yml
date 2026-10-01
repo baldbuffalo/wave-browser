@@ -230,7 +230,7 @@ jobs:
           # Stop the active Chromium operation before local usage reaches 13 GiB.
           # The readiness step below will cleanly hand off to another run.
           DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
-          DISK_MONITOR_INTERVAL=30
+          DISK_MONITOR_INTERVAL=1
 
           monitor_disk() {
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
