@@ -90,7 +90,7 @@ jobs:
 
           rclone mkdir "$revision_root/source"
           rclone mkdir "$revision_root/package"
-          printf '{"revision":"%s","status":"downloading"}\n' "$latest" | rclone rcat "$revision_root/download.json"
+          printf '{"revision":"%s","status":"downloading","updated_at":"%s"}\n' "$latest" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | rclone rcat "$revision_root/download.json"
 
           echo "revision=$latest" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -145,6 +145,16 @@ jobs:
           cd "$WORK_ROOT"
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
 
+          # Record progress remotely so an unattended overnight run is diagnosable.
+          update_status() {
+            local status="$1"
+            local extra="${2:-}"
+            printf '{"revision":"%s","status":"%s","updated_at":"%s"%s}\n' "$REVISION" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$extra" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json"
+          }
+
+          update_status "running"
+
           if [ ! -f .gclient ]; then
             gclient config \
               --name src \
@@ -176,24 +186,32 @@ jobs:
           git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.lowSpeedLimit 0
           git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.lowSpeedTime 999999
 
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             if git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" fetch --no-tags --depth=1 origin "$REVISION"; then
               break
             fi
             echo "Chromium source fetch attempt $attempt failed; retrying..."
-            sleep 10
-            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep $((attempt * 15))
+            if [ "$attempt" -eq 5 ]; then
+              update_status "failed" ",\"reason\":\"chromium_git_fetch_failed\""
+              exit 1
+            fi
           done
 
           # Update tracked source files while leaving untracked dependency data
           # intact so gclient can continue from the persistent OneDrive tree.
           git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" reset --hard "$REVISION"
+          update_status "syncing-dependencies"
+          # gclient sync is intentionally restartable: if the 5h30m deadline
+          # interrupts it, the next run simply invokes gclient sync again and
+          # reconciles the existing files instead of starting from scratch.
           gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"
 
           test -d "$WORK_ROOT/src"
           test -f "$WORK_ROOT/.gclient"
           test -f "$WORK_ROOT/.gclient_entries"
 
+          update_status "source-ready" ',\"source_path\":\"source\"'
           printf '{"revision":"%s","status":"source-ready","source_path":"source"}\n' "$REVISION" |
             rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
 
@@ -207,6 +225,10 @@ jobs:
           set -e
 
           if [ "$status" -eq 124 ] || [ "$status" -eq 143 ] || [ "$status" -eq 137 ]; then
+            # timeout terminated the download. Mark the persistent state before
+            # starting the next run so an unattended handoff is visible.
+            printf '{"revision":"%s","status":"handoff","updated_at":"%s","next_run":true}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json"
             echo "5h30m download deadline reached; triggering the same workflow to resume revision $REVISION."
             payload=$(python3 -c 'import json,os; print(json.dumps({"ref":"main","inputs":{"revision":os.environ["REVISION"]}}))')
             curl -fsSL -X POST \
@@ -220,6 +242,10 @@ jobs:
             exit 0
           fi
 
+          if [ "$status" -ne 0 ]; then
+            printf '{"revision":"%s","status":"failed","updated_at":"%s","exit_code":%s}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$status" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json" || true
+          fi
           exit "$status"
 
       - name: Unmount OneDrive source
