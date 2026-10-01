@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     env:
-      WORK_ROOT: ${{ runner.temp }}/wave-chromium-source
+      WORK_ROOT: ${{ github.workspace }}/../wave-chromium-source
     steps:
       - name: Install Chromium tools locally
         shell: bash
