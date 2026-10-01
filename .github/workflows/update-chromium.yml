@@ -134,9 +134,12 @@ jobs:
               "$CHROMIUM_URL"
           fi
 
-          if [ ! -d src/.git ]; then
+          if [ ! -d "$RUNNER_TEMP/chromium-git" ] || [ ! -f src/.git ]; then
+            rm -rf "$RUNNER_TEMP/chromium-git"
             mkdir -p src
-            git -C src init -b main
+            git init --separate-git-dir="$RUNNER_TEMP/chromium-git" -b main "$WORK_ROOT/src"
+            git -C src remote add origin "$CHROMIUM_URL"
+          elif ! git -C src remote get-url origin >/dev/null 2>&1; then
             git -C src remote add origin "$CHROMIUM_URL"
           fi
 
