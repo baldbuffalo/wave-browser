@@ -84,7 +84,7 @@ jobs:
             Write-Host "Restoring Windows build checkpoint for $revision."
             rclone cat "onedrive:$staging/checkpoint.tar.gz" | tar -xzf - -C $root
           } else {
-            $package = "onedrive:$env:WAVE_ONEDRIVE_PATH/chromium-$revision.tar.gz"
+            $package = "onedrive:$env:WAVE_ONEDRIVE_PATH/$revision/package/chromium-$revision.tar.gz"
             try { rclone lsf $package | Out-Null } catch { throw "Chromium package $revision is missing from OneDrive. Run update-chromium.yml first." }
             Write-Host "No build checkpoint exists; restoring Chromium source package."
             rclone cat $package | tar -xzf - -C $root
