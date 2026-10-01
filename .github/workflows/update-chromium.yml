@@ -95,7 +95,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$WORK_ROOT"
           rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$WORK_ROOT" \
-            --vfs-cache-mode off \
+            --vfs-cache-mode writes \
+            --vfs-write-back 5s \
             --dir-cache-time 10s \
             --poll-interval 30s \
             --buffer-size 16M \
