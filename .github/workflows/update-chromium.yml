@@ -277,8 +277,14 @@ jobs:
           start_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
           interval_kb=$((1 * 1024 * 1024))
           max_growth_kb=$((13 * 1024 * 1024))
-          next_checkpoint_kb=$interval_kb
           state="onedrive:$CHECKPOINT_ROOT/state.json"
+
+          # The checkpoint interval is cumulative across handoffs. A successor
+          # starts with the previous checkpoint already downloaded, so its local
+          # disk-growth counter starts at zero. Restore the cumulative growth
+          # recorded by the predecessor and checkpoint after each additional GiB.
+          checkpointed_growth_kb=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("growth_kb",0)))' 2>/dev/null || echo 0)
+          next_checkpoint_kb=$interval_kb
           ack="onedrive:$CHECKPOINT_ROOT/prefetched-$((SLOT + 1)).json"
           # Continue the persistent checkpoint generation counter across job handoffs.
           generation=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null || echo 0)
@@ -294,7 +300,8 @@ jobs:
             remote="onedrive:$CHECKPOINT_ROOT/$checkpoint_dir"
             previous_checkpoint=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("checkpoint_path",""))' 2>/dev/null || true)
 
-            echo "Publishing checkpoint $generation at about $((growth_kb / 1024 / 1024)) GiB growth..."
+            cumulative_growth_kb=$((checkpointed_growth_kb + growth_kb))
+            echo "Publishing checkpoint $generation at about $((cumulative_growth_kb / 1024 / 1024)) GiB cumulative growth..."
             if [ -n "$pid" ]; then
               # Freeze the active Chromium operation so the snapshot is consistent.
               kill -STOP -- "-$pid" 2>/dev/null || true
@@ -373,7 +380,7 @@ jobs:
                 echo "checkpoint=false" >> "$GITHUB_OUTPUT"
                 return 0
               fi
-              sleep 5
+              sleep 1
             done
             wait "$pid"
           }
