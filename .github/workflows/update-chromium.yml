@@ -116,6 +116,9 @@ jobs:
           mkdir -p "$WORK_ROOT"
           rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$WORK_ROOT" \
             --vfs-cache-mode writes \
+            --cache-dir "$RUNNER_TEMP/rclone-vfs-cache" \
+            --vfs-cache-max-size 2G \
+            --vfs-cache-max-age 10m \
             --vfs-write-back 5s \
             --dir-cache-time 10s \
             --poll-interval 30s \
@@ -233,21 +236,18 @@ jobs:
 
           set +e
 
-          # Protect the runner's local disk by watching FREE space, not total
-          # space used. GitHub-hosted runners already contain tools and system
-          # files before this job starts, so an absolute "13 GiB used" limit
-          # can be reached after only a small amount of Chromium data is cached.
-          # Chromium source/dependencies live on OneDrive; only rclone's VFS
-          # cache, Git metadata, depot_tools, and temporary files are local.
-          # Stop only when about 1 GiB of local disk remains available.
-          DISK_MIN_FREE_BYTES=$((1 * 1024 * 1024 * 1024))
+          # Keep the original 13 GiB total-used safety guard. The runner is
+          # only about 14 GiB, so this prevents the job from filling it.
+          # The important fix is that rclone's VFS cache is now bounded to 2 GiB
+          # instead of being allowed to consume the runner's disk rapidly.
+          DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
           DISK_MONITOR_INTERVAL=1
 
           monitor_disk() {
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
-              free_bytes=$(df -B1 --output=avail "$HOME" 2>/dev/null | tail -n 1 | tr -d ' ')
-              if [[ "$free_bytes" =~ ^[0-9]+$ ]] && [ "$free_bytes" -le "$DISK_MIN_FREE_BYTES" ]; then
-                echo "Local runner disk has only $((free_bytes / 1024 / 1024)) MiB free; stopping Chromium download to protect the runner."
+              used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d ' ')
+              if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
+                echo "Local runner disk usage reached 13 GiB; stopping Chromium download to protect the runner."
                 echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
                 kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
                 return
