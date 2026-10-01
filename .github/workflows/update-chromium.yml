@@ -68,11 +68,17 @@ jobs:
             echo "Found an active Chromium packaging target: $latest"
             echo "A previous run started this revision, so this run will resume it instead of resolving a newer Chromium revision."
           else
-            latest=$(git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+            echo "No active Chromium target exists. Resolving refs/heads/main from Chromium..."
+            latest=""
+            if ! latest=$(timeout 90s git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}'); then
+              echo "ERROR: Chromium revision lookup timed out or failed after 90 seconds."
+              exit 1
+            fi
             if [[ ! "$latest" =~ ^[0-9a-f]{40}$ ]]; then
               echo "Could not determine a valid Chromium revision."
               exit 1
             fi
+            echo "Resolved Chromium revision: $latest"
             printf '{"revision":"%s","status":"active"}\n' "$latest" | rclone rcat "$active_marker"
             echo "Created persistent Chromium packaging target: $latest"
           fi
