@@ -14,7 +14,7 @@ permissions:
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
-  WORK_ROOT: $RUNNER_TEMP/wave-chromium-source
+  WORK_ROOT: ${{ runner.temp }}/wave-chromium-source
 
 jobs:
   DownloadChromium:
@@ -133,11 +133,15 @@ jobs:
               "$CHROMIUM_URL"
           fi
 
-          if [ -d src/.git ]; then
-            git -C src config http.version HTTP/1.1
-            git -C src config http.lowSpeedLimit 0
-            git -C src config http.lowSpeedTime 999999
+          if [ ! -d src/.git ]; then
+            mkdir -p src
+            git -C src init -b main
+            git -C src remote add origin "$CHROMIUM_URL"
           fi
+
+          git -C src config http.version HTTP/1.1
+          git -C src config http.lowSpeedLimit 0
+          git -C src config http.lowSpeedTime 999999
 
           for attempt in 1 2 3; do
             if git -C src fetch --no-tags --depth=1 origin "$REVISION"; then
