@@ -208,7 +208,7 @@ jobs:
         run: |
           set -euo pipefail
           state="onedrive:$CHECKPOINT_ROOT/state.json"
-          remote="onedrive:$CHECKPOINT_ROOT/tree"
+          legacy_remote="onedrive:$CHECKPOINT_ROOT/tree"
           ack="onedrive:$CHECKPOINT_ROOT/prefetched-${SLOT}.json"
           last_generation=0
 
@@ -227,9 +227,16 @@ jobs:
 
             status=$(printf '%s' "$state_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
             generation=$(printf '%s' "$state_json" | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))')
+            checkpoint_path=$(printf '%s' "$state_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("checkpoint_path",""))')
 
             if (( generation > last_generation )); then
-              echo "Checkpoint generation $generation detected; downloading the newest checkpoint..."
+              if [ -n "$checkpoint_path" ]; then
+                remote="onedrive:$CHECKPOINT_ROOT/$checkpoint_path"
+              else
+                # Compatibility with checkpoints created by the older workflow.
+                remote="$legacy_remote"
+              fi
+              echo "Checkpoint generation $generation detected; downloading the newest checkpoint from $remote..."
               rclone sync "$remote" "$WORK_ROOT" \
                 --exclude "src/out/**" \
                 --exclude "src/.cipd/**" \
@@ -270,7 +277,6 @@ jobs:
           next_checkpoint_kb=$interval_kb
           generation=0
           state="onedrive:$CHECKPOINT_ROOT/state.json"
-          remote="onedrive:$CHECKPOINT_ROOT/tree"
           ack="onedrive:$CHECKPOINT_ROOT/prefetched-$((SLOT + 1)).json"
 
           publish_checkpoint() {
@@ -280,6 +286,9 @@ jobs:
             free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
             growth_kb=$((start_free_kb - free_kb))
             generation=$((generation + 1))
+            checkpoint_dir="checkpoint-$generation"
+            remote="onedrive:$CHECKPOINT_ROOT/$checkpoint_dir"
+            previous_checkpoint=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("checkpoint_path",""))' 2>/dev/null || true)
 
             echo "Publishing checkpoint $generation at about $((growth_kb / 1024 / 1024)) GiB growth..."
             if [ -n "$pid" ]; then
@@ -287,20 +296,26 @@ jobs:
               kill -STOP -- "-$pid" 2>/dev/null || true
             fi
 
-            rclone deletefile "$state" >/dev/null 2>&1 || true
+            # Upload the new checkpoint into its own OneDrive directory.
+            # The previous checkpoint remains untouched until the next slot
+            # confirms that this new generation has been downloaded successfully.
             rclone sync "$WORK_ROOT/" "$remote" \
               --exclude "src/out/**" \
               --exclude "src/.cipd/**" \
               --transfers 8 --checkers 8 --fast-list \
               --onedrive-chunk-size 250M --stats=10s --stats-one-line
-            printf '{"revision":"%s","status":"%s","generation":%s,"slot":%s,"run":"%s"}\n' \
-              "$REVISION" "$status" "$generation" "$SLOT" "$GITHUB_RUN_ID" | rclone rcat "$state"
+            printf '{"revision":"%s","status":"%s","generation":%s,"slot":%s,"run":"%s","checkpoint_path":"%s"}\n' \
+              "$REVISION" "$status" "$generation" "$SLOT" "$GITHUB_RUN_ID" "$checkpoint_dir" | rclone rcat "$state"
 
             if [ "$SLOT" -lt 256 ]; then
               echo "Waiting for slot $((SLOT + 1)) to confirm this checkpoint is downloaded..."
               for _ in $(seq 1 720); do
                 if rclone cat "$ack" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null | grep -qx "$generation"; then
                   echo "Slot $((SLOT + 1)) confirmed checkpoint $generation."
+                  if [ -n "$previous_checkpoint" ] && [ "$previous_checkpoint" != "$checkpoint_dir" ]; then
+                    echo "New checkpoint is acknowledged. Deleting previous OneDrive checkpoint: $previous_checkpoint"
+                    rclone purge "onedrive:$CHECKPOINT_ROOT/$previous_checkpoint"
+                  fi
                   if [ -n "$pid" ]; then
                     kill -CONT -- "-$pid" 2>/dev/null || true
                   fi
@@ -344,8 +359,9 @@ jobs:
                 next_checkpoint_kb=$((next_checkpoint_kb + interval_kb))
               elif (( growth_kb >= max_growth_kb )); then
                 echo "The latest 1 GiB checkpoint is already on OneDrive and acknowledged; handing off without re-uploading it."
-                printf '{"revision":"%s","status":"handoff","generation":%s,"slot":%s,"run":"%s"}\n' \
-                  "$REVISION" "$generation" "$SLOT" "$GITHUB_RUN_ID" | rclone rcat "$state"
+                checkpoint_path=$(rclone cat "$state" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("checkpoint_path",""))' 2>/dev/null || true)
+                printf '{"revision":"%s","status":"handoff","generation":%s,"slot":%s,"run":"%s","checkpoint_path":"%s"}\n' \
+                  "$REVISION" "$generation" "$SLOT" "$GITHUB_RUN_ID" "$checkpoint_path" | rclone rcat "$state"
                 kill -TERM -- "-$pid" 2>/dev/null || true
                 sleep 5
                 kill -KILL -- "-$pid" 2>/dev/null || true
