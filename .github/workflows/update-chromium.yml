@@ -179,6 +179,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # GITHUB_PATH applies to later steps, so also export PATH here
+          # before verifying the cached tools in this same step.
+          export PATH="$HOME/.cache/wave-browser/tools/bin:$HOME/.cache/wave-browser/tools/depot_tools:$PATH"
           echo "$HOME/.cache/wave-browser/tools/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cache/wave-browser/tools/depot_tools" >> "$GITHUB_PATH"
           command -v rclone
