@@ -19,6 +19,8 @@ jobs:
   DownloadChromium:
     runs-on: ubuntu-latest
     timeout-minutes: 720
+    env:
+      WORK_ROOT: ${{ runner.temp }}/wave-chromium-source
     steps:
       - name: Install Chromium tools locally
         shell: bash
@@ -91,7 +93,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          WORK_ROOT="$RUNNER_TEMP/wave-chromium-source"
           mkdir -p "$WORK_ROOT"
           rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$WORK_ROOT" \
             --vfs-cache-mode off \
