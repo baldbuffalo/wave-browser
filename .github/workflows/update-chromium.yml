@@ -154,14 +154,18 @@ jobs:
     timeout-minutes: 360
     strategy:
       fail-fast: true
-      max-parallel: 1
+      max-parallel: 2
       matrix:
-        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        # 256 total continuation jobs; only 2 are active at a time.
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256]
     env:
       REVISION: ${{ needs.ResolveRevision.outputs.revision }}
       SLOT: ${{ matrix.slot }}
       WORK_ROOT: ${{ github.workspace }}/../wave-chromium
       CHECKPOINT_ROOT: WaveBrowser/Chromium/staging/${{ needs.ResolveRevision.outputs.revision }}
+      CHECKPOINT_INTERVAL_GIB: "1"
+      MAX_WORK_GIB: "13"
+
     steps:
       - name: Restore cached Chromium tools
         uses: actions/cache/restore@v6.1.0
@@ -191,61 +195,113 @@ jobs:
           printf "%s\n" "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
-      - name: Restore incremental Chromium checkpoint
+      - name: Prepare Chromium workspace
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf "$WORK_ROOT"
           mkdir -p "$WORK_ROOT"
+
+      - name: Prefetch latest checkpoint while predecessor works
+        id: prefetch
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="onedrive:$CHECKPOINT_ROOT/state.json"
           remote="onedrive:$CHECKPOINT_ROOT/tree"
-          ready="onedrive:$CHECKPOINT_ROOT/tree.ready"
-          if [ "$SLOT" -gt 1 ]; then
-            echo "Waiting for the previous Chromium worker to publish its checkpoint..."
-            for _ in $(seq 1 720); do
-              if rclone lsf "$ready" >/dev/null 2>&1; then break; fi
+          ack="onedrive:$CHECKPOINT_ROOT/prefetched-${SLOT}.json"
+          last_generation=0
+
+          if [ "$SLOT" -eq 1 ]; then
+            echo "takeover=true" >> "$GITHUB_OUTPUT"
+            echo "Slot 1 starts the Chromium checkout."
+            exit 0
+          fi
+
+          echo "Slot $SLOT is prefetching the previous slot's checkpoints."
+          while true; do
+            if ! state_json=$(rclone cat "$state" 2>/dev/null); then
               sleep 5
-            done
-          fi
-          if rclone lsf "$ready" >/dev/null 2>&1; then
-            echo "Restoring incremental Chromium checkpoint from OneDrive..."
-            rclone copy "$remote" "$WORK_ROOT" --transfers 8 --checkers 8 --fast-list --stats=10s --stats-one-line
-          else
-            echo "No checkpoint exists; starting fresh."
-          fi
-          find "$WORK_ROOT" -type f -name "*.lock" -delete 2>/dev/null || true
-          if [ ! -f "$WORK_ROOT/.gclient" ] || [ ! -d "$WORK_ROOT/src/.git" ]; then
-            rm -rf "$WORK_ROOT"
-            mkdir -p "$WORK_ROOT"
-          fi
+              continue
+            fi
+
+            status=$(printf '%s' "$state_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status",""))')
+            generation=$(printf '%s' "$state_json" | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))')
+
+            if (( generation > last_generation )); then
+              echo "Checkpoint generation $generation detected; downloading the newest checkpoint..."
+              rclone sync "$remote" "$WORK_ROOT" \
+                --exclude "src/out/**" \
+                --exclude "src/.cipd/**" \
+                --transfers 8 --checkers 8 --fast-list \
+                --onedrive-chunk-size 250M --stats=10s --stats-one-line
+              printf '{"slot":%s,"generation":%s}\n' "$SLOT" "$generation" | rclone rcat "$ack"
+              last_generation="$generation"
+              echo "Checkpoint generation $generation is ready locally."
+            fi
+
+            if [ "$status" = "complete" ]; then
+              echo "Predecessor finished the entire Chromium checkout."
+              echo "takeover=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [ "$status" = "handoff" ]; then
+              echo "Predecessor handed off generation $generation."
+              echo "takeover=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            sleep 5
+          done
 
       - name: Continue Chromium checkout and dependency sync
         id: sync
+        if: steps.prefetch.outputs.takeover == 'true'
         shell: bash
         run: |
           set -euo pipefail
           cd "$WORK_ROOT"
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
-          start_free_kb=$(df -Pk "$WORK_ROOT" | awk "NR==2 {print \$4}")
-          checkpoint_kb=$((3 * 1024 * 1024))
 
-          checkpoint_and_exit() {
-            local pid="$1"
-            echo "3 GiB checkpoint threshold reached; stopping this worker."
-            kill -TERM -- "-$pid" 2>/dev/null || true
-            sleep 5
-            kill -KILL -- "-$pid" 2>/dev/null || true
-            wait "$pid" || true
-            rclone deletefile "onedrive:$CHECKPOINT_ROOT/tree.ready" >/dev/null 2>&1 || true
-            echo "Uploading incremental checkpoint to OneDrive..."
-            rclone sync "$WORK_ROOT/" "onedrive:$CHECKPOINT_ROOT/tree" \
+          start_free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
+          interval_kb=$((1 * 1024 * 1024))
+          max_growth_kb=$((13 * 1024 * 1024))
+          next_checkpoint_kb=$interval_kb
+          generation=0
+          state="onedrive:$CHECKPOINT_ROOT/state.json"
+          remote="onedrive:$CHECKPOINT_ROOT/tree"
+          ack="onedrive:$CHECKPOINT_ROOT/prefetched-$((SLOT + 1)).json"
+
+          publish_checkpoint() {
+            local status="$1"
+            local free_kb growth_kb
+            free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
+            growth_kb=$((start_free_kb - free_kb))
+            generation=$((generation + 1))
+
+            echo "Publishing checkpoint $generation at about $((growth_kb / 1024 / 1024)) GiB growth..."
+            rclone deletefile "$state" >/dev/null 2>&1 || true
+            rclone sync "$WORK_ROOT/" "$remote" \
               --exclude "src/out/**" \
               --exclude "src/.cipd/**" \
               --transfers 8 --checkers 8 --fast-list \
               --onedrive-chunk-size 250M --stats=10s --stats-one-line
-            printf "ready|%s|slot|%s|run|%s\n" "$REVISION" "$SLOT" "$GITHUB_RUN_ID" |
-              rclone rcat "onedrive:$CHECKPOINT_ROOT/tree.ready"
-            echo "Checkpoint published for slot $SLOT."
-            echo "checkpoint=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            printf '{"revision":"%s","status":"%s","generation":%s,"slot":%s,"run":"%s"}\n' \
+              "$REVISION" "$status" "$generation" "$SLOT" "$GITHUB_RUN_ID" | rclone rcat "$state"
+
+            if [ "$SLOT" -lt 256 ]; then
+              echo "Waiting for slot $((SLOT + 1)) to confirm this checkpoint is downloaded..."
+              for _ in $(seq 1 720); do
+                if rclone cat "$ack" 2>/dev/null | python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("generation",0)))' 2>/dev/null | grep -qx "$generation"; then
+                  echo "Slot $((SLOT + 1)) confirmed checkpoint $generation."
+                  return 0
+                fi
+                sleep 5
+              done
+              echo "Next slot did not acknowledge checkpoint $generation within 60 minutes."
+              exit 1
+            fi
           }
 
           run_guarded() {
@@ -253,10 +309,24 @@ jobs:
             setsid bash -c "$command" &
             local pid=$!
             while kill -0 "$pid" 2>/dev/null; do
-              free_kb=$(df -Pk "$WORK_ROOT" | awk "NR==2 {print \$4}")
+              local free_kb growth_kb
+              free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
               growth_kb=$((start_free_kb - free_kb))
-              if (( growth_kb >= checkpoint_kb )); then
-                checkpoint_and_exit "$pid"
+
+              if (( growth_kb >= next_checkpoint_kb )); then
+                publish_checkpoint "checkpoint"
+                next_checkpoint_kb=$((next_checkpoint_kb + interval_kb))
+              fi
+
+              if (( growth_kb >= max_growth_kb )); then
+                echo "Reached the ~13 GiB runner work budget; handing off to the next runner."
+                kill -TERM -- "-$pid" 2>/dev/null || true
+                sleep 5
+                kill -KILL -- "-$pid" 2>/dev/null || true
+                wait "$pid" || true
+                publish_checkpoint "handoff"
+                echo "checkpoint=false" >> "$GITHUB_OUTPUT"
+                return 0
               fi
               sleep 5
             done
@@ -281,7 +351,7 @@ jobs:
           echo "checkpoint=false" >> "$GITHUB_OUTPUT"
 
       - name: Save completed Chromium source for Finalize
-        if: steps.sync.outputs.checkpoint == "false"
+        if: steps.prefetch.outputs.takeover == 'true' && steps.sync.outputs.checkpoint == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -291,6 +361,8 @@ jobs:
           source_partial="$source_archive.partial"
           source_ready="$source_root/source.ready"
           source_manifest="$source_root/source.json"
+          state="onedrive:$CHECKPOINT_ROOT/state.json"
+
           rclone deletefile "$source_ready" >/dev/null 2>&1 || true
           rclone deletefile "$source_partial" >/dev/null 2>&1 || true
           echo "Streaming completed Chromium source to OneDrive..."
@@ -302,9 +374,10 @@ jobs:
           printf "ready\n" | rclone rcat "$source_ready"
           rclone lsf "$source_archive" >/dev/null
           rclone lsf "$source_ready" >/dev/null
+          printf '{"revision":"%s","status":"complete","generation":0,"slot":%s,"run":"%s"}\n' "$REVISION" "$SLOT" "$GITHUB_RUN_ID" | rclone rcat "$state"
 
       - name: Trigger Chromium Finalize workflow
-        if: steps.sync.outputs.checkpoint == "false"
+        if: steps.prefetch.outputs.takeover == 'true' && steps.sync.outputs.checkpoint == 'false'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
