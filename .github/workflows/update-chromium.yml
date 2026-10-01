@@ -326,20 +326,32 @@ jobs:
               free_kb=$(df -Pk "$WORK_ROOT" | awk 'NR==2 {print $4}')
               growth_kb=$((start_free_kb - free_kb))
 
-              if (( growth_kb >= max_growth_kb )); then
-                echo "Reached the ~13 GiB runner work budget; handing off to the next runner."
+              # Checkpoint first. If the 13 GiB boundary is reached, the
+              # normal 1 GiB checkpoint is the handoff checkpoint; do not
+              # upload the same tree a second time just to change its status.
+              if (( growth_kb >= next_checkpoint_kb )); then
+                if (( growth_kb >= max_growth_kb )); then
+                  echo "Reached the ~13 GiB boundary; saving the normal checkpoint as the handoff checkpoint."
+                  kill -TERM -- "-$pid" 2>/dev/null || true
+                  sleep 5
+                  kill -KILL -- "-$pid" 2>/dev/null || true
+                  wait "$pid" || true
+                  publish_checkpoint "handoff"
+                  echo "checkpoint=false" >> "$GITHUB_OUTPUT"
+                  return 0
+                fi
+                publish_checkpoint "checkpoint" "$pid"
+                next_checkpoint_kb=$((next_checkpoint_kb + interval_kb))
+              elif (( growth_kb >= max_growth_kb )); then
+                echo "The latest 1 GiB checkpoint is already on OneDrive and acknowledged; handing off without re-uploading it."
+                printf '{"revision":"%s","status":"handoff","generation":%s,"slot":%s,"run":"%s"}\n' \
+                  "$REVISION" "$generation" "$SLOT" "$GITHUB_RUN_ID" | rclone rcat "$state"
                 kill -TERM -- "-$pid" 2>/dev/null || true
                 sleep 5
                 kill -KILL -- "-$pid" 2>/dev/null || true
                 wait "$pid" || true
-                publish_checkpoint "handoff"
                 echo "checkpoint=false" >> "$GITHUB_OUTPUT"
                 return 0
-              fi
-
-              if (( growth_kb >= next_checkpoint_kb )); then
-                publish_checkpoint "checkpoint" "$pid"
-                next_checkpoint_kb=$((next_checkpoint_kb + interval_kb))
               fi
               sleep 5
             done
