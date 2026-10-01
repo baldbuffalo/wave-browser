@@ -2,6 +2,11 @@ name: Package Chromium for WaveBrowser
 
 on:
   workflow_dispatch:
+    inputs:
+      revision:
+        description: "Chromium revision to resume (leave empty for latest main)"
+        required: false
+        type: string
 
 concurrency:
   group: wave-browser-chromium-packaging
@@ -65,7 +70,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          latest=$(timeout 90s git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+          requested_revision="${{ inputs.revision }}"
+          if [ -n "$requested_revision" ]; then
+            latest="$requested_revision"
+          else
+            latest=$(timeout 90s git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+          fi
           [[ "$latest" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not determine a valid Chromium revision."; exit 1; }
 
           revision_root="onedrive:$WAVE_ONEDRIVE_PATH/$latest"
@@ -120,29 +130,19 @@ jobs:
         if: steps.revision.outputs.skip != 'true'
         env:
           REVISION: ${{ steps.revision.outputs.revision }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           trap 'if [ -f "$RUNNER_TEMP/rclone-mount.pid" ]; then kill "$(cat "$RUNNER_TEMP/rclone-mount.pid")" 2>/dev/null || true; fi; fusermount3 -u "$WORK_ROOT" 2>/dev/null || true' EXIT
 
+          # The actual Chromium operation is limited to 5h30m. When that deadline
+          # is reached, timeout stops the download before the runner hard limit.
+          cat > "$RUNNER_TEMP/chromium-download.sh" <<'DOWNLOAD_SCRIPT'
+          set -euo pipefail
+
           cd "$WORK_ROOT"
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
-
-          # Hand off to a fresh run before the GitHub-hosted runner limit.
-          (
-            sleep 330m
-            touch "$RUNNER_TEMP/chromium-resume-requested"
-            payload=$(python3 -c 'import json,os; print(json.dumps({"event_type":"chromium-resume","client_payload":{"revision":os.environ["REVISION"]}}))')
-            curl -fsSL -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/dispatches" \
-              -d "$payload" >/dev/null
-            echo "Triggered a fresh run to resume Chromium download."
-            kill -TERM "$PPID" 2>/dev/null || true
-          ) &
-          echo $! > "$RUNNER_TEMP/chromium-watchdog.pid"
 
           if [ ! -f .gclient ]; then
             gclient config \
@@ -156,10 +156,14 @@ jobs:
           GIT_WORK_TREE="$WORK_ROOT/src"
           mkdir -p "$GIT_WORK_TREE"
 
-          if [ ! -d "$GIT_DIR" ] || [ ! -f "$GIT_WORK_TREE/.git" ]; then
-            rm -rf "$GIT_DIR"
-            rm -rf "$GIT_WORK_TREE"
-            mkdir -p "$GIT_WORK_TREE"
+          # Git metadata is runner-local, but Chromium files are persistent
+          # on OneDrive. Recreate only metadata on a fresh run; never delete
+          # the existing source tree because that would destroy resume state.
+          if [ -f "$GIT_WORK_TREE/.git" ] && [ ! -d "$GIT_DIR" ]; then
+            rm -f "$GIT_WORK_TREE/.git"
+          fi
+
+          if [ ! -d "$GIT_DIR" ]; then
             git init --separate-git-dir="$GIT_DIR" -b main "$GIT_WORK_TREE"
             git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
           elif ! git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote get-url origin >/dev/null 2>&1; then
@@ -180,7 +184,9 @@ jobs:
             if [ "$attempt" -eq 3 ]; then exit 1; fi
           done
 
-          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" checkout --detach "$REVISION"
+          # Update tracked source files while leaving untracked dependency data
+          # intact so gclient can continue from the persistent OneDrive tree.
+          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" reset --hard "$REVISION"
           gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"
 
           test -d "$WORK_ROOT/src"
@@ -191,6 +197,28 @@ jobs:
             rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
 
           echo "The complete Chromium checkout and dependencies are now stored in OneDrive."
+          DOWNLOAD_SCRIPT
+
+          set +e
+          timeout --foreground --signal=TERM --kill-after=60s 330m \
+            bash "$RUNNER_TEMP/chromium-download.sh"
+          status=$?
+          set -e
+
+          if [ "$status" -eq 124 ] || [ "$status" -eq 143 ] || [ "$status" -eq 137 ]; then
+            echo "5h30m download deadline reached; triggering the same workflow to resume revision $REVISION."
+            payload=$(python3 -c 'import json,os; print(json.dumps({"ref":"main","inputs":{"revision":os.environ["REVISION"]}}))')
+            curl -fsSL -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/update-chromium.yml/dispatches" \
+              -d "$payload" >/dev/null
+            echo "Fresh run queued for the same Chromium revision."
+            exit 0
+          fi
+
+          exit "$status"
 
       - name: Unmount OneDrive source
         if: always() && steps.revision.outputs.skip != 'true'
@@ -202,15 +230,6 @@ jobs:
           fi
           fusermount3 -u "$WORK_ROOT" 2>/dev/null || fusermount -u "$WORK_ROOT" 2>/dev/null || true
 
-      - name: Stop watchdog after successful completion
-        if: always() && steps.revision.outputs.skip != 'true'
-        shell: bash
-        run: |
-          set +e
-          if [ -f "$RUNNER_TEMP/chromium-watchdog.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/chromium-watchdog.pid")" 2>/dev/null || true
-          fi
-
       - name: Trigger Chromium Finalize workflow
         if: steps.revision.outputs.skip != 'true'
         env:
@@ -219,10 +238,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f "$RUNNER_TEMP/chromium-resume-requested" ]; then
-            echo "This run handed off to a fresh run; Finalize will wait for source-ready."
-            exit 0
-          fi
           payload=$(python3 -c 'import json,os; print(json.dumps({"event_type":"chromium-source-ready","client_payload":{"revision":os.environ["REVISION"]}}))')
           curl -fsSL -X POST \
             -H "Accept: application/vnd.github+json" \
