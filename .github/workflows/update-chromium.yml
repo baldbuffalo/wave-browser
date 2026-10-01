@@ -334,7 +334,7 @@ jobs:
           fi
 
       - name: Verify Chromium readiness and continue
-        if: always() && steps.revision.outputs.skip != 'true'
+        if: always() && !cancelled() && steps.revision.outputs.skip != 'true'
         env:
           REVISION: ${{ steps.revision.outputs.revision }}
           GH_TOKEN: ${{ github.token }}
