@@ -174,22 +174,23 @@ jobs:
           # automatic restart visibly resumes from the previous checkpoint.
           previous_progress=0
           previous_files=0
+          previous_total=508491
           if rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" > "$RUNNER_TEMP/progress.json" 2>/dev/null; then
-            read -r previous_progress previous_files < <(python3 - "$RUNNER_TEMP/progress.json" <<'PY'
+            read -r previous_progress previous_files previous_total < <(python3 - "$RUNNER_TEMP/progress.json" <<'PY'
           import json, sys
           try:
               with open(sys.argv[1], encoding="utf-8") as f:
                   data = json.load(f)
-              print(int(data.get("percent", 0)), int(data.get("files", 0)))
+              print(int(data.get("percent", 0)), int(data.get("files", 0)), int(data.get("total", 508491)))
           except (OSError, ValueError, TypeError, json.JSONDecodeError):
-              print("0 0")
+              print("0 0 508491")
           PY
             )
           fi
           if [ "$previous_files" -gt 0 ]; then
-            echo "Resuming Chromium from previous persisted progress: ${previous_progress}% (${previous_files}/508491 files)."
+            echo "Resuming Chromium from previous persisted progress: ${previous_progress}% (${previous_files}/${previous_total} files)."
           else
-            echo "No previous persisted Chromium progress found; starting from 0%."
+            echo "No previous Chromium progress checkpoint found; starting from 0% (0/508491 files)."
           fi
 
           update_status "running"
@@ -279,6 +280,7 @@ jobs:
                 if [ "$files" -gt "$previous_files" ]; then
                   previous_progress="$percent"
                   previous_files="$files"
+                  previous_total="$total"
                   printf '{"revision":"%s","status":"progress","percent":%s,"files":%s,"total":%s,"updated_at":"%s"}\n' "$REVISION" "$percent" "$files" "$total" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
                     rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
                 fi
