@@ -249,16 +249,18 @@ jobs:
           set +e
 
           # GitHub documents 14 GB of SSD storage for ubuntu-latest.
-          # Use an explicit 13.95 GB total local-usage ceiling, leaving about
-          # 50 MB below the documented 14 GB runner allocation.
-          # This is deliberately independent of df's reported filesystem size:
-          # the hosted runner image must be treated as the documented 14 GB
-          # allocation, not as the larger underlying filesystem size that df
-          # may expose inside the VM/container.
-          DISK_LIMIT_BYTES=13950000000
+          # Measure the runner's actual starting usage and allow the Chromium
+          # job to consume up to 13.95 GB MORE than that baseline. The runner
+          # image already occupies part of the 14 GB allocation, so using
+          # 13.95 GB as an absolute df threshold would stop immediately.
+          DISK_ALLOWED_BYTES=13950000000
           DISK_MONITOR_INTERVAL=1
-          echo "Runner disk safety limit: 13.95 GB"
-          echo "Download will stop when local runner usage reaches 13.95 GB."
+          DISK_BASELINE_BYTES=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
+          [[ "$DISK_BASELINE_BYTES" =~ ^[0-9]+$ ]] || { echo "Could not determine initial runner disk usage."; exit 1; }
+          DISK_LIMIT_BYTES=$((DISK_BASELINE_BYTES + DISK_ALLOWED_BYTES))
+          echo "Runner initial disk usage: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1000**3):.2f}")' "$DISK_BASELINE_BYTES") GB"
+          echo "Additional local disk allowed for Chromium: 13.95 GB"
+          echo "Chromium download will stop at: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1000**3):.2f}")' "$DISK_LIMIT_BYTES") GB total usage."
 
           # Report the amount persisted to OneDrive only when the 13.95 GB
           # local-disk safety limit is reached.
@@ -284,7 +286,7 @@ jobs:
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
               used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
               if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
-                echo "Local runner disk usage reached the safe limit; 1 GiB remains free. Stopping Chromium download to protect the runner."
+                echo "Chromium job consumed its 13.95 GB local-disk allowance. Stopping Chromium download to protect the runner."
                 echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
                 kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
                 return
