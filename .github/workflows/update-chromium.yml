@@ -236,16 +236,39 @@ jobs:
             fi
           done
 
-          # Update tracked source files while leaving untracked dependency data
-          # intact so gclient can continue from the persistent OneDrive tree.
-          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" reset --hard "$REVISION"
+          # Move the persistent Chromium checkout to the locked revision only
+          # when necessary. IMPORTANT: never run "git reset --hard" on every
+          # restart. A hard reset forces Git to walk/rewrite the entire Chromium
+          # working tree again, which makes an interrupted run look like a fresh
+          # 0% checkout. The .git directory AND working tree live on OneDrive,
+          # so a restart must keep the existing checkout exactly where it was.
+          current_head=""
+          if current_head=$(git --git-dir="$GIT_WORK_TREE/.git" rev-parse HEAD 2>/dev/null); then
+            :
+          fi
+
+          if [ "$current_head" != "$REVISION" ]; then
+            echo "Persistent checkout is not yet at $REVISION; checking out the locked revision."
+            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" checkout -f "$REVISION"
+          else
+            echo "Persistent checkout is already at $REVISION; preserving its current working-tree state."
+          fi
+
+          # Persist a real stage marker. The actual files, Git index, Git
+          # objects, and gclient cache remain on OneDrive and are reused by
+          # every subsequent run.
+          printf '{"revision":"%s","status":"checkout-ready","updated_at":"%s"}\n' \
+            "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+            rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/checkout.ready.json"
+
           update_status "syncing-dependencies"
-          # gclient sync is intentionally restartable: if the 5h30m deadline
-          # interrupts it, the next run invokes gclient sync again and
-          # reconciles the existing OneDrive files instead of starting over.
-          # Capture its file-update counter and persist the latest checkpoint
-          # to OneDrive about once per percentage point. This is only progress
-          # metadata; the actual Chromium files remain in the persistent source tree.
+          # gclient sync is restartable against the SAME persistent checkout.
+          # We never delete the source tree, .git data, .gclient cache, or
+          # dependency repositories between runs. If a run is interrupted while
+          # gclient is updating files, the next run reconciles the existing
+          # state instead of resetting Chromium back to a fresh checkout.
+          # progress.json is informational only; it is NOT used as a fake
+          # resume point.
           set +e
           # gclient renders its progress with carriage returns (\r), not normal
           # newline-delimited output. Give it a pseudo-terminal and normalize
