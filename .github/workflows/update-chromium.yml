@@ -122,6 +122,26 @@ jobs:
             echo "Chromium download amount already in OneDrive: unavailable."
           fi
 
+      - name: Report existing Chromium size in OneDrive
+        if: steps.revision.outputs.skip != 'true'
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source"
+          size_bytes=$(rclone size "$source_path" --json 2>/dev/null |
+            python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("bytes",0)))' 2>/dev/null || true)
+          if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
+            size_gib=$(python3 - "$size_bytes" <<'PY'
+          import sys
+          print(f"{int(sys.argv[1]) / (1024**3):.2f}")
+          PY
+            )
+            echo "Chromium download amount already in OneDrive: ${size_gib} GiB."
+          else
+            echo "Chromium download amount already in OneDrive: unavailable."
+          fi
       - name: Mount the Chromium source directory on OneDrive
         if: steps.revision.outputs.skip != 'true'
         env:
