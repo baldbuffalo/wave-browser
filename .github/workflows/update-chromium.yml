@@ -170,6 +170,28 @@ jobs:
             fi
           }
 
+          # Restore the last known file-update progress from OneDrive so each
+          # automatic restart visibly resumes from the previous checkpoint.
+          previous_progress=0
+          previous_files=0
+          if rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" > "$RUNNER_TEMP/progress.json" 2>/dev/null; then
+            read -r previous_progress previous_files < <(python3 - "$RUNNER_TEMP/progress.json" <<'PY'
+          import json, sys
+          try:
+              with open(sys.argv[1], encoding="utf-8") as f:
+                  data = json.load(f)
+              print(int(data.get("percent", 0)), int(data.get("files", 0)))
+          except (OSError, ValueError, TypeError, json.JSONDecodeError):
+              print("0 0")
+          PY
+            )
+          fi
+          if [ "$previous_files" -gt 0 ]; then
+            echo "Resuming Chromium from previous persisted progress: ${previous_progress}% (${previous_files}/508491 files)."
+          else
+            echo "No previous file-progress checkpoint found; starting the first visible progress checkpoint."
+          fi
+
           update_status "running"
 
           if [ ! -f .gclient ]; then
@@ -216,7 +238,30 @@ jobs:
           # gclient sync is intentionally restartable: if the 5h30m deadline
           # interrupts it, the next run invokes gclient sync again and
           # reconciles the existing OneDrive files instead of starting over.
-          gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"
+          # Capture its file-update counter and persist the latest checkpoint
+          # to OneDrive about once per percentage point. This is only progress
+          # metadata; the actual Chromium files remain in the persistent source tree.
+          set +e
+          gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION" 2>&1 |
+            while IFS= read -r line; do
+              echo "$line"
+              if [[ "$line" =~ Updating[[:space:]]files:[[:space:]]+([0-9]+)%[[:space:]]+(([0-9]+)/([0-9]+)) ]]; then
+                percent="${BASH_REMATCH[1]}"
+                files="${BASH_REMATCH[2]}"
+                total="${BASH_REMATCH[3]}"
+                if [ "$files" -gt "$previous_files" ] && [ "$percent" -gt "$previous_progress" ]; then
+                  previous_progress="$percent"
+                  previous_files="$files"
+                  printf '{"revision":"%s","status":"progress","percent":%s,"files":%s,"total":%s,"updated_at":"%s"}\n'                     "$REVISION" "$percent" "$files" "$total" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+                    rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
+                fi
+              fi
+            done
+          sync_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$sync_status" -ne 0 ]; then
+            exit "$sync_status"
+          fi
 
           test -d "$WORK_ROOT/src"
           test -f "$WORK_ROOT/.gclient"
