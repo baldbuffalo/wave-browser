@@ -248,12 +248,18 @@ jobs:
 
           set +e
 
-          # Keep the original 13 GiB total-used safety guard. The runner is
-          # only about 14 GiB, so this prevents the job from filling it.
-          # The important fix is that rclone's VFS cache is now bounded to 1 GiB
-          # instead of being allowed to consume the runner's disk rapidly.
-          DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
+          # Keep a 13 GiB runner-usage ceiling, but calculate it from the
+          # actual filesystem size instead of assuming the runner starts empty.
+          # GitHub-hosted runners already contain several GiB of system/tooling
+          # data, so comparing total usage directly to 13 GiB can stop immediately.
+          # Leave 1 GiB free as a safety margin.
+          DISK_SAFETY_FREE_BYTES=$((1 * 1024 * 1024 * 1024))
           DISK_MONITOR_INTERVAL=1
+          DISK_TOTAL_BYTES=$(df -B1 --output=size "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
+          [[ "$DISK_TOTAL_BYTES" =~ ^[0-9]+$ ]] || { echo "Could not determine runner disk size."; exit 1; }
+          DISK_LIMIT_BYTES=$((DISK_TOTAL_BYTES - DISK_SAFETY_FREE_BYTES))
+          echo "Runner filesystem size: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1024**3):.2f}")' "$DISK_TOTAL_BYTES") GiB"
+          echo "Download will stop when runner usage reaches: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1024**3):.2f}")' "$DISK_LIMIT_BYTES") GiB (1 GiB free safety margin)."
 
           # Report the amount persisted to OneDrive only when the 13 GiB
           # local-disk safety limit is reached.
@@ -279,7 +285,7 @@ jobs:
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
               used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
               if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
-                echo "Local runner disk usage reached 13 GiB; stopping Chromium download to protect the runner."
+                echo "Local runner disk usage reached the safe limit; 1 GiB remains free. Stopping Chromium download to protect the runner."
                 echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
                 kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
                 return
@@ -314,7 +320,7 @@ jobs:
             printf '{"revision":"%s","status":"handoff","updated_at":"%s","next_run":true}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
               rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json" || true
             if [ -f "$RUNNER_TEMP/disk-handoff" ]; then
-              echo "Local disk reached 13 GiB; readiness step will verify after cleanup."
+              echo "Local disk reached the safe limit; readiness step will verify after cleanup."
             else
               echo "5h30m download deadline reached; readiness step will verify after cleanup."
             fi
