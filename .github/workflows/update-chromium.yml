@@ -117,7 +117,7 @@ jobs:
           rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$WORK_ROOT" \
             --vfs-cache-mode writes \
             --cache-dir "$RUNNER_TEMP/rclone-vfs-cache" \
-            --vfs-cache-max-size 2G \
+            --vfs-cache-max-size 1G \
             --vfs-cache-max-age 10m \
             --vfs-write-back 5s \
             --dir-cache-time 10s \
@@ -179,31 +179,25 @@ jobs:
               "$CHROMIUM_URL"
           fi
 
-          GIT_DIR="$RUNNER_TEMP/chromium-git"
           GIT_WORK_TREE="$WORK_ROOT/src"
           mkdir -p "$GIT_WORK_TREE"
 
-          # Git metadata is runner-local, but Chromium files are persistent
-          # on OneDrive. Recreate only metadata on a fresh run; never delete
-          # the existing source tree because that would destroy resume state.
-          if [ -f "$GIT_WORK_TREE/.git" ] && [ ! -d "$GIT_DIR" ]; then
-            rm -f "$GIT_WORK_TREE/.git"
+          # Keep Chromium's Git repository itself on the persistent OneDrive
+          # mount. This prevents the huge Chromium Git object database from
+          # filling the runner's local SSD before data reaches OneDrive.
+          if [ ! -e "$GIT_WORK_TREE/.git" ]; then
+            git init -b main "$GIT_WORK_TREE"
+            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
+          elif ! git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote get-url origin >/dev/null 2>&1; then
+            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
           fi
 
-          if [ ! -d "$GIT_DIR" ]; then
-            git init --separate-git-dir="$GIT_DIR" -b main "$GIT_WORK_TREE"
-            git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
-          elif ! git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote get-url origin >/dev/null 2>&1; then
-            git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
-          fi
-
-          cd "$RUNNER_TEMP"
-          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.version HTTP/1.1
-          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.lowSpeedLimit 0
-          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" config http.lowSpeedTime 999999
+          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.version HTTP/1.1
+          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.lowSpeedLimit 0
+          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.lowSpeedTime 999999
 
           for attempt in 1 2 3 4 5; do
-            if git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" fetch --no-tags --depth=1 origin "$REVISION"; then
+            if git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" fetch --no-tags --depth=1 origin "$REVISION"; then
               break
             fi
             echo "Chromium source fetch attempt $attempt failed; retrying..."
@@ -216,11 +210,11 @@ jobs:
 
           # Update tracked source files while leaving untracked dependency data
           # intact so gclient can continue from the persistent OneDrive tree.
-          git --git-dir="$GIT_DIR" --work-tree="$GIT_WORK_TREE" reset --hard "$REVISION"
+          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" reset --hard "$REVISION"
           update_status "syncing-dependencies"
           # gclient sync is intentionally restartable: if the 5h30m deadline
-          # interrupts it, the next run simply invokes gclient sync again and
-          # reconciles the existing files instead of starting from scratch.
+          # interrupts it, the next run invokes gclient sync again and
+          # reconciles the existing OneDrive files instead of starting over.
           gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"
 
           test -d "$WORK_ROOT/src"
@@ -238,7 +232,7 @@ jobs:
 
           # Keep the original 13 GiB total-used safety guard. The runner is
           # only about 14 GiB, so this prevents the job from filling it.
-          # The important fix is that rclone's VFS cache is now bounded to 2 GiB
+          # The important fix is that rclone's VFS cache is now bounded to 1 GiB
           # instead of being allowed to consume the runner's disk rapidly.
           DISK_LIMIT_BYTES=$((13 * 1024 * 1024 * 1024))
           DISK_MONITOR_INTERVAL=1
