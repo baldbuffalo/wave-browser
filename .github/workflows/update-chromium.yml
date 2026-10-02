@@ -247,7 +247,12 @@ jobs:
           # to OneDrive about once per percentage point. This is only progress
           # metadata; the actual Chromium files remain in the persistent source tree.
           set +e
-          gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION" 2>&1 |
+          # gclient renders its progress with carriage returns (\r), not normal
+          # newline-delimited output. Give it a pseudo-terminal and normalize
+          # those progress updates so they appear live in the Actions log instead
+          # of waiting for a newline and looking stuck.
+          script -q -e -c 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"' /dev/null 2>&1 |
+            stdbuf -o0 tr '\r' '\n' |
             while IFS= read -r line; do
               echo "$line"
               if [[ "$line" =~ Updating[[:space:]]files:[[:space:]]+([0-9]+)%[[:space:]]+([0-9]+)/([0-9]+) ]]; then
