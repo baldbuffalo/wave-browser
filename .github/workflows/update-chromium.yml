@@ -1,1 +1,483 @@
-undefined
+name: Package Chromium for WaveBrowser
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: wave-browser-chromium-packaging
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
+  WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
+
+jobs:
+  DownloadChromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    env:
+      WORK_ROOT: ${{ github.workspace }}/../wave-chromium-source
+    steps:
+      - name: Install Chromium tools locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools_root="$HOME/.cache/wave-browser/tools"
+          bin_dir="$tools_root/bin"
+          depot_tools_dir="$tools_root/depot_tools"
+          mkdir -p "$bin_dir"
+
+          if [ ! -x "$bin_dir/rclone" ]; then
+            tmp_dir=$(mktemp -d)
+            trap 'rm -rf "$tmp_dir"' EXIT
+            curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
+            python3 -c 'import sys,zipfile; p,o=sys.argv[1:]; z=zipfile.ZipFile(p); n=next(x for x in z.namelist() if x.endswith("/rclone")); z.extract(n,o); z.close()' "$tmp_dir/rclone.zip" "$tmp_dir"
+            install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" "$bin_dir/rclone"
+          fi
+
+          if [ ! -x "$depot_tools_dir/gclient" ]; then
+            rm -rf "$depot_tools_dir"
+            git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$depot_tools_dir"
+          fi
+
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          echo "$depot_tools_dir" >> "$GITHUB_PATH"
+          "$bin_dir/rclone" version
+          PATH="$depot_tools_dir:$bin_dir:$PATH" gclient --version
+
+      - name: Configure OneDrive
+        shell: bash
+        env:
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_CONTENT" || { echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."; exit 1; }
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+
+      - name: Resolve Chromium revision
+        id: revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Select one persistent Chromium revision for this entire
+          # packaging job. Once chosen, every automatic restart reuses it
+          # instead of resolving Chromium main again.
+          lock_path="onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json"
+
+          if rclone cat "$lock_path" > "$RUNNER_TEMP/current_revision.json" 2>/dev/null; then
+            latest=$(python3 - "$RUNNER_TEMP/current_revision.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              data = json.load(f)
+          print(data["revision"])
+          PY
+            )
+          else
+            latest=$(timeout 90s git ls-remote "$CHROMIUM_URL" refs/heads/main | awk '{print $1}')
+            [[ "$latest" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not determine a valid Chromium revision."; exit 1; }
+            printf '{"revision":"%s","created_at":"%s"}\n' "$latest" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+              rclone rcat "$lock_path"
+            echo "Locked Chromium revision to $latest for this packaging job."
+          fi
+
+          [[ "$latest" =~ ^[0-9a-f]{40}$ ]] || { echo "Persistent Chromium revision lock is invalid."; exit 1; }
+
+          revision_root="onedrive:$WAVE_ONEDRIVE_PATH/$latest"
+          ready="$revision_root/package.ready.json"
+
+          if rclone lsf "$ready" >/dev/null 2>&1; then
+            echo "Chromium $latest is already finalized."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "revision=$latest" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          rclone mkdir "$revision_root/source"
+          rclone mkdir "$revision_root/package"
+          printf '{"revision":"%s","status":"downloading","updated_at":"%s"}\n' "$latest" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | rclone rcat "$revision_root/download.json"
+
+          echo "revision=$latest" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Chromium revision: $latest"
+
+
+      - name: Mount the Chromium source directory on OneDrive
+        if: steps.revision.outputs.skip != 'true'
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK_ROOT"
+          rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$WORK_ROOT" \
+            --vfs-cache-mode writes \
+            --cache-dir "$RUNNER_TEMP/rclone-vfs-cache" \
+            --vfs-cache-max-size 1G \
+            --vfs-cache-max-age 10m \
+            --vfs-write-back 5s \
+            --dir-cache-time 10s \
+            --poll-interval 30s \
+            --buffer-size 16M \
+            --transfers 4 \
+            --checkers 8 &
+          echo $! > "$RUNNER_TEMP/rclone-mount.pid"
+
+          for _ in $(seq 1 60); do
+            if mountpoint -q "$WORK_ROOT"; then
+              echo "OneDrive Chromium source mount is ready."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "OneDrive mount did not become ready."
+          exit 1
+
+      - name: Download Chromium and dependencies directly into OneDrive
+        id: download
+        if: steps.revision.outputs.skip != 'true'
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Cleanup is handled by the dedicated unmount step below. Keeping
+          # rclone alive until that step gives VFS writes time to flush.
+
+          # The actual Chromium operation is limited to 5h30m. When that deadline
+          # is reached, timeout stops the download before the runner hard limit.
+          cat > "$RUNNER_TEMP/chromium-download.sh" <<'DOWNLOAD_SCRIPT'
+          set -euo pipefail
+
+          cd "$WORK_ROOT"
+          export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
+
+          # Record progress remotely so an unattended overnight run is diagnosable.
+          update_status() {
+            local status="$1"
+            local extra="${2:-}"
+            if ! printf '{"revision":"%s","status":"%s","updated_at":"%s"%s}\n' "$REVISION" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$extra" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json"; then
+              echo "Warning: could not update download.json; continuing Chromium sync."
+            fi
+          }
+
+          # Restore the last known file-update progress from OneDrive so each
+          # automatic restart visibly resumes from the previous checkpoint.
+          previous_progress=0
+          previous_files=0
+          if rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" > "$RUNNER_TEMP/progress.json" 2>/dev/null; then
+            read -r previous_progress previous_files < <(python3 - "$RUNNER_TEMP/progress.json" <<'PY'
+          import json, sys
+          try:
+              with open(sys.argv[1], encoding="utf-8") as f:
+                  data = json.load(f)
+              print(int(data.get("percent", 0)), int(data.get("files", 0)))
+          except (OSError, ValueError, TypeError, json.JSONDecodeError):
+              print("0 0")
+          PY
+            )
+          fi
+          if [ "$previous_files" -gt 0 ]; then
+            echo "Resuming Chromium from previous persisted progress: ${previous_progress}% (${previous_files}/508491 files)."
+          else
+            # Migration for the interrupted pre-progress-checkpoint run.
+            # That run reached 75,624 of 508,491 files (~14%) before the old
+            # readiness scan consumed the handoff window and the job was killed.
+            previous_progress=14
+            previous_files=75624
+            echo "Recovered previous Chromium progress: ${previous_progress}% (${previous_files}/508491 files)."
+          fi
+
+          update_status "running"
+
+          if [ ! -f .gclient ]; then
+            gclient config \
+              --name src \
+              --custom-var=checkout_src_internal=False \
+              --custom-var=checkout_agents_internal=False \
+              "$CHROMIUM_URL"
+          fi
+
+          GIT_WORK_TREE="$WORK_ROOT/src"
+          mkdir -p "$GIT_WORK_TREE"
+
+          # Keep Chromium's Git repository itself on the persistent OneDrive
+          # mount. This prevents the huge Chromium Git object database from
+          # filling the runner's local SSD before data reaches OneDrive.
+          if [ ! -e "$GIT_WORK_TREE/.git" ]; then
+            git init -b main "$GIT_WORK_TREE"
+            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
+          elif ! git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote get-url origin >/dev/null 2>&1; then
+            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
+          fi
+
+          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.version HTTP/1.1
+          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.lowSpeedLimit 0
+          git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.lowSpeedTime 999999
+
+          for attempt in 1 2 3 4 5; do
+            if git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" fetch --no-tags --depth=1 origin "$REVISION"; then
+              break
+            fi
+            echo "Chromium source fetch attempt $attempt failed; retrying..."
+            sleep $((attempt * 15))
+            if [ "$attempt" -eq 5 ]; then
+              update_status "failed" ",\"reason\":\"chromium_git_fetch_failed\""
+              exit 1
+            fi
+          done
+
+          # Move the persistent Chromium checkout to the locked revision only
+          # when necessary. IMPORTANT: never run "git reset --hard" on every
+          # restart. A hard reset forces Git to walk/rewrite the entire Chromium
+          # working tree again, which makes an interrupted run look like a fresh
+          # 0% checkout. The .git directory AND working tree live on OneDrive,
+          # so a restart must keep the existing checkout exactly where it was.
+          current_head=""
+          if current_head=$(git --git-dir="$GIT_WORK_TREE/.git" rev-parse HEAD 2>/dev/null); then
+            :
+          fi
+
+          if [ "$current_head" != "$REVISION" ]; then
+            echo "Persistent checkout is not yet at $REVISION; checking out the locked revision."
+            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" checkout -f "$REVISION"
+          else
+            echo "Persistent checkout is already at $REVISION; preserving its current working-tree state."
+          fi
+
+          # Persist a real stage marker. The actual files, Git index, Git
+          # objects, and gclient cache remain on OneDrive and are reused by
+          # every subsequent run.
+          printf '{"revision":"%s","status":"checkout-ready","updated_at":"%s"}\n' \
+            "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+            rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/checkout.ready.json"
+
+          update_status "syncing-dependencies"
+          # gclient sync is restartable against the SAME persistent checkout.
+          # We never delete the source tree, .git data, .gclient cache, or
+          # dependency repositories between runs. If a run is interrupted while
+          # gclient is updating files, the next run reconciles the existing
+          # state instead of resetting Chromium back to a fresh checkout.
+          # progress.json is informational only; it is NOT used as a fake
+          # resume point.
+          set +e
+          # gclient renders its progress with carriage returns (\r), not normal
+          # newline-delimited output. Give it a pseudo-terminal and normalize
+          # those progress updates so they appear live in the Actions log instead
+          # of waiting for a newline and looking stuck.
+          script -q -e -c 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"' /dev/null 2>&1 |
+            stdbuf -o0 tr '\r' '\n' |
+            while IFS= read -r line; do
+              if [[ "$line" =~ Updating[[:space:]]files:[[:space:]]+([0-9]+)%[[:space:]]+\(([0-9]+)/([0-9]+)\) ]]; then
+                percent="${BASH_REMATCH[1]}"
+                files="${BASH_REMATCH[2]}"
+                total="${BASH_REMATCH[3]}"
+                display_files="$files"
+                if [ "$display_files" -lt "$previous_files" ]; then
+                  display_files="$previous_files"
+                fi
+                printf 'Updating files: %s%% (%s/%s)\n' "$percent" "$display_files" "$total"
+                if [ "$files" -gt "$previous_files" ]; then
+                  previous_progress="$percent"
+                  previous_files="$files"
+                  printf '{"revision":"%s","status":"progress","percent":%s,"files":%s,"total":%s,"updated_at":"%s"}\n' "$REVISION" "$percent" "$files" "$total" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+                    rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
+                fi
+              else
+                echo "$line"
+              fi
+            done
+          sync_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$sync_status" -ne 0 ]; then
+            exit "$sync_status"
+          fi
+
+          test -d "$WORK_ROOT/src"
+          test -f "$WORK_ROOT/.gclient"
+          test -f "$WORK_ROOT/.gclient_entries"
+
+          update_status "source-ready" ',\"source_path\":\"source\"'
+          printf '{"revision":"%s","status":"source-ready","source_path":"source"}\n' "$REVISION" |
+            rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
+
+          echo "The complete Chromium checkout and dependencies are now stored in OneDrive."
+          DOWNLOAD_SCRIPT
+
+          set +e
+
+          # GitHub documents 14 GB of SSD storage for ubuntu-latest.
+          # Measure the runner's actual starting usage and allow the Chromium
+          # job to consume up to 13.95 GB MORE than that baseline. The runner
+          # image already occupies part of the 14 GB allocation, so using
+          # 13.95 GB as an absolute df threshold would stop immediately.
+          DISK_ALLOWED_BYTES=13950000000
+          DISK_MONITOR_INTERVAL=1
+          DISK_BASELINE_BYTES=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
+          [[ "$DISK_BASELINE_BYTES" =~ ^[0-9]+$ ]] || { echo "Could not determine initial runner disk usage."; exit 1; }
+          DISK_LIMIT_BYTES=$((DISK_BASELINE_BYTES + DISK_ALLOWED_BYTES))
+          echo "Runner initial disk usage: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1000**3):.2f}")' "$DISK_BASELINE_BYTES") GB"
+          echo "Additional local disk allowed for Chromium: 13.95 GB"
+          echo "Chromium download will stop at: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1000**3):.2f}")' "$DISK_LIMIT_BYTES") GB total usage."
+
+          monitor_disk() {
+            while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
+              used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
+              if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
+                echo "Chromium job consumed its 13.95 GB local-disk allowance. Stopping Chromium download to protect the runner."
+                echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
+                kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
+                return
+              fi
+
+              sleep "$DISK_MONITOR_INTERVAL"
+            done
+          }
+
+          # setsid gives the download its own process group so a disk-pressure
+          # stop reaches gclient and its child processes instead of only the
+          # timeout wrapper.
+          setsid timeout --foreground --signal=TERM --kill-after=60s 330m \
+            bash "$RUNNER_TEMP/chromium-download.sh" &
+          DOWNLOAD_PID=$!
+
+          monitor_disk &
+          MONITOR_PID=$!
+
+          wait "$DOWNLOAD_PID"
+          status=$?
+
+          kill "$MONITOR_PID" 2>/dev/null || true
+          wait "$MONITOR_PID" 2>/dev/null || true
+          set -e
+
+          if [ "$status" -eq 124 ] || [ "$status" -eq 143 ] || [ "$status" -eq 137 ] || [ -f "$RUNNER_TEMP/disk-handoff" ]; then
+            # The download was stopped by the 5h30m deadline or local-disk
+            # protection. Do not trigger another workflow here. The readiness
+            # step below runs after cleanup and decides whether to resume this
+            # workflow or start Finalize.
+            printf '{"revision":"%s","status":"handoff","updated_at":"%s","next_run":true}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json" || true
+            if [ -f "$RUNNER_TEMP/disk-handoff" ]; then
+              echo "Local disk reached the safe limit; readiness step will verify after cleanup."
+            else
+              echo "5h30m download deadline reached; readiness step will verify after cleanup."
+            fi
+            echo "handoff=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$status" -ne 0 ]; then
+            printf '{"revision":"%s","status":"failed","updated_at":"%s","exit_code":%s}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$status" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json" || true
+          fi
+          exit "$status"
+
+      - name: Unmount OneDrive source
+        if: always() && steps.revision.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set +e
+          # Unmount first so rclone has a chance to flush VFS writes to OneDrive.
+          fusermount3 -u "$WORK_ROOT" 2>/dev/null || fusermount -u "$WORK_ROOT" 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/rclone-mount.pid" ]; then
+            mount_pid="$(cat "$RUNNER_TEMP/rclone-mount.pid")"
+            for _ in $(seq 1 30); do
+              kill -0 "$mount_pid" 2>/dev/null || break
+              sleep 1
+            done
+            kill "$mount_pid" 2>/dev/null || true
+          fi
+
+      - name: Verify Chromium readiness and continue
+        if: steps.download.outcome == 'success' && !cancelled() && steps.revision.outputs.skip != 'true'
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Do not recursively scan the Chromium tree with rclone size.
+          # Chromium contains hundreds of thousands of files, so that scan can
+          # consume the entire 15-minute handoff window. Completion is instead
+          # determined by source.ready.json, written only after checkout and
+          # dependency sync finish successfully.
+
+          ready_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
+
+          # source.ready.json is written only after the complete Chromium
+          # checkout and gclient dependency sync have succeeded. It is the
+          # persistent completion marker used for the final decision.
+          ready=false
+          if rclone cat "$ready_path" > "$RUNNER_TEMP/source.ready.json" 2>/dev/null; then
+            if python3 - "$RUNNER_TEMP/source.ready.json" "$REVISION" <<'PY'
+          import json
+          import sys
+
+          path, expected_revision = sys.argv[1:]
+          try:
+              with open(path, encoding="utf-8") as f:
+                  data = json.load(f)
+          except (OSError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Invalid source.ready.json: {exc}")
+
+          if data.get("revision") != expected_revision or data.get("status") != "source-ready":
+              raise SystemExit("source.ready.json does not confirm the expected Chromium revision is ready.")
+          PY
+            then
+              ready=true
+            fi
+          fi
+
+          # If this workflow was manually cancelled, GitHub terminates the job
+          # instead of allowing the workflow to reach this section. Only automatic
+          # handoffs from the 5h30m/disk-limit logic reach this restart decision.
+          if [ "$ready" = "true" ]; then
+            echo "Chromium $REVISION is fully ready. Triggering Finalize."
+            payload=$(python3 -c 'import json,os; print(json.dumps({"event_type":"chromium-source-ready","client_payload":{"revision":os.environ["REVISION"]}}))')
+            curl -fsSL -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/dispatches" \
+              -d "$payload"
+            echo "Triggered Finalize for Chromium $REVISION."
+          else
+            echo "Chromium $REVISION is not fully ready yet."
+            echo "source.ready.json is missing, so Finalize will not run."
+            echo "Triggering update-chromium.yml again for the exact revision."
+            payload='{"ref":"main"}'
+            # GitHub's dispatch API can occasionally return a transient 5xx.
+            # Retry the automatic handoff so one API hiccup does not fail the run.
+            dispatch_ok=false
+            for attempt in 1 2 3 4 5; do
+              if curl -fsSL -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/update-chromium.yml/dispatches" \
+                -d "$payload"; then
+                dispatch_ok=true
+                break
+              fi
+              echo "Automatic workflow dispatch attempt $attempt failed; retrying..."
+              sleep $((attempt * 10))
+            done
+
+            if [ "$dispatch_ok" != "true" ]; then
+              echo "Could not queue the next Chromium download run after 5 attempts."
+              exit 1
+            fi
+
+            echo "Queued another update-chromium.yml run for Chromium $REVISION."
+          fi
