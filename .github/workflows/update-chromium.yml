@@ -248,20 +248,19 @@ jobs:
 
           set +e
 
-          # Keep a 13 GiB runner-usage ceiling, but calculate it from the
-          # actual filesystem size instead of assuming the runner starts empty.
-          # GitHub-hosted runners already contain several GiB of system/tooling
-          # data, so comparing total usage directly to 13 GiB can stop immediately.
-          # Leave 1 GiB free as a safety margin.
-          DISK_SAFETY_FREE_BYTES=$((1 * 1024 * 1024 * 1024))
+          # GitHub documents 14 GB of SSD storage for ubuntu-latest.
+          # Use an explicit 13.95 GB total local-usage ceiling, leaving about
+          # 50 MB below the documented 14 GB runner allocation.
+          # This is deliberately independent of df's reported filesystem size:
+          # the hosted runner image must be treated as the documented 14 GB
+          # allocation, not as the larger underlying filesystem size that df
+          # may expose inside the VM/container.
+          DISK_LIMIT_BYTES=13950000000
           DISK_MONITOR_INTERVAL=1
-          DISK_TOTAL_BYTES=$(df -B1 --output=size "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
-          [[ "$DISK_TOTAL_BYTES" =~ ^[0-9]+$ ]] || { echo "Could not determine runner disk size."; exit 1; }
-          DISK_LIMIT_BYTES=$((DISK_TOTAL_BYTES - DISK_SAFETY_FREE_BYTES))
-          echo "Runner filesystem size: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1024**3):.2f}")' "$DISK_TOTAL_BYTES") GiB"
-          echo "Download will stop when runner usage reaches: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1024**3):.2f}")' "$DISK_LIMIT_BYTES") GiB (1 GiB free safety margin)."
+          echo "Runner disk safety limit: 13.95 GB"
+          echo "Download will stop when local runner usage reaches 13.95 GB."
 
-          # Report the amount persisted to OneDrive only when the 13 GiB
+          # Report the amount persisted to OneDrive only when the 13.95 GB
           # local-disk safety limit is reached.
           report_remote_progress() {
             local size_bytes
@@ -351,7 +350,7 @@ jobs:
           fi
 
       - name: Verify Chromium readiness and continue
-        if: always() && !cancelled() && steps.revision.outputs.skip != 'true'
+        if: steps.download.outcome == 'success' && !cancelled() && steps.revision.outputs.skip != 'true'
         env:
           REVISION: ${{ steps.revision.outputs.revision }}
           GH_TOKEN: ${{ github.token }}
@@ -378,7 +377,7 @@ jobs:
               )
               echo "Chromium download amount: ${size_gib} GiB downloaded to OneDrive."
               printf '{"revision":"%s","status":"progress","downloaded_bytes":%s,"downloaded_gib":%s,"updated_at":"%s"}\n'                 "$REVISION" "$size_bytes" "$size_gib" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
-                rclone rcat "$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
+                rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
             else
               echo "Could not read the persisted OneDrive download size."
             fi
