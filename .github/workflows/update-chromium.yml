@@ -199,26 +199,21 @@ jobs:
 
           update_status "running"
 
-          if [ ! -f .gclient ]; then
-            gclient config \
-              --name src \
-              --custom-var=checkout_src_internal=False \
-              --custom-var=checkout_agents_internal=False \
-              "$CHROMIUM_URL"
+          # Use the standard depot_tools checkout flow used by Chromium and
+          # Brave. On the first run, fetch creates the normal .gclient + src
+          # layout. After that, the persistent OneDrive checkout is reused.
+          if [ ! -f .gclient ] || [ ! -e "$WORK_ROOT/src/.git" ]; then
+            echo "No complete Chromium checkout found; starting depot_tools fetch."
+            fetch --nohooks --no-history chromium
+          else
+            echo "Existing persistent Chromium checkout found; reusing it."
           fi
 
           GIT_WORK_TREE="$WORK_ROOT/src"
-          mkdir -p "$GIT_WORK_TREE"
+          test -e "$GIT_WORK_TREE/.git"
 
-          # Keep Chromium's Git repository itself on the persistent OneDrive
-          # mount. This prevents the huge Chromium Git object database from
-          # filling the runner's local SSD before data reaches OneDrive.
-          if [ ! -e "$GIT_WORK_TREE/.git" ]; then
-            git init -b main "$GIT_WORK_TREE"
-            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
-          elif ! git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote get-url origin >/dev/null 2>&1; then
-            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" remote add origin "$CHROMIUM_URL"
-          fi
+          # The normal Chromium Git repository, .gclient state, dependency
+          # repositories, and cache all remain on the persistent OneDrive mount.
 
           git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.version HTTP/1.1
           git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.lowSpeedLimit 0
