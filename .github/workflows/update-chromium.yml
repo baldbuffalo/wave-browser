@@ -149,23 +149,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Report the persisted OneDrive size inside this download step,
-          # before the Chromium sync starts. This is the amount already stored
-          # remotely and is not the runner's local disk usage.
-          source_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source"
-          existing_bytes=$(rclone size "$source_path" --json 2>/dev/null |
-            python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("bytes",0)))' 2>/dev/null || true)
-          if [[ "$existing_bytes" =~ ^[0-9]+$ ]]; then
-            existing_gib=$(python3 - "$existing_bytes" <<'PY'
-          import sys
-          print(f"{int(sys.argv[1]) / (1024**3):.2f}")
-          PY
-            )
-            echo "Chromium download amount already in OneDrive: " "${existing_gib}" "GiB."
-          else
-            echo "Chromium download amount already in OneDrive: unavailable."
-          fi
-
           # Cleanup is handled by the dedicated unmount step below. Keeping
           # rclone alive until that step gives VFS writes time to flush.
 
@@ -262,26 +245,6 @@ jobs:
           echo "Additional local disk allowed for Chromium: 13.95 GB"
           echo "Chromium download will stop at: $(python3 -c 'import sys; print(f"{int(sys.argv[1])/(1000**3):.2f}")' "$DISK_LIMIT_BYTES") GB total usage."
 
-          # Report the amount persisted to OneDrive only when the 13.95 GB
-          # local-disk safety limit is reached.
-          report_remote_progress() {
-            local size_bytes
-            size_bytes=$(rclone size "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" --json 2>/dev/null |
-              python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("bytes",0)))' 2>/dev/null || true)
-
-            if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
-              local size_gib
-              size_gib=$(python3 - "$size_bytes" <<'PY'
-          import sys
-          print(f"{int(sys.argv[1]) / (1024**3):.2f}")
-          PY
-              )
-              echo "Chromium download amount: ${size_gib} GiB downloaded to OneDrive."
-              printf '{"revision":"%s","status":"progress","downloaded_bytes":%s,"downloaded_gib":%s,"updated_at":"%s"}\n' \
-                "$REVISION" "$size_bytes" "$size_gib" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
-                rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
-            fi
-          }
           monitor_disk() {
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
               used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
@@ -360,33 +323,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          source_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source"
-
-          # Always report the amount already persisted in OneDrive.
-          # This runs after the previous mount was unmounted, so it does not
-          # count rclone's local VFS cache as downloaded data.
-          report_remote_progress() {
-            local size_bytes
-            size_bytes=$(rclone size "$source_path" --json 2>/dev/null |
-              python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("bytes",0)))' 2>/dev/null || true)
-
-            if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
-              local size_gib
-              size_gib=$(python3 - "$size_bytes" <<'PY'
-          import sys
-          print(f"{int(sys.argv[1]) / (1024**3):.2f}")
-          PY
-              )
-              echo "Chromium download amount: ${size_gib} GiB downloaded to OneDrive."
-              printf '{"revision":"%s","status":"progress","downloaded_bytes":%s,"downloaded_gib":%s,"updated_at":"%s"}\n'                 "$REVISION" "$size_bytes" "$size_gib" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
-                rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
-            else
-              echo "Could not read the persisted OneDrive download size."
-            fi
-          }
-
-          # Show existing OneDrive progress on EVERY new/resumed run.
-          report_remote_progress
+          # Do not recursively scan the Chromium tree with rclone size.
+          # Chromium contains hundreds of thousands of files, so that scan can
+          # consume the entire 15-minute handoff window. Completion is instead
+          # determined by source.ready.json, written only after checkout and
+          # dependency sync finish successfully.
 
           ready_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
 
