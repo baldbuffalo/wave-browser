@@ -189,12 +189,7 @@ jobs:
           if [ "$previous_files" -gt 0 ]; then
             echo "Resuming Chromium from previous persisted progress: ${previous_progress}% (${previous_files}/508491 files)."
           else
-            # Migration for the interrupted pre-progress-checkpoint run.
-            # That run reached 75,624 of 508,491 files (~14%) before the old
-            # readiness scan consumed the handoff window and the job was killed.
-            previous_progress=14
-            previous_files=75624
-            echo "Recovered previous Chromium progress: ${previous_progress}% (${previous_files}/508491 files)."
+            echo "No previous persisted Chromium progress found; starting from 0%."
           fi
 
           update_status "running"
