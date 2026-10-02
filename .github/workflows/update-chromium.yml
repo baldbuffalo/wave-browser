@@ -261,7 +261,6 @@ jobs:
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
               used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
               if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
-                report_remote_progress
                 echo "Local runner disk usage reached 13 GiB; stopping Chromium download to protect the runner."
                 echo "disk_handoff=true" > "$RUNNER_TEMP/disk-handoff"
                 kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
@@ -335,6 +334,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          source_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source"
+
+          # Always report the amount already persisted in OneDrive.
+          # This runs after the previous mount was unmounted, so it does not
+          # count rclone's local VFS cache as downloaded data.
+          report_remote_progress() {
+            local size_bytes
+            size_bytes=$(rclone size "$source_path" --json 2>/dev/null |
+              python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("bytes",0)))' 2>/dev/null || true)
+
+            if [[ "$size_bytes" =~ ^[0-9]+$ ]]; then
+              local size_gib
+              size_gib=$(python3 - "$size_bytes" <<'PY'
+          import sys
+          print(f"{int(sys.argv[1]) / (1024**3):.2f}")
+          PY
+              )
+              echo "Chromium download amount: ${size_gib} GiB downloaded to OneDrive."
+              printf '{"revision":"%s","status":"progress","downloaded_bytes":%s,"downloaded_gib":%s,"updated_at":"%s"}\n'                 "$REVISION" "$size_bytes" "$size_gib" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+                rclone rcat "$WAVE_ONEDRIVE_PATH/$REVISION/progress.json" || true
+            else
+              echo "Could not read the persisted OneDrive download size."
+            fi
+          }
+
+          # Show existing OneDrive progress on EVERY new/resumed run.
+          report_remote_progress
 
           ready_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
 
