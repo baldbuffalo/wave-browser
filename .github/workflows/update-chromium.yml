@@ -105,6 +105,23 @@ jobs:
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "Chromium revision: $latest"
 
+          # Report the persisted OneDrive size BEFORE mounting or downloading.
+          # This guarantees every manual/resumed run shows what already exists,
+          # even if the 13 GiB local-disk guard stops the download immediately.
+          source_path="onedrive:$WAVE_ONEDRIVE_PATH/$latest/source"
+          existing_bytes=$(rclone size "$source_path" --json 2>/dev/null |
+            python3 -c 'import json,sys; print(int(json.load(sys.stdin).get("bytes",0)))' 2>/dev/null || true)
+          if [[ "$existing_bytes" =~ ^[0-9]+$ ]]; then
+            existing_gib=$(python3 - "$existing_bytes" <<'PY'
+          import sys
+          print(f"{int(sys.argv[1]) / (1024**3):.2f}")
+          PY
+            )
+            echo "Chromium download amount already in OneDrive: ${existing_gib} GiB."
+          else
+            echo "Chromium download amount already in OneDrive: unavailable."
+          fi
+
       - name: Mount the Chromium source directory on OneDrive
         if: steps.revision.outputs.skip != 'true'
         env:
