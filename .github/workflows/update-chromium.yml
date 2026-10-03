@@ -37,7 +37,8 @@ jobs:
             trap 'rm -rf "$tmp_dir"' EXIT
             curl -fsSL https://downloads.rclone.org/v1.75.1/rclone-v1.75.1-linux-amd64.zip -o "$tmp_dir/rclone.zip"
             curl -fsSL https://downloads.rclone.org/v1.75.1/SHA256SUMS -o "$tmp_dir/SHA256SUMS"
-            (cd "$tmp_dir" && grep ' rclone-v1.75.1-linux-amd64.zip
+            (cd "$tmp_dir" && grep ' rclone-v1.75.1-linux-amd64.zip$' SHA256SUMS | sha256sum -c -)
+            python3 -c 'import sys,zipfile; p,o=sys.argv[1:]; z=zipfile.ZipFile(p); n=next(x for x in z.namelist() if x.endswith("/rclone")); z.extract(n,o); z.close()' "$tmp_dir/rclone.zip" "$tmp_dir"
             install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" "$bin_dir/rclone"
           fi
 
@@ -49,8 +50,7 @@ jobs:
           echo "$bin_dir" >> "$GITHUB_PATH"
           echo "$depot_tools_dir" >> "$GITHUB_PATH"
           "$bin_dir/rclone" version
-          PATH="$depot_tools_dir:$bin_dir:$PATH" gclient --version
-
+          PATH="$depot_tools_dir:$bin_dir:$PATH" DEPOT_TOOLS_UPDATE=0 gclient --version
       - name: Configure OneDrive
         shell: bash
         env:
