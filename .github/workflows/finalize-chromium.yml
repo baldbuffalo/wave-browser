@@ -38,6 +38,305 @@ jobs:
             tmp_dir=$(mktemp -d)
             trap 'rm -rf "$tmp_dir"' EXIT
             curl -fsSL https://downloads.rclone.org/v1.75.1/rclone-v1.75.1-linux-amd64.zip -o "$tmp_dir/rclone.zip"
+            curl -fsSL https://downloads.rclone.org/v1.75.1/SHA256SUMS -o "$tmp_dir/SHA256SUMS"
+            (cd "$tmp_dir" && grep ' rclone-v1.75.1-linux-amd64.zip
+            sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
+          fi
+          rclone version
+
+      - name: Configure OneDrive
+        shell: bash
+        env:
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_CONTENT" || { echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."; exit 1; }
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+
+      - name: Check source and package state
+        id: state
+        env:
+          REVISION: ${{ inputs.revision || github.event.client_payload.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid Chromium revision: $REVISION"; exit 1; }
+
+          root="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION"
+          if rclone cat "$root/package.ready.json" > "$RUNNER_TEMP/package.ready.json" 2>/dev/null; then
+            if python3 - "$RUNNER_TEMP/package.ready.json" "$REVISION" <<'PY'
+          import json
+          import sys
+
+          path, expected_revision = sys.argv[1:]
+          try:
+              with open(path, encoding="utf-8") as f:
+                  data = json.load(f)
+          except (OSError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Invalid package.ready.json: {exc}")
+
+          expected_package = f"package/chromium-{expected_revision}.tar.gz"
+          expected_checksum = f"package/chromium-{expected_revision}.sha256"
+          if (
+              data.get("revision") != expected_revision
+              or data.get("ready_for_platform_builds") is not True
+              or data.get("package_path") != expected_package
+              or data.get("checksum_path") != expected_checksum
+          ):
+              raise SystemExit("package.ready.json does not confirm the expected Chromium artifacts are finalized.")
+          PY
+            then
+              package_path=$(python3 - "$RUNNER_TEMP/package.ready.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              print(json.load(f)["package_path"])
+          PY
+              )
+              checksum_path=$(python3 - "$RUNNER_TEMP/package.ready.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              print(json.load(f)["checksum_path"])
+          PY
+              )
+              if rclone lsf "$root/$package_path" >/dev/null 2>&1 &&
+                 rclone lsf "$root/$checksum_path" >/dev/null 2>&1; then
+                # A previous successful finalize may have left the one-job
+                # revision lock behind. Clear it now so the next packaging job
+                # resolves a fresh Chromium main revision.
+                rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
+                echo "Chromium $REVISION is already finalized and its package/checksum are present."
+                echo "already=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "package.ready.json exists, but its package or checksum is missing; finalization will be repaired."
+            fi
+          fi
+
+          # Crash-recovery path: if the package and checksum were already
+          # completed and the source directory is gone, the destructive cleanup
+          # already happened and only the final metadata write was interrupted.
+          # Recover that state without trying to mount a deleted source tree.
+          package="$root/package/chromium-$REVISION.tar.gz"
+          checksum="$root/package/chromium-$REVISION.sha256"
+          if rclone lsf "$package" >/dev/null 2>&1 && rclone lsf "$checksum" >/dev/null 2>&1; then
+            expected=$(rclone cat "$checksum" | awk '{print $1}')
+            if [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]; then
+              actual=$(rclone cat "$package" | sha256sum | awk '{print $1}')
+              if [ "$expected" = "$actual" ] && ! rclone lsd "$root/source" >/dev/null 2>&1; then
+                echo "Recovered a completed package whose final metadata write was interrupted."
+                git config user.name "github-actions[bot]"
+                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                printf '%s\n' "$REVISION" > android/chromium_revision.txt
+                printf '%s\n' "$REVISION" > windows/chromium_revision.txt
+                git add android/chromium_revision.txt windows/chromium_revision.txt
+                git diff --cached --quiet || git commit -m "Update Chromium revision"
+                git push
+                printf '{"revision":"%s","package_path":"package/chromium-%s.tar.gz","checksum_path":"package/chromium-%s.sha256","ready_for_platform_builds":true}\n'                   "$REVISION" "$REVISION" "$REVISION" | rclone rcat "$root/package.ready.json"
+                printf '{"revision":"%s","status":"finalized","source_deleted":true,"package_path":"package"}\n'                   "$REVISION" | rclone rcat "$root/finalized.json"
+                rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
+                echo "Recovered and finalized Chromium $REVISION."
+                echo "already=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+
+          if ! rclone cat "$root/source.ready.json" > "$RUNNER_TEMP/source.ready.json" 2>/dev/null; then
+            echo "Chromium source-ready marker is missing: $root/source.ready.json"
+            exit 1
+          fi
+
+          python3 - "$RUNNER_TEMP/source.ready.json" "$REVISION" <<'PY'
+          import json
+          import sys
+
+          path, expected_revision = sys.argv[1:]
+          with open(path, encoding="utf-8") as f:
+              data = json.load(f)
+
+          if data.get("revision") != expected_revision or data.get("status") != "source-ready":
+              raise SystemExit("source.ready.json does not confirm the expected Chromium revision is ready.")
+          PY
+
+          echo "already=false" >> "$GITHUB_OUTPUT"
+
+      - name: Mount source from OneDrive
+        if: steps.state.outputs.already != 'true'
+        env:
+          REVISION: ${{ inputs.revision || github.event.client_payload.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root="$RUNNER_TEMP/chromium-source"
+          mkdir -p "$source_root"
+          rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$source_root" \
+            --vfs-cache-mode off \
+            --dir-cache-time 10s \
+            --poll-interval 30s \
+            --buffer-size 16M \
+            --transfers 4 \
+            --checkers 8 &
+          echo $! > "$RUNNER_TEMP/rclone-finalize-mount.pid"
+
+          for _ in $(seq 1 60); do
+            if mountpoint -q "$source_root"; then
+              echo "OneDrive source mount is ready."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "OneDrive source mount did not become ready."
+          exit 1
+
+      - name: Create verified platform source package in the same revision folder
+        if: steps.state.outputs.already != 'true'
+        env:
+          REVISION: ${{ inputs.revision || github.event.client_payload.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'fusermount3 -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || fusermount -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || true; if [ -f "$RUNNER_TEMP/rclone-finalize-mount.pid" ]; then kill "$(cat "$RUNNER_TEMP/rclone-finalize-mount.pid")" 2>/dev/null || true; fi' EXIT
+
+          root="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION"
+          source_root="$RUNNER_TEMP/chromium-source"
+          package="$root/package/chromium-$REVISION.tar.gz"
+          package_partial="$root/package/chromium-$REVISION.tar.gz.partial"
+          checksum="$root/package/chromium-$REVISION.sha256"
+          checksum_partial="$root/package/chromium-$REVISION.sha256.partial"
+
+          test -d "$source_root/src"
+          test -f "$source_root/.gclient"
+
+          echo "Creating the verified Chromium source package directly from the OneDrive checkout."
+          rclone deletefile "$package_partial" >/dev/null 2>&1 || true
+          tar -C "$source_root" -cf - \
+            --exclude="./src/out" \
+            --exclude="./src/.cipd" \
+            --exclude="*/.git" \
+            --exclude="./.gclient_cache" \
+            .gclient .gclient_entries src |
+            gzip -1 |
+            rclone rcat "$package_partial" --stats=10s --stats-one-line --onedrive-chunk-size 250M
+
+          rclone moveto "$package_partial" "$package"
+
+          hash=$(rclone cat "$package" | sha256sum | awk '{print $1}')
+          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum_partial"
+          rclone moveto "$checksum_partial" "$checksum"
+
+          expected=$(rclone cat "$checksum" | awk '{print $1}')
+          [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]
+
+          # Validate the compressed package and checksum with separate
+          # complete reads. This deliberately avoids process-substitution races:
+          # the hash calculation must finish before it is compared.
+          if ! rclone cat "$package" | tar -tzf - >/dev/null; then
+            echo "Chromium package failed tar.gz validation."
+            exit 1
+          fi
+          actual_hash=$(rclone cat "$package" | sha256sum | awk '{print $1}')
+          [[ "$actual_hash" =~ ^[0-9a-fA-F]{64}$ ]]
+          test "$expected" = "$actual_hash"
+
+          echo "Verified Chromium source package, tar.gz structure, and checksum are ready; final completion marker will be written after repository and source cleanup succeed."
+
+      - name: Commit Chromium revision
+        if: steps.state.outputs.already != 'true'
+        env:
+          REVISION: ${{ inputs.revision || github.event.client_payload.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf '%s\n' "$REVISION" > android/chromium_revision.txt
+          printf '%s\n' "$REVISION" > windows/chromium_revision.txt
+          git add android/chromium_revision.txt windows/chromium_revision.txt
+          git diff --cached --quiet || git commit -m "Update Chromium revision"
+
+          # Rebase onto the current main branch before pushing. The packaging
+          # lock prevents this workflow from racing itself, but unrelated
+          # repository commits can still arrive while a 5h30m package is running.
+          # A small retry loop avoids losing a completed package to a transient
+          # non-fast-forward push.
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Could not push the Chromium revision after 3 attempts."
+              exit 1
+            fi
+            echo "Chromium revision push was rejected; retrying after fetching main again..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Delete ONLY the source directory
+        if: steps.state.outputs.already != 'true'
+        env:
+          REVISION: ${{ inputs.revision || github.event.client_payload.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION"
+
+          # Verify the package exists before deleting the source. If finalization
+          # is interrupted or the package is missing, the source remains available
+          # for another attempt instead of being irreversibly purged first.
+          rclone lsf "$root/package/chromium-$REVISION.tar.gz" >/dev/null
+          rclone lsf "$root/package/chromium-$REVISION.sha256" >/dev/null
+
+          # Re-verify the package checksum immediately before deleting source.
+          # This protects against a package changing between the earlier package
+          # verification and this destructive step.
+          expected=$(rclone cat "$root/package/chromium-$REVISION.sha256" | awk '{print $1}')
+          [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]
+          actual=$(rclone cat "$root/package/chromium-$REVISION.tar.gz" | sha256sum | awk '{print $1}')
+          test "$expected" = "$actual"
+
+          # Deliberately purge only /source. /package is outside this path.
+          rclone purge "$root/source"
+          # Write package.ready.json only after every finalization operation above
+          # has succeeded. This is the durable "fully finalized" marker used by
+          # update-chromium.yml, so it must never exist after a partial finalize.
+          printf '{"revision":"%s","package_path":"package/chromium-%s.tar.gz","checksum_path":"package/chromium-%s.sha256","ready_for_platform_builds":true}\n' \
+            "$REVISION" "$REVISION" "$REVISION" |
+            rclone rcat "$root/package.ready.json"
+
+          rclone lsf "$root/package.ready.json" >/dev/null
+
+          printf '{"revision":"%s","status":"finalized","source_deleted":true,"package_path":"package"}\n' "$REVISION" |
+            rclone rcat "$root/finalized.json"
+
+          # The revision lock is only for one packaging job. Once that revision
+          # is fully finalized, remove the global lock so the next manual
+          # update-chromium run resolves the then-current Chromium main revision.
+          rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
+
+          echo "Source deleted. Verified package remains in the revision folder. Revision lock cleared for the next packaging job."
+
+      - name: Unmount OneDrive source
+        if: always() && steps.state.outputs.already != 'true'
+        shell: bash
+        run: |
+          set +e
+          # Unmount first, then stop rclone. The finalize mount is read-only,
+          # but this ordering is still safer and consistent with the download workflow.
+          fusermount3 -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || fusermount -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || true
+          if [ -f "$RUNNER_TEMP/rclone-finalize-mount.pid" ]; then
+            mount_pid="$(cat "$RUNNER_TEMP/rclone-finalize-mount.pid")"
+            for _ in $(seq 1 30); do
+              kill -0 "$mount_pid" 2>/dev/null || break
+              sleep 1
+            done
+            kill "$mount_pid" 2>/dev/null || true
+          fi
+ SHA256SUMS | sha256sum -c -)
             python3 -c 'import sys,zipfile; p,o=sys.argv[1:]; z=zipfile.ZipFile(p); n=next(x for x in z.namelist() if x.endswith("/rclone")); z.extract(n,o); z.close()' "$tmp_dir/rclone.zip" "$tmp_dir"
             sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
           fi
