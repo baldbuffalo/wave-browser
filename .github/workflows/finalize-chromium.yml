@@ -77,6 +77,10 @@ jobs:
               raise SystemExit("package.ready.json does not confirm the expected Chromium revision is finalized.")
           PY
             then
+              # A previous successful finalize may have left the one-job
+              # revision lock behind. Clear it now so the next packaging job
+              # resolves a fresh Chromium main revision.
+              rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
               echo "Chromium $REVISION is already finalized."
               echo "already=true" >> "$GITHUB_OUTPUT"
               exit 0
