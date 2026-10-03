@@ -107,6 +107,10 @@ jobs:
           PY
             then
               echo "Chromium $latest is already finalized."
+              # A completed revision must never remain the active job lock.
+              # Clear it so the next manual packaging run resolves fresh main.
+              rclone deletefile "$lock_path" >/dev/null 2>&1 || true
+              echo "Cleared completed Chromium revision lock."
               echo "skip=true" >> "$GITHUB_OUTPUT"
               echo "revision=$latest" >> "$GITHUB_OUTPUT"
               exit 0
@@ -287,7 +291,18 @@ jobs:
           # newline-delimited output. Give it a pseudo-terminal and normalize
           # those progress updates so they appear live in the Actions log instead
           # of waiting for a newline and looking stuck.
-          script -q -e -c 'gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"' /dev/null 2>&1 |
+          script -q -e -c 'for attempt in 1 2 3; do
+              echo "gclient sync attempt $attempt/3"
+              if gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"; then
+                exit 0
+              fi
+              status=$?
+              if [ "$attempt" -lt 3 ]; then
+                echo "gclient sync attempt $attempt failed (exit $status); retrying after 30s..."
+                sleep 30
+              fi
+            done
+            exit 1' /dev/null 2>&1 |
             stdbuf -o0 tr '\r' '\n' |
             while IFS= read -r line; do
               if [[ "$line" =~ Updating[[:space:]]files:[[:space:]]+([0-9]+)%[[:space:]]+\(([0-9]+)/([0-9]+)\) ]]; then
