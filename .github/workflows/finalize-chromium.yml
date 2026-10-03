@@ -79,13 +79,29 @@ jobs:
               raise SystemExit("package.ready.json does not confirm the expected Chromium revision is finalized.")
           PY
             then
-              # A previous successful finalize may have left the one-job
-              # revision lock behind. Clear it now so the next packaging job
-              # resolves a fresh Chromium main revision.
-              rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
-              echo "Chromium $REVISION is already finalized."
-              echo "already=true" >> "$GITHUB_OUTPUT"
-              exit 0
+              package_path=$(python3 - "$RUNNER_TEMP/package.ready.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              print(json.load(f)["package_path"])
+          PY
+              )
+              checksum_path=$(python3 - "$RUNNER_TEMP/package.ready.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              print(json.load(f)["checksum_path"])
+          PY
+              )
+              if rclone lsf "$root/$package_path" >/dev/null 2>&1 &&
+                 rclone lsf "$root/$checksum_path" >/dev/null 2>&1; then
+                # A previous successful finalize may have left the one-job
+                # revision lock behind. Clear it now so the next packaging job
+                # resolves a fresh Chromium main revision.
+                rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
+                echo "Chromium $REVISION is already finalized and its package/checksum are present."
+                echo "already=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "package.ready.json exists, but its package or checksum is missing; finalization will be repaired."
             fi
           fi
 
