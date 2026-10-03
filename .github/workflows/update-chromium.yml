@@ -306,12 +306,26 @@ jobs:
           # source-ready state.
           rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json" >/dev/null 2>&1 || true
 
-          # Use the standard depot_tools checkout flow used by Chromium and
-          # Brave. On the first run, fetch creates the normal .gclient + src
-          # layout. After that, the persistent OneDrive checkout is reused.
+          # Do NOT use depot_tools "fetch" for the initial checkout here.
+          # fetch reports only "Still working on: src" while its Git operation
+          # runs, which makes a long initial clone look like a loop and gives
+          # us no useful progress. Build the persistent checkout explicitly:
+          # create the normal .gclient configuration, initialize src, and fetch
+          # ONLY the already-locked Chromium revision. Subsequent runs reuse the
+          # same OneDrive checkout and never restart from a fresh clone.
           if [ ! -f .gclient ] || [ ! -e "$WORK_ROOT/src/.git" ]; then
-            echo "No complete Chromium checkout found; starting depot_tools fetch."
-            fetch --nohooks --no-history chromium
+            echo "No complete Chromium checkout found; creating the locked checkout directly."
+
+            if [ ! -f .gclient ]; then
+              gclient config --name src "$CHROMIUM_URL"
+            fi
+
+            if [ ! -e "$WORK_ROOT/src/.git" ]; then
+              rm -rf "$WORK_ROOT/src"
+              mkdir -p "$WORK_ROOT/src"
+              git -C "$WORK_ROOT/src" init
+              git -C "$WORK_ROOT/src" remote add origin "$CHROMIUM_URL"
+            fi
           else
             echo "Existing persistent Chromium checkout found; reusing it."
           fi
@@ -327,7 +341,7 @@ jobs:
           git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" config http.lowSpeedTime 999999
 
           for attempt in 1 2 3 4 5; do
-            if git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" fetch --no-tags --depth=1 origin "$REVISION"; then
+            if git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" fetch --no-tags --depth=1 --progress origin "$REVISION"; then
               break
             fi
             echo "Chromium source fetch attempt $attempt failed; retrying..."
