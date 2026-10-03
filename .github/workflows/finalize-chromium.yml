@@ -14,6 +14,7 @@ on:
 # the same persistent OneDrive revision while the other workflow is active.
 concurrency:
   group: wave-browser-chromium-packaging
+  queue: max
   cancel-in-progress: false
 
 permissions:
@@ -36,7 +37,7 @@ jobs:
           if ! command -v rclone >/dev/null 2>&1; then
             tmp_dir=$(mktemp -d)
             trap 'rm -rf "$tmp_dir"' EXIT
-            curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o "$tmp_dir/rclone.zip"
+            curl -fsSL https://downloads.rclone.org/v1.75.1/rclone-v1.75.1-linux-amd64.zip -o "$tmp_dir/rclone.zip"
             python3 -c 'import sys,zipfile; p,o=sys.argv[1:]; z=zipfile.ZipFile(p); n=next(x for x in z.namelist() if x.endswith("/rclone")); z.extract(n,o); z.close()' "$tmp_dir/rclone.zip" "$tmp_dir"
             sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
           fi
@@ -199,18 +200,15 @@ jobs:
           expected=$(rclone cat "$checksum" | awk '{print $1}')
           [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]
 
-          # Validate the compressed package and calculate its hash in ONE
-          # remote read. The previous implementation read the entire package
-          # once for SHA-256 and again for tar validation, which is expensive
-          # for a multi-GB Chromium package stored on OneDrive.
-          actual=$(mktemp)
-          if ! rclone cat "$package" | tee >(sha256sum | awk '{print $1}' > "$actual") | tar -tzf - >/dev/null; then
-            rm -f "$actual"
+          # Validate the compressed package and checksum with separate
+          # complete reads. This deliberately avoids process-substitution races:
+          # the hash calculation must finish before it is compared.
+          if ! rclone cat "$package" | tar -tzf - >/dev/null; then
             echo "Chromium package failed tar.gz validation."
             exit 1
           fi
-          actual_hash=$(cat "$actual")
-          rm -f "$actual"
+          actual_hash=$(rclone cat "$package" | sha256sum | awk '{print $1}')
+          [[ "$actual_hash" =~ ^[0-9a-fA-F]{64}$ ]]
           test "$expected" = "$actual_hash"
 
           echo "Verified Chromium source package, tar.gz structure, and checksum are ready; final completion marker will be written after repository and source cleanup succeed."
