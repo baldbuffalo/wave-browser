@@ -175,8 +175,13 @@ jobs:
           mkdir -p "$source_root"
           rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$source_root" \
             --vfs-cache-mode off \
-            --dir-cache-time 10s \
+            --dir-cache-time 1m \
             --poll-interval 30s \
+            --timeout 1m \
+            --contimeout 15s \
+            --retries 5 \
+            --low-level-retries 20 \
+            --retries-sleep 10s \
             --buffer-size 16M \
             --transfers 4 \
             --checkers 8 &
@@ -473,8 +478,13 @@ jobs:
           mkdir -p "$source_root"
           rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$source_root" \
             --vfs-cache-mode off \
-            --dir-cache-time 10s \
+            --dir-cache-time 1m \
             --poll-interval 30s \
+            --timeout 1m \
+            --contimeout 15s \
+            --retries 5 \
+            --low-level-retries 20 \
+            --retries-sleep 10s \
             --buffer-size 16M \
             --transfers 4 \
             --checkers 8 &
