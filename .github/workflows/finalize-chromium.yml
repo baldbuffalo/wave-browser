@@ -344,11 +344,6 @@ jobs:
             kill "$mount_pid" 2>/dev/null || true
           fi
  SHA256SUMS | sha256sum -c -)
-            python3 -c 'import sys,zipfile; p,o=sys.argv[1:]; z=zipfile.ZipFile(p); n=next(x for x in z.namelist() if x.endswith("/rclone")); z.extract(n,o); z.close()' "$tmp_dir/rclone.zip" "$tmp_dir"
-            sudo install -m 0755 "$(find "$tmp_dir" -type f -name rclone -print -quit)" /usr/local/bin/rclone
-          fi
-          rclone version
-
       - name: Configure OneDrive
         shell: bash
         env:
