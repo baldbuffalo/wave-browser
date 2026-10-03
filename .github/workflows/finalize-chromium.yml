@@ -197,7 +197,7 @@ jobs:
           rclone moveto "$checksum_partial" "$checksum"
 
           expected=$(rclone cat "$checksum" | awk '{print $1}')
-          test "$expected" =~ ^[0-9a-fA-F]{64}$
+          [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]
 
           # Validate the compressed package and calculate its hash in ONE
           # remote read. The previous implementation read the entire package
