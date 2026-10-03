@@ -365,7 +365,7 @@ jobs:
           test -f "$WORK_ROOT/.gclient"
           test -f "$WORK_ROOT/.gclient_entries"
 
-          update_status "source-ready" ',"source_path":"source"'
+                    update_status "source-ready" ',"source_path":"source"'
           printf '{"revision":"%s","status":"source-ready","source_path":"source"}\n' "$REVISION" |
             rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
 
