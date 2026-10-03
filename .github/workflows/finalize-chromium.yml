@@ -182,11 +182,14 @@ jobs:
           set -euo pipefail
           root="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION"
 
-          # Deliberately purge only /source. /package is outside this path.
-          rclone purge "$root/source"
-
+          # Verify the package exists before deleting the source. If finalization
+          # is interrupted or the package is missing, the source remains available
+          # for another attempt instead of being irreversibly purged first.
           rclone lsf "$root/package/chromium-$REVISION.tar.gz" >/dev/null
           rclone lsf "$root/package/chromium-$REVISION.sha256" >/dev/null
+
+          # Deliberately purge only /source. /package is outside this path.
+          rclone purge "$root/source"
           # Write package.ready.json only after every finalization operation above
           # has succeeded. This is the durable "fully finalized" marker used by
           # update-chromium.yml, so it must never exist after a partial finalize.
