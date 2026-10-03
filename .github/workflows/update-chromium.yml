@@ -102,8 +102,15 @@ jobs:
           except (OSError, json.JSONDecodeError) as exc:
               raise SystemExit(f"Invalid package.ready.json: {exc}")
 
-          if data.get("revision") != expected_revision or data.get("ready_for_platform_builds") is not True:
-              raise SystemExit("package.ready.json does not confirm the expected Chromium revision is finalized.")
+          expected_package = f"package/chromium-{expected_revision}.tar.gz"
+          expected_checksum = f"package/chromium-{expected_revision}.sha256"
+          if (
+              data.get("revision") != expected_revision
+              or data.get("ready_for_platform_builds") is not True
+              or data.get("package_path") != expected_package
+              or data.get("checksum_path") != expected_checksum
+          ):
+              raise SystemExit("package.ready.json does not confirm the expected Chromium artifacts are finalized.")
           PY
             then
               package_path=$(python3 - "$RUNNER_TEMP/package.ready.json" <<'PY'
