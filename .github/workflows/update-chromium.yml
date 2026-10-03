@@ -14,6 +14,7 @@ permissions:
 env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
+  DEPOT_TOOLS_UPDATE: "0"
 
 jobs:
   DownloadChromium:
@@ -151,6 +152,40 @@ jobs:
           echo "Chromium revision: $latest"
 
 
+      - name: Lock depot_tools revision
+        if: steps.revision.outputs.skip != 'true'
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools_dir="$HOME/.cache/wave-browser/tools/depot_tools"
+          test -d "$tools_dir/.git"
+          lock_path="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/depot_tools_revision.json"
+
+          if rclone cat "$lock_path" > "$RUNNER_TEMP/depot_tools_revision.json" 2>/dev/null; then
+            locked=$(python3 - "$RUNNER_TEMP/depot_tools_revision.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              data = json.load(f)
+          print(data["revision"])
+          PY
+            )
+            [[ "$locked" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid persisted depot_tools revision."; exit 1; }
+            git -C "$tools_dir" fetch --depth=1 origin "$locked"
+            git -C "$tools_dir" checkout --detach "$locked"
+            echo "Using persisted depot_tools revision $locked."
+          else
+            locked=$(git -C "$tools_dir" rev-parse HEAD)
+            [[ "$locked" =~ ^[0-9a-f]{40}$ ]] || { echo "Could not determine depot_tools revision."; exit 1; }
+            printf '{"revision":"%s","created_at":"%s"}\n' "$locked" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+              rclone rcat "$lock_path"
+            echo "Locked depot_tools to $locked for Chromium $REVISION."
+          fi
+
+          echo "depot_tools revision: $(git -C "$tools_dir" rev-parse HEAD)"
+          command -v gclient
+          DEPOT_TOOLS_UPDATE=0 gclient --version
       - name: Mount the Chromium source directory on OneDrive
         if: steps.revision.outputs.skip != 'true'
         env:
@@ -166,8 +201,13 @@ jobs:
             --vfs-cache-max-size 1G \
             --vfs-cache-max-age 10m \
             --vfs-write-back 5s \
-            --dir-cache-time 10s \
+            --dir-cache-time 1m \
             --poll-interval 30s \
+            --timeout 1m \
+            --contimeout 15s \
+            --retries 5 \
+            --low-level-retries 20 \
+            --retries-sleep 10s \
             --buffer-size 16M \
             --transfers 4 \
             --checkers 8 &
@@ -692,8 +732,13 @@ jobs:
             --vfs-cache-max-size 1G \
             --vfs-cache-max-age 10m \
             --vfs-write-back 5s \
-            --dir-cache-time 10s \
+            --dir-cache-time 1m \
             --poll-interval 30s \
+            --timeout 1m \
+            --contimeout 15s \
+            --retries 5 \
+            --low-level-retries 20 \
+            --retries-sleep 10s \
             --buffer-size 16M \
             --transfers 4 \
             --checkers 8 &
