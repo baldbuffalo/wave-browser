@@ -218,7 +218,12 @@ jobs:
           printf '{"revision":"%s","status":"finalized","source_deleted":true,"package_path":"package"}\n' "$REVISION" |
             rclone rcat "$root/finalized.json"
 
-          echo "Source deleted. Verified package remains in the revision folder."
+          # The revision lock is only for one packaging job. Once that revision
+          # is fully finalized, remove the global lock so the next manual
+          # update-chromium run resolves the then-current Chromium main revision.
+          rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
+
+          echo "Source deleted. Verified package remains in the revision folder. Revision lock cleared for the next packaging job."
 
       - name: Unmount OneDrive source
         if: always() && steps.state.outputs.already != 'true'
