@@ -231,6 +231,12 @@ jobs:
 
           update_status "running"
 
+          # A previous successful sync marker is invalid once another resume
+          # begins. Remove it before touching the persistent checkout so a
+          # later handoff can never mistake an interrupted resume for a fresh
+          # source-ready state.
+          rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json" >/dev/null 2>&1 || true
+
           # Use the standard depot_tools checkout flow used by Chromium and
           # Brave. On the first run, fetch creates the normal .gclient + src
           # layout. After that, the persistent OneDrive checkout is reused.
@@ -376,6 +382,16 @@ jobs:
 
           monitor_disk() {
             while kill -0 "$DOWNLOAD_PID" 2>/dev/null; do
+              # If FUSE disappears, WORK_ROOT becomes an ordinary local
+              # directory. Never let Chromium continue writing there because
+              # that can silently consume the runner's local disk.
+              if ! mountpoint -q "$WORK_ROOT"; then
+                echo "Chromium OneDrive mount disappeared. Stopping the download to prevent local-disk writes."
+                echo "mount_failure=true" > "$RUNNER_TEMP/mount-failure"
+                kill -TERM -- "-$DOWNLOAD_PID" 2>/dev/null || kill -TERM "$DOWNLOAD_PID" 2>/dev/null || true
+                return
+              fi
+
               used_bytes=$(df -B1 --output=used "$HOME" 2>/dev/null | tail -n 1 | tr -d " ")
               if [[ "$used_bytes" =~ ^[0-9]+$ ]] && [ "$used_bytes" -ge "$DISK_LIMIT_BYTES" ]; then
                 echo "Chromium job consumed its 13.95 GB local-disk allowance. Stopping Chromium download to protect the runner."
@@ -404,6 +420,13 @@ jobs:
           kill "$MONITOR_PID" 2>/dev/null || true
           wait "$MONITOR_PID" 2>/dev/null || true
           set -e
+
+          if [ -f "$RUNNER_TEMP/mount-failure" ]; then
+            printf '{"revision":"%s","status":"failed","updated_at":"%s","reason":"onedrive_mount_lost"}\n' "$REVISION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" |
+              rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/download.json" || true
+            echo "The OneDrive mount was lost; refusing to continue or automatically chain another run."
+            exit 1
+          fi
 
           if [ "$status" -eq 124 ] || [ "$status" -eq 143 ] || [ "$status" -eq 137 ] || [ -f "$RUNNER_TEMP/disk-handoff" ]; then
             # The download was stopped by the 5h30m deadline or local-disk
