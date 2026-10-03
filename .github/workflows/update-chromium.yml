@@ -49,6 +49,15 @@ jobs:
             git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$depot_tools_dir"
           fi
 
+          # DEPOT_TOOLS_UPDATE=0 intentionally prevents automatic updates, but
+          # a fresh depot_tools checkout still needs its hermetic Python runtime
+          # bootstrapped before wrappers such as fetch/gclient can run.
+          if [ ! -f "$depot_tools_dir/python3_bin_reldir.txt" ]; then
+            echo "Bootstrapping depot_tools Python runtime..."
+            (cd "$depot_tools_dir" && DEPOT_TOOLS_UPDATE=0 ./ensure_bootstrap)
+          fi
+          test -f "$depot_tools_dir/python3_bin_reldir.txt"
+
           echo "$bin_dir" >> "$GITHUB_PATH"
           echo "$depot_tools_dir" >> "$GITHUB_PATH"
           "$bin_dir/rclone" version
@@ -184,6 +193,15 @@ jobs:
               rclone rcat "$lock_path"
             echo "Locked depot_tools to $locked for Chromium $REVISION."
           fi
+
+          # Checking out the persisted depot_tools revision can replace the
+          # bootstrap metadata created during installation. Re-run bootstrap
+          # after the exact revision is locked so every restart is executable.
+          if [ ! -f "$tools_dir/python3_bin_reldir.txt" ]; then
+            echo "Bootstrapping the locked depot_tools revision..."
+            (cd "$tools_dir" && DEPOT_TOOLS_UPDATE=0 ./ensure_bootstrap)
+          fi
+          test -f "$tools_dir/python3_bin_reldir.txt"
 
           echo "depot_tools revision: $(git -C "$tools_dir" rev-parse HEAD)"
           command -v gclient
