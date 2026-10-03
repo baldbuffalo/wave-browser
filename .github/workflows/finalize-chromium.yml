@@ -25,7 +25,7 @@ env:
 jobs:
   Finalize:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 345
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -190,11 +190,23 @@ jobs:
           rclone moveto "$checksum_partial" "$checksum"
 
           expected=$(rclone cat "$checksum" | awk '{print $1}')
-          actual=$(rclone cat "$package" | sha256sum | awk '{print $1}')
-          test "$expected" = "$actual"
-          rclone cat "$package" | tar -tzf - >/dev/null
+          test "$expected" =~ ^[0-9a-fA-F]{64}$
 
-          echo "Verified Chromium source package and checksum are ready; final completion marker will be written after repository and source cleanup succeed."
+          # Validate the compressed package and calculate its hash in ONE
+          # remote read. The previous implementation read the entire package
+          # once for SHA-256 and again for tar validation, which is expensive
+          # for a multi-GB Chromium package stored on OneDrive.
+          actual=$(mktemp)
+          if ! rclone cat "$package" | tee >(sha256sum | awk '{print $1}' > "$actual") | tar -tzf - >/dev/null; then
+            rm -f "$actual"
+            echo "Chromium package failed tar.gz validation."
+            exit 1
+          fi
+          actual_hash=$(cat "$actual")
+          rm -f "$actual"
+          test "$expected" = "$actual_hash"
+
+          echo "Verified Chromium source package, tar.gz structure, and checksum are ready; final completion marker will be written after repository and source cleanup succeed."
 
       - name: Commit Chromium revision
         if: steps.state.outputs.already != 'true'
@@ -230,8 +242,9 @@ jobs:
           # This protects against a package changing between the earlier package
           # verification and this destructive step.
           expected=$(rclone cat "$root/package/chromium-$REVISION.sha256" | awk '{print $1}')
+          [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]
           actual=$(rclone cat "$root/package/chromium-$REVISION.tar.gz" | sha256sum | awk '{print $1}')
-          test -n "$expected" && test "$expected" = "$actual"
+          test "$expected" = "$actual"
 
           # Deliberately purge only /source. /package is outside this path.
           rclone purge "$root/source"
