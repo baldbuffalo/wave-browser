@@ -343,7 +343,6 @@ jobs:
             done
             kill "$mount_pid" 2>/dev/null || true
           fi
- SHA256SUMS | sha256sum -c -)
       - name: Configure OneDrive
         shell: bash
         env:
