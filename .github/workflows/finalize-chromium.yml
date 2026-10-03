@@ -10,8 +10,10 @@ on:
   repository_dispatch:
     types: [chromium-source-ready]
 
+# Update and Finalize share one lock so a manual run can never modify
+# the same persistent OneDrive revision while the other workflow is active.
 concurrency:
-  group: wave-browser-chromium-finalize
+  group: wave-browser-chromium-packaging
   cancel-in-progress: false
 
 permissions:
