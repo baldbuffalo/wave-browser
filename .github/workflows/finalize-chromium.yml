@@ -113,6 +113,35 @@ jobs:
             fi
           fi
 
+          # Crash-recovery path: if the package and checksum were already
+          # completed and the source directory is gone, the destructive cleanup
+          # already happened and only the final metadata write was interrupted.
+          # Recover that state without trying to mount a deleted source tree.
+          package="$root/package/chromium-$REVISION.tar.gz"
+          checksum="$root/package/chromium-$REVISION.sha256"
+          if rclone lsf "$package" >/dev/null 2>&1 && rclone lsf "$checksum" >/dev/null 2>&1; then
+            expected=$(rclone cat "$checksum" | awk '{print $1}')
+            if [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]; then
+              actual=$(rclone cat "$package" | sha256sum | awk '{print $1}')
+              if [ "$expected" = "$actual" ] && ! rclone lsd "$root/source" >/dev/null 2>&1; then
+                echo "Recovered a completed package whose final metadata write was interrupted."
+                git config user.name "github-actions[bot]"
+                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                printf '%s\n' "$REVISION" > android/chromium_revision.txt
+                printf '%s\n' "$REVISION" > windows/chromium_revision.txt
+                git add android/chromium_revision.txt windows/chromium_revision.txt
+                git diff --cached --quiet || git commit -m "Update Chromium revision"
+                git push
+                printf '{"revision":"%s","package_path":"package/chromium-%s.tar.gz","checksum_path":"package/chromium-%s.sha256","ready_for_platform_builds":true}\n'                   "$REVISION" "$REVISION" "$REVISION" | rclone rcat "$root/package.ready.json"
+                printf '{"revision":"%s","status":"finalized","source_deleted":true,"package_path":"package"}\n'                   "$REVISION" | rclone rcat "$root/finalized.json"
+                rclone deletefile "onedrive:$WAVE_ONEDRIVE_PATH/current_revision.json" >/dev/null 2>&1 || true
+                echo "Recovered and finalized Chromium $REVISION."
+                echo "already=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+          fi
+
           if ! rclone cat "$root/source.ready.json" > "$RUNNER_TEMP/source.ready.json" 2>/dev/null; then
             echo "Chromium source-ready marker is missing: $root/source.ready.json"
             exit 1
