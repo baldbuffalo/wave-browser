@@ -187,14 +187,14 @@ jobs:
 
           rclone lsf "$root/package/chromium-$REVISION.tar.gz" >/dev/null
           rclone lsf "$root/package/chromium-$REVISION.sha256" >/dev/null
-          rclone lsf "$root/package.ready.json" >/dev/null
-
           # Write package.ready.json only after every finalization operation above
           # has succeeded. This is the durable "fully finalized" marker used by
           # update-chromium.yml, so it must never exist after a partial finalize.
           printf '{"revision":"%s","package_path":"package/chromium-%s.tar.gz","checksum_path":"package/chromium-%s.sha256","ready_for_platform_builds":true}\n' \
             "$REVISION" "$REVISION" "$REVISION" |
             rclone rcat "$root/package.ready.json"
+
+          rclone lsf "$root/package.ready.json" >/dev/null
 
           printf '{"revision":"%s","status":"finalized","source_deleted":true,"package_path":"package"}\n' "$REVISION" |
             rclone rcat "$root/finalized.json"
