@@ -317,8 +317,9 @@ jobs:
               echo "gclient sync attempt $attempt/3"
               if gclient sync --nohooks --no-history --jobs=8 --revision "src@$REVISION"; then
                 exit 0
+              else
+                status=$?
               fi
-              status=$?
               if [ "$attempt" -lt 3 ]; then
                 echo "gclient sync attempt $attempt failed (exit $status); retrying after 30s..."
                 sleep 30
@@ -357,7 +358,7 @@ jobs:
           test -f "$WORK_ROOT/.gclient"
           test -f "$WORK_ROOT/.gclient_entries"
 
-          update_status "source-ready" ',\"source_path\":\"source\"'
+          update_status "source-ready" ',"source_path":"source"'
           printf '{"revision":"%s","status":"source-ready","source_path":"source"}\n' "$REVISION" |
             rclone rcat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source.ready.json"
 
