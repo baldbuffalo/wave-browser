@@ -167,7 +167,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          trap 'if [ -f "$RUNNER_TEMP/rclone-finalize-mount.pid" ]; then kill "$(cat "$RUNNER_TEMP/rclone-finalize-mount.pid")" 2>/dev/null || true; fi; fusermount3 -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || true' EXIT
+          trap 'fusermount3 -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || fusermount -u "$RUNNER_TEMP/chromium-source" 2>/dev/null || true; if [ -f "$RUNNER_TEMP/rclone-finalize-mount.pid" ]; then kill "$(cat "$RUNNER_TEMP/rclone-finalize-mount.pid")" 2>/dev/null || true; fi' EXIT
 
           root="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION"
           source_root="$RUNNER_TEMP/chromium-source"
