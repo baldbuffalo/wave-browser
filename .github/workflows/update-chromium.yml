@@ -239,8 +239,8 @@ jobs:
           fi
 
           if [ "$current_head" != "$REVISION" ]; then
-            echo "Persistent checkout is not yet at $REVISION; checking out the locked revision."
-            git --git-dir="$GIT_WORK_TREE/.git" --work-tree="$GIT_WORK_TREE" checkout -f "$REVISION"
+            echo "Persistent checkout is at $current_head; leaving the working tree intact."
+            echo "gclient sync will move the persistent checkout to the locked revision."
           else
             echo "Persistent checkout is already at $REVISION; preserving its current working-tree state."
           fi
