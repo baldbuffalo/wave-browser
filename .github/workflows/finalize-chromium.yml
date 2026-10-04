@@ -176,6 +176,7 @@ jobs:
           source_root="$RUNNER_TEMP/chromium-source"
           mkdir -p "$source_root"
           rclone mount "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" "$source_root" \
+            --checksum \
             --vfs-cache-mode off \
             --dir-cache-time 1m \
             --poll-interval 30s \
@@ -228,13 +229,13 @@ jobs:
             --exclude="./.gclient_cache" \
             .gclient .gclient_entries src |
             gzip -1 |
-            rclone rcat "$package_partial" --stats=10s --stats-one-line --onedrive-chunk-size 250M
+            rclone rcat "$package_partial" --checksum --stats=10s --stats-one-line --onedrive-chunk-size 250M
 
-          rclone moveto "$package_partial" "$package"
+          rclone moveto "$package_partial" "$package" --checksum
 
           hash=$(rclone cat "$package" | sha256sum | awk '{print $1}')
-          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum_partial"
-          rclone moveto "$checksum_partial" "$checksum"
+          printf '%s  chromium-%s.tar.gz\n' "$hash" "$REVISION" | rclone rcat "$checksum_partial" --checksum
+          rclone moveto "$checksum_partial" "$checksum" --checksum
 
           expected=$(rclone cat "$checksum" | awk '{print $1}')
           [[ "$expected" =~ ^[0-9a-fA-F]{64}$ ]]
@@ -315,12 +316,12 @@ jobs:
           # update-chromium.yml, so it must never exist after a partial finalize.
           printf '{"revision":"%s","package_path":"package/chromium-%s.tar.gz","checksum_path":"package/chromium-%s.sha256","ready_for_platform_builds":true}\n' \
             "$REVISION" "$REVISION" "$REVISION" |
-            rclone rcat "$root/package.ready.json"
+            rclone rcat "$root/package.ready.json" --checksum
 
           rclone lsf "$root/package.ready.json" >/dev/null
 
           printf '{"revision":"%s","status":"finalized","source_deleted":true,"package_path":"package"}\n' "$REVISION" |
-            rclone rcat "$root/finalized.json"
+            rclone rcat "$root/finalized.json" --checksum
 
           # The revision lock is only for one packaging job. Once that revision
           # is fully finalized, remove the global lock so the next manual
