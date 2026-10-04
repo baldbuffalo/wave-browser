@@ -555,10 +555,23 @@ jobs:
 
           if [ "$current_head" != "$REVISION" ]; then
             echo \
-              "Persistent checkout is at $current_head; leaving the working tree intact."
+              "Persistent checkout is at $current_head; moving src to the locked revision before gclient sync."
+
+            # Move the main Chromium src revision with Git itself rather than
+            # making gclient perform the revision transition on the OneDrive
+            # rclone mount. This avoids the silent, filesystem-heavy
+            # "Still working on: src" state seen during gclient sync.
+            GIT_TERMINAL_PROMPT=0 \
+              git \
+                --git-dir="$GIT_WORK_TREE/.git" \
+                --work-tree="$GIT_WORK_TREE" \
+                checkout --force --detach "$REVISION"
+
+            current_head=$(git --git-dir="$GIT_WORK_TREE/.git" rev-parse HEAD)
+            test "$current_head" = "$REVISION"
 
             echo \
-              "gclient sync will move the persistent checkout to the locked revision."
+              "Chromium src is now explicitly checked out at $REVISION before gclient sync."
           else
             echo \
               "Persistent checkout is already at $REVISION; preserving its current working-tree state."
