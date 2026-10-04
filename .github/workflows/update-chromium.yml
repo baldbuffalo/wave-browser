@@ -506,17 +506,30 @@ jobs:
             --work-tree="$GIT_WORK_TREE" \
             config http.version HTTP/1.1
 
+          # Chromium's source pack is extremely large. When Git is writing the
+          # pack into the OneDrive-backed filesystem, transfer throughput can
+          # temporarily fall below 1 KB/s even though the fetch is still alive.
+          # Do not abort a healthy fetch after only 30 seconds of low throughput.
           git \
             --git-dir="$GIT_WORK_TREE/.git" \
             --work-tree="$GIT_WORK_TREE" \
-            config http.lowSpeedLimit 1000
+            config http.lowSpeedLimit 1
 
           git \
             --git-dir="$GIT_WORK_TREE/.git" \
             --work-tree="$GIT_WORK_TREE" \
-            config http.lowSpeedTime 30
+            config http.lowSpeedTime 600
 
           for attempt in 1 2 3 4 5; do
+            # A failed shallow fetch can leave this lock behind after Git has
+            # already exited. Remove Git's stale lock files before the next
+            # attempt so a retry is actually able to start.
+            find "$GIT_WORK_TREE/.git" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.lock" \
+              -delete 2>/dev/null || true
+
             if git \
               --git-dir="$GIT_WORK_TREE/.git" \
               --work-tree="$GIT_WORK_TREE" \
@@ -530,7 +543,13 @@ jobs:
             fi
 
             echo \
-              "Chromium source fetch attempt $attempt failed; retrying..."
+              "Chromium source fetch attempt $attempt failed; cleaning stale Git locks before retrying..."
+
+            find "$GIT_WORK_TREE/.git" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.lock" \
+              -delete 2>/dev/null || true
 
             sleep $((attempt * 15))
 
