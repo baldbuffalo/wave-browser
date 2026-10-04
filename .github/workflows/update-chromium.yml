@@ -238,7 +238,7 @@ jobs:
           done
           echo "OneDrive mount did not become ready."
           exit 1
-      - name: Download Chromium and dependencies directly into OneDrive
+            - name: Download Chromium and dependencies directly into OneDrive
         id: download
         if: steps.revision.outputs.skip != 'true'
         env:
@@ -247,6 +247,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          
+          # FIXED: Single quotes around 'DOWNLOAD_SCRIPT' prevent variable stripping
           cat > "$RUNNER_TEMP/chromium-download.sh" <<'DOWNLOAD_SCRIPT'
           set -euo pipefail
           cd "$WORK_ROOT"
