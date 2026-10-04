@@ -15,7 +15,7 @@ permissions:
   actions: write
 
 env:
-  CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
+  CHROMIUM_URL: https://chromium.googlesource.com/chromium/src
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
   DEPOT_TOOLS_UPDATE: "0"
   GSUTIL_ENABLE_LUCI_AUTH: "0"
