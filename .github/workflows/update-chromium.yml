@@ -38,6 +38,9 @@ jobs:
           bin_dir="$tools_root/bin"
           depot_tools_dir="$tools_root/depot_tools"
 
+          # Keep depot_tools and its helper binaries visible to every child process.
+          export PATH="$depot_tools_dir:$bin_dir:$PATH"
+
           mkdir -p "$bin_dir"
 
           if [ ! -x "$bin_dir/rclone" ]; then
@@ -95,6 +98,8 @@ jobs:
           fi
 
           test -f "$depot_tools_dir/python3_bin_reldir.txt"
+          test -x "$depot_tools_dir/luci-auth"
+          command -v luci-auth
 
           echo "$bin_dir" >> "$GITHUB_PATH"
           echo "$depot_tools_dir" >> "$GITHUB_PATH"
