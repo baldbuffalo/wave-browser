@@ -45,8 +45,11 @@ jobs:
           archive_name="rclone-v1.75.1-linux-amd64.zip"
           archive_path="$tmp_dir/$archive_name"
 
-          curl -fsSL "https://rclone.org" -o "$archive_path"
-          curl -fsSL "https://rclone.org" -o "$tmp_dir/SHA256SUMS"
+          curl -fsSL "https://downloads.rclone.org/v1.75.1/$archive_name" \
+            -o "$archive_path"
+
+          curl -fsSL "https://downloads.rclone.org/v1.75.1/SHA256SUMS" \
+            -o "$tmp_dir/SHA256SUMS"
 
           (
             cd "$tmp_dir"
