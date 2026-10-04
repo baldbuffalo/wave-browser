@@ -367,12 +367,11 @@ jobs:
           rclone mount \
             "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" \
             "$WORK_ROOT" \
-            --checksum \
             --vfs-cache-mode full \
             --cache-dir "$RUNNER_TEMP/rclone-vfs-cache" \
-            --vfs-cache-max-size 12G \
+            --vfs-cache-max-size 25G \
             --vfs-cache-max-age 10m \
-            --vfs-write-back 5s \
+            --vfs-write-back 2s \
             --dir-cache-time 1m \
             --poll-interval 30s \
             --timeout 1m \
