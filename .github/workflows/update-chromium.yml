@@ -15,6 +15,9 @@ env:
   CHROMIUM_URL: https://chromium.googlesource.com/chromium/src.git
   WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
   DEPOT_TOOLS_UPDATE: "0"
+  # GitHub-hosted runners are not LUCI-authenticated bots. depot_tools'
+  # gsutil wrapper otherwise tries to execute luci-auth during bootstrap.
+  GSUTIL_ENABLE_LUCI_AUTH: "0"
 
 jobs:
   DownloadChromium:
