@@ -367,12 +367,17 @@ jobs:
           rclone mount \
             "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source" \
             "$WORK_ROOT" \
-            --vfs-cache-mode full \
+            --checksum \
+            --vfs-cache-mode writes \
             --cache-dir "$RUNNER_TEMP/rclone-vfs-cache" \
-            --vfs-cache-max-size 25G \
+            --vfs-cache-max-size 1G \
+            --vfs-cache-min-free-space 3G \
             --vfs-cache-max-age 10m \
-            --vfs-write-back 2s \
-            --dir-cache-time 1m \
+            --vfs-write-back 5s \
+            --dir-cache-time 12h \
+            --rc \
+            --rc-addr 127.0.0.1:5572 \
+            --rc-no-auth \
             --poll-interval 30s \
             --timeout 1m \
             --contimeout 15s \
@@ -412,9 +417,29 @@ jobs:
 
           cd "$WORK_ROOT"
 
-          find "$WORK_ROOT" -name "*.lock" -delete 2>/dev/null || true
+          # Only look for stale locks where they can actually live. A recursive find
+          # over the whole mount walks every directory of the Chromium tree through
+          # OneDrive (tens of thousands of listings) before anything else runs.
+          find "$WORK_ROOT" -maxdepth 1 -name "*.lock" -delete 2>/dev/null || true
 
           export GCLIENT_CACHE_DIR="$WORK_ROOT/.gclient_cache"
+
+          if [ -d "$GCLIENT_CACHE_DIR" ]; then
+            find "$GCLIENT_CACHE_DIR" -maxdepth 2 -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+          # Every run mounts OneDrive as a new filesystem, so inode numbers, ctimes
+          # and device ids differ from the previous run. With git's default stat
+          # check, that makes EVERY file in src and in each dependency look modified,
+          # and gclient's clean-check then re-reads and hashes the whole tree through
+          # OneDrive. That is the long silent "Still working on: src". Compare only
+          # whole-second mtime and size, which survive a remount.
+          git config --global core.checkStat minimal
+          git config --global core.trustCtime false
+
+          # Never let git start an automatic repack/maintenance run on the mount.
+          git config --global gc.auto 0
+          git config --global maintenance.auto false
 
           update_status() {
             local status="$1"
@@ -562,6 +587,69 @@ jobs:
             fi
           done
 
+          # --- Clean-checkout helper -------------------------------------------------
+          # Git reports "unable to unlink old '...': Input/output error" when
+          # `checkout --force` overwrites files left behind by an interrupted checkout
+          # on the rclone FUSE mount. Instead of letting git unlink files through the
+          # mount, delete the stale working tree directly on the OneDrive remote
+          # (everything under src/ except .git) and then check out into an empty tree.
+          purge_src_worktree() {
+            local remote="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/source/src"
+            local entry leftovers waited=0
+
+            echo "Clearing any partially written Chromium working tree (keeping .git)..."
+
+            { rclone lsf --dirs-only "$remote" 2>/dev/null || true; } |
+              while IFS= read -r entry; do
+                [ -z "$entry" ] && continue
+                [ "$entry" = ".git/" ] && continue
+                rclone purge "$remote/${entry%/}" || true
+              done
+
+            { rclone lsf --files-only "$remote" 2>/dev/null || true; } |
+              while IFS= read -r entry; do
+                [ -z "$entry" ] && continue
+                rclone deletefile "$remote/$entry" || true
+              done
+
+            # A stale index from an interrupted checkout would confuse the next one.
+            rclone deletefile "$remote/.git/index" >/dev/null 2>&1 || true
+
+            # The mount caches directory listings for 12h, so tell it that the
+            # remote changed underneath it.
+            rclone rc --url http://127.0.0.1:5572 vfs/forget >/dev/null 2>&1 || true
+
+            while :; do
+              leftovers=$(
+                { ls -A "$WORK_ROOT/src" 2>/dev/null | grep -vx '\.git' || true; } |
+                  wc -l
+              )
+              [ "$leftovers" -eq 0 ] && break
+              if [ "$waited" -ge 300 ]; then
+                echo "Mount still lists $leftovers stale entries in src after 5 minutes."
+                return 1
+              fi
+              rclone rc --url http://127.0.0.1:5572 vfs/forget >/dev/null 2>&1 || true
+              sleep 15
+              waited=$((waited + 15))
+            done
+
+            echo "Working tree is clean; ready for a fresh checkout."
+          }
+
+          # Prints what the job is doing every 2 minutes so a long silent phase can be
+          # told apart from a real hang: running git/gclient processes (with their
+          # elapsed seconds), rclone's upload queue and cache usage, and runner disk.
+          heartbeat() {
+            local parent=$$
+            set +e
+            while kill -0 "$parent" 2>/dev/null; do
+              sleep 120
+              echo "[heartbeat $(date -u +%H:%M:%S)] disk used/avail: $(df -h --output=used,avail "$HOME" 2>/dev/null | tail -n 1 | xargs)"
+              echo "[heartbeat] running: $(ps -eo etimes=,args= 2>/dev/null | grep -E '[ ]git |[ ]gclient' | cut -c1-140 | head -n 4 | tr '\n' ';')"
+              echo "[heartbeat] rclone: $(rclone rc --url http://127.0.0.1:5572 vfs/stats 2>/dev/null | tr -d '\n ' | cut -c1-260)"
+            done
+          }
           current_head=""
 
           if current_head=$(
@@ -576,15 +664,42 @@ jobs:
             echo \
               "Persistent checkout is at $current_head; moving src to the locked revision before gclient sync."
 
-            # Move the main Chromium src revision with Git itself rather than
-            # making gclient perform the revision transition on the OneDrive
-            # rclone mount. This avoids the silent, filesystem-heavy
-            # "Still working on: src" state seen during gclient sync.
-            GIT_TERMINAL_PROMPT=0 \
-              git \
-                --git-dir="$GIT_WORK_TREE/.git" \
-                --work-tree="$GIT_WORK_TREE" \
-                checkout --force --detach "$REVISION"
+            # HEAD is not the locked revision, so any files already in src/ come from
+            # an interrupted checkout. Never overwrite them through the mount (that is
+            # what produced the EIO unlink errors); wipe them on the remote first.
+            purge_src_worktree
+
+            # Check out with git itself, into the now-empty tree, and show progress
+            # (git prints none when it is not on a terminal, which looks like a hang).
+            checkout_ok=false
+            for checkout_attempt in 1 2; do
+              if GIT_TERMINAL_PROMPT=0 \
+                git \
+                  --git-dir="$GIT_WORK_TREE/.git" \
+                  --work-tree="$GIT_WORK_TREE" \
+                  checkout --progress --force --detach "$REVISION" 2>&1 |
+                stdbuf -o0 tr '\r' '\n' |
+                awk 'NR % 25 == 0 || /done|error|fatal/ { print; fflush() }'
+              then
+                checkout_ok=true
+                break
+              fi
+
+              echo "Checkout attempt $checkout_attempt failed; clearing the partial tree before retrying..."
+              find "$GIT_WORK_TREE/.git" \
+                -maxdepth 1 \
+                -type f \
+                -name "*.lock" \
+                -delete 2>/dev/null || true
+              purge_src_worktree || true
+            done
+
+            if [ "$checkout_ok" != "true" ]; then
+              update_status \
+                "failed" \
+                ",\"reason\":\"chromium_checkout_failed\""
+              exit 1
+            fi
 
             current_head=$(git --git-dir="$GIT_WORK_TREE/.git" rev-parse HEAD)
             test "$current_head" = "$REVISION"
@@ -615,6 +730,9 @@ jobs:
 
           update_status "syncing-dependencies"
 
+          heartbeat &
+          HEARTBEAT_PID=$!
+
           set +e
 
           script -q -e -c '
@@ -624,7 +742,7 @@ jobs:
             if gclient sync \
               --nohooks \
               --no-history \
-              -j 2 \
+              --jobs=8 \
               --revision "src@$REVISION"
             then
               exit 0
@@ -684,6 +802,8 @@ jobs:
             done
 
           sync_status=${PIPESTATUS[0]}
+
+          kill "$HEARTBEAT_PID" 2>/dev/null || true
 
           set -e
 
