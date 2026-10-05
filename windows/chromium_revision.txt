@@ -1,2 +1,1 @@
-# Pinned Chromium revision used by the Windows Wave build.
-# This file is automatically updated by .github/workflows/update-chromium.yml.
+b57e7b0b080410c589694faf93fcdff09e55b5a7
