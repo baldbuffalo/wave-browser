@@ -97,7 +97,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $revision = (Get-Content (Join-Path $env:WAVE_WORK_ROOT '.wave_revision') -Raw).Trim()
           $env:WAVE_CHROMIUM_PREPARED = '1'
-          $env:CHROMIUM_SRC = Join-Path $env:WAVE_WORK_ROOT 'chromium\src'
+          $env:CHROMIUM_SRC = Join-Path $env:WAVE_WORK_ROOT 'src'
           $env:DEPOT_TOOLS = Join-Path $env:RUNNER_TEMP 'depot_tools'
           $env:GIT_CACHE_PATH = Join-Path $env:WAVE_WORK_ROOT 'git-cache'
           $env:WAVE_OUT = Join-Path $env:WAVE_WORK_ROOT 'outputs'
