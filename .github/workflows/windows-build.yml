@@ -4,61 +4,17 @@ on:
   workflow_dispatch:
 
 jobs:
-  check_engine:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      revision: ${{ steps.check.outputs.revision }}
-    env:
-      WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install rclone
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL https://rclone.org/install.sh | sudo bash
-
-      - name: Configure OneDrive
-        shell: bash
-        env:
-          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
-        run: |
-          set -euo pipefail
-          test -n "$RCLONE_CONFIG_CONTENT" || { echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."; exit 1; }
-          mkdir -p "$HOME/.config/rclone"
-          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
-          chmod 600 "$HOME/.config/rclone/rclone.conf"
-
-      - name: Check the Chromium engine is available
-        id: check
-        shell: bash
-        run: |
-          set -euo pipefail
-          REVISION=$(grep -v '^#' windows/chromium_revision.txt | tr -d '[:space:]')
-          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid Chromium revision: $REVISION"; exit 1; }
-
-          PKG="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz"
-          READY="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package.ready.json"
-
-          if ! rclone lsf "$PKG" >/dev/null 2>&1 || ! rclone lsf "$READY" >/dev/null 2>&1; then
-            echo "::error::The Chromium engine for revision $REVISION is not on OneDrive. Refusing to build the app, because a missing engine would otherwise trigger a long download/build. Run update-chromium.yml (and let finalize-chromium.yml finish) first."
-            exit 1
-          fi
-
-          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
-          echo "Chromium engine $REVISION is available; proceeding to build the app."
-
-  build-windows:
-    needs: check_engine
+  # Job 1: compile the Chromium engine into the Windows browser exe.
+  # If the engine source is not on OneDrive this job stops immediately, so a
+  # run without an engine never starts a multi-hour compile.
+  build_engine:
+    runs-on: windows-latest
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
         slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-    runs-on: windows-latest
-    timeout-minutes: 360
     env:
       DEPOT_TOOLS_WIN_TOOLCHAIN: 0
       WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
@@ -66,17 +22,10 @@ jobs:
       WAVE_WORK_ROOT: D:\wave-build
       WAVE_DISK_LIMIT_GIB: "13"
       WAVE_DISK_SAFETY_GIB: "1"
+    outputs:
+      built: ${{ steps.build.outputs.built }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Prepare Chromium tooling
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
-          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git $depot
-          $depot | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
-          New-Item -ItemType Directory -Force -Path $env:WAVE_WORK_ROOT | Out-Null
 
       - name: Install rclone
         shell: pwsh
@@ -108,7 +57,16 @@ jobs:
           [IO.File]::WriteAllText($configPath, $env:RCLONE_CONFIG_CONTENT)
           "RCLONE_CONFIG=$configPath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Restore checkpoint or Chromium package
+      - name: Prepare Chromium tooling
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git $depot
+          $depot | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force -Path $env:WAVE_WORK_ROOT | Out-Null
+
+      - name: Restore checkpoint or Chromium engine
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -119,12 +77,6 @@ jobs:
           $staging = "$env:WAVE_CHECKPOINT_ROOT/$revision"
           New-Item -ItemType Directory -Force -Path $root | Out-Null
 
-          try {
-            rclone lsf "onedrive:$staging/build.complete" | Out-Null
-            Write-Host "Windows build for $revision is already complete."
-            exit 0
-          } catch {}
-
           $ready = $false
           try { rclone lsf "onedrive:$staging/checkpoint.ready" | Out-Null; $ready = $true } catch {}
           if ($ready) {
@@ -132,13 +84,14 @@ jobs:
             rclone cat "onedrive:$staging/checkpoint.tar.gz" | tar -xzf - -C $root
           } else {
             $package = "onedrive:$env:WAVE_ONEDRIVE_PATH/$revision/package/chromium-$revision.tar.gz"
-            try { rclone lsf $package | Out-Null } catch { throw "Chromium package $revision is missing from OneDrive. Run update-chromium.yml first." }
-            Write-Host "No build checkpoint exists; restoring Chromium source package."
+            try { rclone lsf $package | Out-Null } catch { throw "Chromium engine $revision is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build." }
+            Write-Host "Restoring the finalized Chromium engine for $revision."
             rclone cat $package | tar -xzf - -C $root
           }
           Set-Content -Path (Join-Path $root '.wave_revision') -Value $revision
 
-      - name: Continue Windows Chromium build
+      - name: Build the Windows engine
+        id: build
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -176,6 +129,7 @@ jobs:
             rclone moveto "onedrive:$partial" "onedrive:$final"
             $revision | rclone rcat "onedrive:$staging/checkpoint.ready"
             Write-Host "Checkpoint saved; the next matrix runner will resume it."
+            "built=false" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
             exit 0
           }
 
@@ -183,7 +137,8 @@ jobs:
           $exe = Join-Path $env:WAVE_WORK_ROOT 'outputs\WaveBrowser.exe'
           if (-not (Test-Path $exe)) { throw "WaveBrowser.exe was not produced." }
           Copy-Item $exe (Join-Path $env:GITHUB_WORKSPACE 'WaveBrowser.exe') -Force
-          Write-Host "Windows Chromium build completed for $revision."
+          "built=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Windows engine build completed for $revision."
 
       - name: Upload WaveBrowser.exe
         if: success() && hashFiles('WaveBrowser.exe') != ''
@@ -193,13 +148,22 @@ jobs:
           path: WaveBrowser.exe
           retention-days: 90
 
-      - name: Store completed Windows build in OneDrive
-        if: success() && hashFiles('WaveBrowser.exe') != ''
-        shell: pwsh
+  # Job 2: hand over the exe that job 1 built.
+  publish_app:
+    needs: build_engine
+    if: needs.build_engine.outputs.built == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the exe built by the engine job
+        uses: actions/download-artifact@v4
+        with:
+          name: WaveBrowser-Windows
+
+      - name: Report the exe
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $revision = (Get-Content (Join-Path $env:WAVE_WORK_ROOT '.wave_revision') -Raw).Trim()
-          rclone copyto (Join-Path $env:GITHUB_WORKSPACE 'WaveBrowser.exe') "onedrive:$env:WAVE_ONEDRIVE_PATH/WaveBrowser-Windows-$revision.exe"
-          $revision | rclone rcat "onedrive:$env:WAVE_CHECKPOINT_ROOT/$revision/build.complete"
-          try { rclone deletefile "onedrive:$env:WAVE_CHECKPOINT_ROOT/$revision/checkpoint.ready" } catch {}
-          try { rclone deletefile "onedrive:$env:WAVE_CHECKPOINT_ROOT/$revision/checkpoint.tar.gz" } catch {}
+          set -euo pipefail
+          test -f WaveBrowser.exe
+          ls -lh WaveBrowser.exe
+          echo "WaveBrowser.exe is available in the WaveBrowser-Windows artifact of this run."

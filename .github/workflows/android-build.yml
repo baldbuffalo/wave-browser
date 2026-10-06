@@ -4,13 +4,25 @@ on:
   workflow_dispatch:
 
 jobs:
-  check_engine:
+  # Job 1: compile the Chromium engine into the Android browser APK.
+  # If the engine source is not on OneDrive this job stops immediately, so a
+  # run without an engine never starts a multi-hour compile.
+  build_engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      revision: ${{ steps.check.outputs.revision }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     env:
       WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
+      WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android
+      WAVE_WORK_ROOT: chromium-checkout
+      WAVE_DISK_LIMIT_GIB: "13"
+      WAVE_DISK_SAFETY_GIB: "1"
+    outputs:
+      built: ${{ steps.build.outputs.built }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,43 +42,6 @@ jobs:
           mkdir -p "$HOME/.config/rclone"
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
-
-      - name: Check the Chromium engine is available
-        id: check
-        shell: bash
-        run: |
-          set -euo pipefail
-          REVISION=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]')
-          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid Chromium revision: $REVISION"; exit 1; }
-
-          PKG="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz"
-          READY="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package.ready.json"
-
-          if ! rclone lsf "$PKG" >/dev/null 2>&1 || ! rclone lsf "$READY" >/dev/null 2>&1; then
-            echo "::error::The Chromium engine for revision $REVISION is not on OneDrive. Refusing to build the app, because a missing engine would otherwise trigger a long download/build. Run update-chromium.yml (and let finalize-chromium.yml finish) first."
-            exit 1
-          fi
-
-          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
-          echo "Chromium engine $REVISION is available; proceeding to build the app."
-
-  build-android:
-    needs: check_engine
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-    env:
-      WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
-      WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android
-      WAVE_WORK_ROOT: chromium-checkout
-      WAVE_DISK_LIMIT_GIB: "13"
-      WAVE_DISK_SAFETY_GIB: "1"
-    steps:
-      - uses: actions/checkout@v4
 
       - name: Prepare Chromium tooling
         shell: bash
@@ -77,24 +52,7 @@ jobs:
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
           echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 
-      - name: Install rclone
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL https://rclone.org/install.sh | sudo bash
-
-      - name: Configure OneDrive
-        shell: bash
-        env:
-          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
-        run: |
-          set -euo pipefail
-          test -n "$RCLONE_CONFIG_CONTENT" || { echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."; exit 1; }
-          mkdir -p "$HOME/.config/rclone"
-          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
-          chmod 600 "$HOME/.config/rclone/rclone.conf"
-
-      - name: Restore checkpoint or Chromium package
+      - name: Restore checkpoint or Chromium engine
         shell: bash
         run: |
           set -euo pipefail
@@ -105,24 +63,20 @@ jobs:
           STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
           mkdir -p "$ROOT"
 
-          if rclone lsf "onedrive:$STAGING/build.complete" >/dev/null 2>&1; then
-            echo "Android build for $REVISION is already complete."
-            exit 0
-          fi
-
           if rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
             echo "Restoring Android build checkpoint for $REVISION."
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
           elif rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" >/dev/null 2>&1; then
-            echo "No build checkpoint exists; restoring finalized Chromium source package."
+            echo "Restoring the finalized Chromium engine for $REVISION."
             rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" | tar -xzf - -C "$ROOT"
           else
-            echo "Chromium package $REVISION is missing from OneDrive. Run update-chromium.yml first."
+            echo "::error::Chromium engine $REVISION is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build."
             exit 1
           fi
           printf '%s\n' "$REVISION" > "$ROOT/.wave_revision"
 
-      - name: Continue Android Chromium build
+      - name: Build the Android engine
+        id: build
         shell: bash
         run: |
           set -euo pipefail
@@ -166,12 +120,14 @@ jobs:
             rclone moveto "onedrive:$PARTIAL" "onedrive:$FINAL"
             printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/checkpoint.ready"
             echo "Checkpoint saved; the next matrix runner will resume it."
+            echo "built=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           wait "$BUILD_PID"
           test -f android/WaveBrowser.apk
-          echo "Android Chromium build completed for $REVISION."
+          echo "built=true" >> "$GITHUB_OUTPUT"
+          echo "Android engine build completed for $REVISION."
 
       - name: Upload WaveBrowser.apk
         if: success() && hashFiles('android/WaveBrowser.apk') != ''
@@ -181,13 +137,22 @@ jobs:
           path: android/WaveBrowser.apk
           retention-days: 90
 
-      - name: Store completed Android build in OneDrive
-        if: success() && hashFiles('android/WaveBrowser.apk') != ''
+  # Job 2: hand over the APK that job 1 built.
+  publish_app:
+    needs: build_engine
+    if: needs.build_engine.outputs.built == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the APK built by the engine job
+        uses: actions/download-artifact@v4
+        with:
+          name: WaveBrowser-Android
+
+      - name: Report the APK
         shell: bash
         run: |
           set -euo pipefail
-          REVISION=$(cat "$WAVE_WORK_ROOT/.wave_revision")
-          rclone copyto android/WaveBrowser.apk "onedrive:$WAVE_ONEDRIVE_PATH/WaveBrowser-Android-$REVISION.apk"
-          printf '%s\\n' "$REVISION" | rclone rcat "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/build.complete"
-          rclone delete "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/checkpoint.ready" || true
-          rclone deletefile "onedrive:$WAVE_CHECKPOINT_ROOT/$REVISION/checkpoint.tar.zst" || true
+          test -f WaveBrowser.apk
+          ls -lh WaveBrowser.apk
+          echo "WaveBrowser.apk is available in the WaveBrowser-Android artifact of this run."
