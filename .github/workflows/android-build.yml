@@ -2,9 +2,114 @@ name: Wave Android Build
 
 on:
   workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Compile Chromium if there is no cached Android build. Leave false to only publish a cached build; a missing engine/build fails instead of silently starting a multi-hour compile."
+        required: false
+        type: boolean
+        default: false
 
 jobs:
+  check_inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      allow: ${{ steps.check.outputs.allow }}
+      build_ready: ${{ steps.check.outputs.build_ready }}
+      revision: ${{ steps.check.outputs.revision }}
+    env:
+      WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
+      WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configure OneDrive
+        shell: bash
+        env:
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+        run: |
+          set -euo pipefail
+          test -n "$RCLONE_CONFIG_CONTENT" || { echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."; exit 1; }
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+
+      - name: Check engine and build state
+        id: check
+        env:
+          FORCE_BUILD: ${{ inputs.force_build }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVISION=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]')
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid Chromium revision: $REVISION"; exit 1; }
+
+          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          PKG="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz"
+          READY="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package.ready.json"
+
+          build_ready=false
+          if rclone lsf "onedrive:$STAGING/build.complete" >/dev/null 2>&1; then
+            build_ready=true
+          fi
+
+          engine_ready=false
+          if rclone lsf "$PKG" >/dev/null 2>&1 && rclone lsf "$READY" >/dev/null 2>&1; then
+            engine_ready=true
+          fi
+
+          allow=false
+          if [ "$build_ready" = "true" ]; then
+            allow=true
+          elif [ "$engine_ready" = "true" ] && [ "$FORCE_BUILD" = "true" ]; then
+            allow=true
+          fi
+
+          {
+            echo "revision=$REVISION"
+            echo "build_ready=$build_ready"
+            echo "engine_ready=$engine_ready"
+            echo "allow=$allow"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$allow" != "true" ]; then
+            echo "::error::No cached Android build for Chromium $REVISION and its engine is not finalized. Refusing to silently start a multi-hour Chromium compile. Run update-chromium.yml first (and let finalize-chromium.yml finish), or re-run this workflow with force_build = true to compile now."
+            exit 1
+          fi
+
+          if [ "$build_ready" = "true" ]; then
+            echo "Cached Android build found for $REVISION; publishing the existing APK without compiling."
+          else
+            echo "Engine finalized and force_build is set; the matrix will compile Chromium."
+          fi
+
+      - name: Publish cached APK
+        if: steps.check.outputs.build_ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVISION="${{ steps.check.outputs.revision }}"
+          mkdir -p android
+          rclone copyto "onedrive:$WAVE_ONEDRIVE_PATH/WaveBrowser-Android-$REVISION.apk" android/WaveBrowser.apk
+          ls -lh android/WaveBrowser.apk
+
+      - name: Upload WaveBrowser.apk
+        if: steps.check.outputs.build_ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveBrowser-Android
+          path: android/WaveBrowser.apk
+          retention-days: 90
+
   build-android:
+    needs: check_inputs
+    if: needs.check_inputs.outputs.allow == 'true' && needs.check_inputs.outputs.build_ready != 'true'
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -39,7 +144,7 @@ jobs:
       - name: Configure OneDrive
         shell: bash
         env:
-          RCLONE_CONFIG_CONTENT: \${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
+          RCLONE_CONFIG_CONTENT: ${{ secrets.WAVE_CHROMIUM_BACKUP_ONEDRIVE }}
         run: |
           set -euo pipefail
           test -n "$RCLONE_CONFIG_CONTENT" || { echo "Missing WAVE_CHROMIUM_BACKUP_ONEDRIVE repository secret."; exit 1; }
