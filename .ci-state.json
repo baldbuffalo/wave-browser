@@ -2,22 +2,24 @@
  "version": 1,
  "workflows": {
   "android-build.yml": {
-   "last_run_id": 37608276109,
-   "last_conclusion": "in_progress",
-   "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+   "last_run_id": 37610857184,
+   "last_conclusion": "queued",
+   "last_head_sha": "53e70fae4ac4",
    "fixes_applied": 0,
    "attempted_signatures": [],
-   "note": "Run 37608276109 head 9aeb982 != main; STALE per rule. Restore step completed SUCCESS (same b57e7b0b package path), proving OneDrive reachable and engine package present. No re-dispatch (would be STALE-based). sccache 0.18.0 clean. No in-scope fix."
+   "note": "Re-dispatched 37610857184 at main 53e70fa (my windows commit advanced main). Prior run 37608276109 head 9aeb982 was STALE; in-progress job1 log not yet fetchable. Android restore logic correct (bash gates on rclone exit code) and restore succeeded, proving OneDrive reachable and engine b57e7b0b package present. No in-scope fix."
   },
   "windows-build.yml": {
-   "last_run_id": 37610399311,
+   "last_run_id": 37610825779,
    "last_conclusion": "queued",
-   "last_head_sha": "7ae980dbbb",
-   "fixes_applied": 2,
+   "last_head_sha": "53e70fae4ac4",
+   "fixes_applied": 3,
    "attempted_signatures": [
-    "windows-rclone-not-on-PATH-after-winget"
+    "windows-rclone-not-on-PATH-after-winget",
+    "windows-disk-monitor-checked-C-drive-always-over-limit",
+    "windows-rclone-lsf-try-catch-not-catching-native-exit"
    ],
-   "note": "Non-stale FATAL run 37609988784 (head 03b72cc) job 112754657437: 'Chromium engine b57e7b0b... is not on OneDrive...skipping the engine build'; rclone absent from stock windows-latest; winget sets only current-process PATH, so later steps get command-not-found swallowed by bare catch{} into misleading 'not on OneDrive'. Android succeeds same path via system-wide rclone.org/install.sh. FIXED 7ae980d: re-read Machine/User registry PATH + publish resolved dir via GITHUB_PATH. Re-dispatched run 37610399311."
+   "note": "FIXED 53e70fa two defects: (1) disk monitor used Get-PSDrive C => C: used 117GiB >= 13GiB limit always true, so every runner checkpointed within seconds of starting the build and exited 'success' having compiled nothing; now monitors the WAVE_WORK_ROOT drive (D:). (2) try/catch does not catch a native command's non-zero exit in pwsh 7, so 'rclone lsf' failing still set $ready=$true (wrong branch) and the package check never threw; now gated on $LASTEXITCODE. Re-dispatched run 37610825779 at main 53e70fa."
   }
  },
  "findings": [
@@ -148,8 +150,80 @@
    "stale": true,
    "matched": "Restore engine and compiled output -> completed success",
    "action": "recorded only"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610399311,
+   "class": "FATAL",
+   "stale": false,
+   "matched": "Checkpoint threshold reached; stopping Windows build. Disk: 117.34 GiB used, 32.11 GiB free.",
+   "action": "fixed: disk monitor checked C: (system drive) instead of build work drive; commit 53e70fa"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610399311,
+   "class": "SOFT",
+   "stale": false,
+   "matched": "NOTICE: Failed to lsf with 2 errors ... directory not found (try/catch did not catch native exit; $ready wrongly = true)",
+   "action": "fixed: gate on $LASTEXITCODE; commit 53e70fa"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610399311,
+   "class": "SOFT",
+   "stale": false,
+   "matched": "NOTICE: Failed to cat with 2 errors ... directory not found (restore of missing checkpoint swallowed)",
+   "action": "fixed: same LASTEXITCODE fix; commit 53e70fa"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610399311,
+   "class": "SOFT",
+   "stale": false,
+   "matched": "sccache 0.18.0 available (SCCACHE_PATH set) but 0 compile requests / 0 cache hits",
+   "action": "recorded only (no compilation occurred; expected to resolve once disk fix lets the build run)"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610399311,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "NOTICE: Failed to deletefile ... checkpoint.ready is a directory or doesn't exist: object not found",
+   "action": "recorded only (harmless pre-save cleanup)"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610399311,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37608276109,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "run in progress; sccache 0.18.0 clean; no 'not on OneDrive' error",
+   "action": "recorded only (stale head 9aeb982; job1 log not yet available)"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610825779,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "new run queued at main 53e70fa after fix",
+   "action": "dispatched"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37610857184,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "new run queued at main 53e70fa after windows commit advanced main",
+   "action": "dispatched"
   }
  ],
- "last_checked_main_sha": "7ae980dbbb",
- "last_checked_at": "2026-10-07T10:54:30Z"
+ "last_checked_main_sha": "53e70fae4ac4",
+ "last_checked_at": "2026-10-07T10:58:00Z"
 }
