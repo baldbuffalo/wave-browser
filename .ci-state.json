@@ -1,328 +1,392 @@
 {
- "version": 1,
- "workflows": {
-  "android-build.yml": {
-   "last_run_id": 37613512774,
-   "last_conclusion": null,
-   "last_head_sha": "036935105cb2",
-   "fixes_applied": 1,
-   "attempted_signatures": [
-    "android-relative-WAVE_CHROMIUM_ROOT-double-cd"
-   ],
-   "note": "Dispatched fresh run 37613512774 at main 0369351 (keeps android aligned with the new main tip). Prior fresh run 37612973907 (head 110e884) was still in early setup: job1 in_progress, log blob not yet available (BlobNotFound), other slots queued; no log signal obtainable this cycle. Known SOFT residual: checkpoint upload resourceModified eTag mismatch (recorded, inconclusive). No code change this cycle."
+  "version": 1,
+  "workflows": {
+    "android-build.yml": {
+      "last_run_id": 37613512774,
+      "last_conclusion": null,
+      "last_head_sha": "036935105cb24753b63a076d920319104a7e9396",
+      "fixes_applied": 1,
+      "attempted_signatures": [
+        "android-relative-WAVE_CHROMIUM_ROOT-double-cd"
+      ],
+      "note": "Dispatched fresh run 37613512774 at main 0369351 (keeps android aligned with the new main tip). Prior fresh run 37612973907 (head 110e884) was still in early setup: job1 in_progress, log blob not yet available (BlobNotFound), other slots queued; no log signal obtainable this cycle. Known SOFT residual: checkpoint upload resourceModified eTag mismatch (recorded, inconclusive). No code change this cycle."
+    },
+    "windows-build.yml": {
+      "last_run_id": 37614584606,
+      "last_conclusion": null,
+      "last_head_sha": "8016809dd7cc",
+      "fixes_applied": 5,
+      "attempted_signatures": [
+        "windows-rclone-not-on-PATH-after-winget",
+        "windows-disk-monitor-checked-C-drive-always-over-limit",
+        "windows-rclone-lsf-try-catch-not-catching-native-exit",
+        "windows-build_chromium.bat-output-not-captured",
+        "windows-incomplete-checkpoint-no-src-git-fallback-finalized"
+      ],
+      "note": "FIXED at main 0369351: windows/build_chromium.bat is launched via Start-Process detached, so its stdout never reached the job log; the job only showed 'Windows Chromium build failed with exit code 1' after ~20s with 0 sccache compile requests, making the real error invisible. Now redirect the bat output to build_chromium.log and replay its last 80 lines before throwing. Windows re-dispatched as run 37613503166 at 0369351 for fresh evidence. Analysis of stale run 37610825779 (head 53e70fa): restore succeeded, disk fix works (D: 146.97 GiB free, no checkpoint loop), then bat exit 1."
+    }
   },
-  "windows-build.yml": {
-   "last_run_id": 37613503166,
-   "last_conclusion": null,
-   "last_head_sha": "036935105cb2",
-   "fixes_applied": 4,
-   "attempted_signatures": [
-    "windows-rclone-not-on-PATH-after-winget",
-    "windows-disk-monitor-checked-C-drive-always-over-limit",
-    "windows-rclone-lsf-try-catch-not-catching-native-exit",
-    "windows-build_chromium.bat-output-not-captured"
-   ],
-   "note": "FIXED at main 0369351: windows/build_chromium.bat is launched via Start-Process detached, so its stdout never reached the job log; the job only showed 'Windows Chromium build failed with exit code 1' after ~20s with 0 sccache compile requests, making the real error invisible. Now redirect the bat output to build_chromium.log and replay its last 80 lines before throwing. Windows re-dispatched as run 37613503166 at 0369351 for fresh evidence. Analysis of stale run 37610825779 (head 53e70fa): restore succeeded, disk fix works (D: 146.97 GiB free, no checkpoint loop), then bat exit 1."
-  }
- },
- "findings": [
-  {
-   "workflow": "android-build.yml",
-   "run_id": 36551604288,
-   "class": "FATAL",
-   "stale": true,
-   "matched": "Chromium engine 9468b7e... is not on OneDrive ... skipping the engine build.",
-   "action": "recorded only (stale)"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 36551604288,
-   "class": "NOISE",
-   "stale": true,
-   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 36438267778,
-   "class": "FATAL",
-   "stale": true,
-   "matched": "Invalid Chromium revision:",
-   "action": "recorded only (stale)"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 36438267778,
-   "class": "NOISE",
-   "stale": true,
-   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37608276109,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "new run queued at main 9aeb982 (previously no run at main)",
-   "action": "dispatched"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37608279037,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "new run queued at main 9aeb982 (previously no run at main)",
-   "action": "dispatched"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37608279037,
-   "class": "FATAL",
-   "stale": false,
-   "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build.",
-   "action": "recorded only (environmental/out-of-scope; no fix)"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37608279037,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37608276109,
-   "class": "SOFT",
-   "stale": false,
-   "matched": "Restore package path matches updater; package not yet present for b57e7b0b (run in progress)",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37608276109,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37609988784,
-   "class": "FATAL",
-   "stale": false,
-   "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build (job 112754657437, head 03b72cc).",
-   "action": "fixed: root cause rclone PATH not propagated after winget install; commit 7ae980d"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37609988784,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37608276109,
-   "class": "NOISE",
-   "stale": true,
-   "matched": "Restore engine and compiled output -> completed success (OneDrive reachable, engine package b57e7b0b present)",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37609988784,
-   "class": "FATAL",
-   "stale": false,
-   "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build (job 112754657437, head 03b72cc)",
-   "action": "fixed: rclone PATH not propagated after winget install; commit 7ae980d"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37609988784,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "Node.js 20 is deprecated (actions/checkout@v4)",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37608276109,
-   "class": "NOISE",
-   "stale": true,
-   "matched": "Restore engine and compiled output -> completed success",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610399311,
-   "class": "FATAL",
-   "stale": false,
-   "matched": "Checkpoint threshold reached; stopping Windows build. Disk: 117.34 GiB used, 32.11 GiB free.",
-   "action": "fixed: disk monitor checked C: (system drive) instead of build work drive; commit 53e70fa"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610399311,
-   "class": "SOFT",
-   "stale": false,
-   "matched": "NOTICE: Failed to lsf with 2 errors ... directory not found (try/catch did not catch native exit; $ready wrongly = true)",
-   "action": "fixed: gate on $LASTEXITCODE; commit 53e70fa"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610399311,
-   "class": "SOFT",
-   "stale": false,
-   "matched": "NOTICE: Failed to cat with 2 errors ... directory not found (restore of missing checkpoint swallowed)",
-   "action": "fixed: same LASTEXITCODE fix; commit 53e70fa"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610399311,
-   "class": "SOFT",
-   "stale": false,
-   "matched": "sccache 0.18.0 available (SCCACHE_PATH set) but 0 compile requests / 0 cache hits",
-   "action": "recorded only (no compilation occurred; expected to resolve once disk fix lets the build run)"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610399311,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "NOTICE: Failed to deletefile ... checkpoint.ready is a directory or doesn't exist: object not found",
-   "action": "recorded only (harmless pre-save cleanup)"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610399311,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37608276109,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "run in progress; sccache 0.18.0 clean; no 'not on OneDrive' error",
-   "action": "recorded only (stale head 9aeb982; job1 log not yet available)"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610825779,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "new run queued at main 53e70fa after fix",
-   "action": "dispatched"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37610857184,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "new run queued at main 53e70fa after windows commit advanced main",
-   "action": "dispatched"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37610857184,
-   "class": "FATAL",
-   "stale": false,
-   "matched": "android/build_chromium.sh: line 32: cd: chromium-checkout/src: No such file or directory",
-   "action": "fixed: resolve relative WAVE_CHROMIUM_ROOT to absolute; commit 110e884"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37610857184,
-   "class": "SOFT",
-   "stale": false,
-   "matched": "rclone rcat checkpoint.tar.zst.partial: resourceModified: eTag mismatch",
-   "action": "recorded only (checkpoint upload failed; residual, inconclusive)"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37610857184,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "Restoring the finalized Chromium engine for b57e7b0b (OneDrive reachable, engine present)",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610825779,
-   "class": "FATAL",
-   "stale": false,
-   "matched": "Windows Chromium build failed with exit code 1 (bat run via Start-Process; stdout not captured)",
-   "action": "recorded only (no safe in-scope fix; needs owner log capture)"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610825779,
-   "class": "SOFT",
-   "stale": false,
-   "matched": "sccache 0 compile requests / 0 cache hits (no compilation occurred)",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610825779,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37612973907,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "new run queued at main 110e884 after android fix",
-   "action": "dispatched"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610825779,
-   "class": "FATAL",
-   "stale": true,
-   "matched": "Windows Chromium build failed with exit code 1 (bat detached, stdout not captured; 0 compile requests)",
-   "action": "fixed: capture bat output in windows-build.yml; commit 0369351"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37610825779,
-   "class": "SOFT",
-   "stale": true,
-   "matched": "sccache 0 compile requests / 0 cache hits",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37612973907,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "fresh run at main 110e884; job1 in_progress, log blob unavailable (BlobNotFound)",
-   "action": "recorded only"
-  },
-  {
-   "workflow": "android-build.yml",
-   "run_id": 37613512774,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "new run queued at main 0369351",
-   "action": "dispatched"
-  },
-  {
-   "workflow": "windows-build.yml",
-   "run_id": 37613503166,
-   "class": "NOISE",
-   "stale": false,
-   "matched": "new run queued at main 0369351 after output-capture fix",
-   "action": "dispatched"
-  }
- ],
- "last_checked_main_sha": "036935105cb2",
- "last_checked_at": "2026-10-07T11:21:30Z"
+  "findings": [
+    {
+      "workflow": "android-build.yml",
+      "run_id": 36551604288,
+      "class": "FATAL",
+      "stale": true,
+      "matched": "Chromium engine 9468b7e... is not on OneDrive ... skipping the engine build.",
+      "action": "recorded only (stale)"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 36551604288,
+      "class": "NOISE",
+      "stale": true,
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 36438267778,
+      "class": "FATAL",
+      "stale": true,
+      "matched": "Invalid Chromium revision:",
+      "action": "recorded only (stale)"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 36438267778,
+      "class": "NOISE",
+      "stale": true,
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37608276109,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "new run queued at main 9aeb982 (previously no run at main)",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37608279037,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "new run queued at main 9aeb982 (previously no run at main)",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37608279037,
+      "class": "FATAL",
+      "stale": false,
+      "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build.",
+      "action": "recorded only (environmental/out-of-scope; no fix)"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37608279037,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37608276109,
+      "class": "SOFT",
+      "stale": false,
+      "matched": "Restore package path matches updater; package not yet present for b57e7b0b (run in progress)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37608276109,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37609988784,
+      "class": "FATAL",
+      "stale": false,
+      "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build (job 112754657437, head 03b72cc).",
+      "action": "fixed: root cause rclone PATH not propagated after winget install; commit 7ae980d"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37609988784,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37608276109,
+      "class": "NOISE",
+      "stale": true,
+      "matched": "Restore engine and compiled output -> completed success (OneDrive reachable, engine package b57e7b0b present)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37609988784,
+      "class": "FATAL",
+      "stale": false,
+      "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build (job 112754657437, head 03b72cc)",
+      "action": "fixed: rclone PATH not propagated after winget install; commit 7ae980d"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37609988784,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "Node.js 20 is deprecated (actions/checkout@v4)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37608276109,
+      "class": "NOISE",
+      "stale": true,
+      "matched": "Restore engine and compiled output -> completed success",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610399311,
+      "class": "FATAL",
+      "stale": false,
+      "matched": "Checkpoint threshold reached; stopping Windows build. Disk: 117.34 GiB used, 32.11 GiB free.",
+      "action": "fixed: disk monitor checked C: (system drive) instead of build work drive; commit 53e70fa"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610399311,
+      "class": "SOFT",
+      "stale": false,
+      "matched": "NOTICE: Failed to lsf with 2 errors ... directory not found (try/catch did not catch native exit; $ready wrongly = true)",
+      "action": "fixed: gate on $LASTEXITCODE; commit 53e70fa"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610399311,
+      "class": "SOFT",
+      "stale": false,
+      "matched": "NOTICE: Failed to cat with 2 errors ... directory not found (restore of missing checkpoint swallowed)",
+      "action": "fixed: same LASTEXITCODE fix; commit 53e70fa"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610399311,
+      "class": "SOFT",
+      "stale": false,
+      "matched": "sccache 0.18.0 available (SCCACHE_PATH set) but 0 compile requests / 0 cache hits",
+      "action": "recorded only (no compilation occurred; expected to resolve once disk fix lets the build run)"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610399311,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "NOTICE: Failed to deletefile ... checkpoint.ready is a directory or doesn't exist: object not found",
+      "action": "recorded only (harmless pre-save cleanup)"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610399311,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37608276109,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "run in progress; sccache 0.18.0 clean; no 'not on OneDrive' error",
+      "action": "recorded only (stale head 9aeb982; job1 log not yet available)"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610825779,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "new run queued at main 53e70fa after fix",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37610857184,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "new run queued at main 53e70fa after windows commit advanced main",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37610857184,
+      "class": "FATAL",
+      "stale": false,
+      "matched": "android/build_chromium.sh: line 32: cd: chromium-checkout/src: No such file or directory",
+      "action": "fixed: resolve relative WAVE_CHROMIUM_ROOT to absolute; commit 110e884"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37610857184,
+      "class": "SOFT",
+      "stale": false,
+      "matched": "rclone rcat checkpoint.tar.zst.partial: resourceModified: eTag mismatch",
+      "action": "recorded only (checkpoint upload failed; residual, inconclusive)"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37610857184,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "Restoring the finalized Chromium engine for b57e7b0b (OneDrive reachable, engine present)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610825779,
+      "class": "FATAL",
+      "stale": false,
+      "matched": "Windows Chromium build failed with exit code 1 (bat run via Start-Process; stdout not captured)",
+      "action": "recorded only (no safe in-scope fix; needs owner log capture)"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610825779,
+      "class": "SOFT",
+      "stale": false,
+      "matched": "sccache 0 compile requests / 0 cache hits (no compilation occurred)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610825779,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37612973907,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "new run queued at main 110e884 after android fix",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610825779,
+      "class": "FATAL",
+      "stale": true,
+      "matched": "Windows Chromium build failed with exit code 1 (bat detached, stdout not captured; 0 compile requests)",
+      "action": "fixed: capture bat output in windows-build.yml; commit 0369351"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37610825779,
+      "class": "SOFT",
+      "stale": true,
+      "matched": "sccache 0 compile requests / 0 cache hits",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37612973907,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "fresh run at main 110e884; job1 in_progress, log blob unavailable (BlobNotFound)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37613512774,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "new run queued at main 0369351",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37613503166,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "new run queued at main 0369351 after output-capture fix",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37613503166,
+      "class": "FATAL",
+      "matched": "Chromium checkout is missing. Run update-chromium.yml successfully first. (build_chromium.bat via captured log; WAVE_CHROMIUM_PREPARED=1 skips gclient sync)",
+      "action": "fixed: validate restored checkpoint has src/.git, discard incomplete checkpoint and fall back to finalized engine package; commit 8016809"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37613503166,
+      "class": "SOFT",
+      "matched": "Restoring an unfinished Windows build checkpoint for b57e7b0b... (checkpoint poisoned by old bad disk monitor that aborted before extraction)",
+      "action": "fixed same commit 8016809"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37613503166,
+      "class": "NOISE",
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37614584606,
+      "class": "NOISE",
+      "matched": "new run queued at main 8016809 after checkpoint-fallback fix",
+      "action": "dispatched"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37613512774,
+      "class": "NOISE",
+      "matched": "current-main run job1 in_progress; log blob unavailable (BlobNotFound)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37612973907,
+      "class": "FATAL",
+      "matched": "Checkpoint threshold reached; stopping Android build. Disk: 99.86 GiB used, 44.38 GiB free. (stale head 110e884 != main; runner has 44 GiB free so threshold looks like it is compared against a nearly-full scratch/tmpfs)",
+      "action": "recorded only (stale head; not a main-based fix)"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37612973907,
+      "class": "SOFT",
+      "matched": "checkpoint.tar.zst.partial: Post request rcat error: HTTP error 404 ... (checkpoint upload aborted; upload pipeline exit 6)",
+      "action": "recorded only (stale head)"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37612973907,
+      "class": "NOISE",
+      "matched": "Restoring the finalized Chromium engine for b57e7b0b (engine present, good)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37612973907,
+      "class": "NOISE",
+      "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+      "action": "recorded only"
+    }
+  ],
+  "last_checked_main_sha": "036935105cb2",
+  "last_checked_at": "2026-10-07T11:21:30Z"
 }
