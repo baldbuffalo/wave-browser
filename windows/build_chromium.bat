@@ -40,7 +40,9 @@ if errorlevel 1 exit /b 1
 
 if not exist out\WaveWin mkdir out\WaveWin
 
-gn gen out\WaveWin --args="is_debug=false is_component_build=false target_cpu=\"x64\""
+set "WAVE_GN_ARGS=is_debug=false is_component_build=false target_cpu=\"x64\""
+if defined SCCACHE_PATH set "WAVE_GN_ARGS=%WAVE_GN_ARGS% cc_wrapper=\"%SCCACHE_PATH%\""
+gn gen out\WaveWin --args="%WAVE_GN_ARGS%"
 if errorlevel 1 exit /b 1
 
 autoninja -C out\WaveWin chrome

@@ -40,6 +40,14 @@ is_official_build = false
 chrome_public_manifest_package = "com.wavebrowser.android"
 EOF
 
+# Reuse compiled objects across builds the way Chromium and Brave do, with a
+# compiler cache wired in as Chromium's cc_wrapper. Objects keyed by source and
+# flags are reused, so rebuilding after a UI change skips unchanged files.
+if [[ -n "${SCCACHE_PATH:-}" ]]; then
+  echo "cc_wrapper = \"${SCCACHE_PATH}\"" >> "${OUT_DIR}.args"
+  echo "Using sccache compiler cache: ${SCCACHE_PATH}"
+fi
+
 gn gen "${OUT_DIR}" --args="$(cat "${OUT_DIR}.args")"
 autoninja -C "${OUT_DIR}" chrome_public_apk
 

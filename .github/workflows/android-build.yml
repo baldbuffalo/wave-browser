@@ -52,6 +52,24 @@ jobs:
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
           echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 
+      - name: Set up sccache compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Enable sccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Chromium reads the compiler cache through the cc_wrapper GN arg.
+          # SCCACHE_GHA_ENABLED stores objects in the GitHub Actions cache, the
+          # self-hosted stand-in for the remote compile cache Chromium and Brave
+          # use. Resolve the binary explicitly in case the action only put it on
+          # PATH rather than exporting SCCACHE_PATH.
+          SCCACHE_PATH="${SCCACHE_PATH:-$(command -v sccache || true)}"
+          test -n "$SCCACHE_PATH" || { echo "sccache not found on PATH."; exit 1; }
+          echo "SCCACHE_PATH=$SCCACHE_PATH" >> "$GITHUB_ENV"
+          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+          "$SCCACHE_PATH" --version
+
       - name: Restore engine and compiled output
         shell: bash
         run: |
@@ -73,16 +91,6 @@ jobs:
             else
               echo "::error::Chromium engine $REVISION is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build."
               exit 1
-            fi
-
-            # Compiled output is cached per revision, so rebuilding the same
-            # engine is incremental (ninja relinks only what changed) instead
-            # of a full recompile. A new revision has no cache and builds fresh.
-            # Restore it after the source so the cached object files are newer
-            # than the source files, which is what makes ninja skip them.
-            if rclone lsf "onedrive:$STAGING/out.ready" >/dev/null 2>&1; then
-              echo "Restoring cached compiled output for an incremental Android rebuild."
-              rclone cat "onedrive:$STAGING/out.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT/src"
             fi
           fi
           printf '%s\n' "$REVISION" > "$ROOT/.wave_revision"
@@ -138,12 +146,6 @@ jobs:
 
           wait "$BUILD_PID"
           test -f android/WaveBrowser.apk
-
-          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
-          echo "Caching the compiled output so future builds of $REVISION are incremental."
-          tar -C "$WAVE_WORK_ROOT/src" -cf - out | zstd -T0 -3 | rclone rcat "onedrive:$STAGING/out.tar.zst.partial"
-          rclone moveto "onedrive:$STAGING/out.tar.zst.partial" "onedrive:$STAGING/out.tar.zst"
-          printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/out.ready"
 
           echo "built=true" >> "$GITHUB_OUTPUT"
           echo "Android engine build completed for $REVISION."
