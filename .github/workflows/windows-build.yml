@@ -103,14 +103,18 @@ jobs:
           $staging = "$env:WAVE_CHECKPOINT_ROOT/$revision"
           New-Item -ItemType Directory -Force -Path $root | Out-Null
 
+          # PowerShell 7 does not surface a native command's exit code to try/catch,
+          # so gate on $LASTEXITCODE instead of a try/catch around rclone.
           $ready = $false
-          try { rclone lsf "onedrive:$staging/checkpoint.ready" | Out-Null; $ready = $true } catch {}
+          rclone lsf "onedrive:$staging/checkpoint.ready" *> $null
+          if ($LASTEXITCODE -eq 0) { $ready = $true }
           if ($ready) {
             Write-Host "Restoring an unfinished Windows build checkpoint for $revision."
             rclone cat "onedrive:$staging/checkpoint.tar.gz" | tar -xzf - -C $root
           } else {
             $package = "onedrive:$env:WAVE_ONEDRIVE_PATH/$revision/package/chromium-$revision.tar.gz"
-            try { rclone lsf $package | Out-Null } catch { throw "Chromium engine $revision is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build." }
+            rclone lsf $package *> $null
+            if ($LASTEXITCODE -ne 0) { throw "Chromium engine $revision is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build." }
             Write-Host "Restoring the finalized Chromium engine for $revision."
             rclone cat $package | tar -xzf - -C $root
           }
@@ -131,7 +135,7 @@ jobs:
 
           $checkpointed = $false
           while (-not $build.HasExited) {
-            $drive = Get-PSDrive -Name C
+            $drive = Get-PSDrive -Name (Split-Path -Qualifier $env:WAVE_WORK_ROOT).TrimEnd(':')
             $used = [math]::Round(($drive.Used / 1GB), 2)
             $free = [math]::Round(($drive.Free / 1GB), 2)
             Write-Host "Disk: $used GiB used, $free GiB free."
