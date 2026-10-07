@@ -118,6 +118,8 @@ jobs:
           if rclone lsf "onedrive:$STAGING/engine.ready" >/dev/null 2>&1; then
             echo "Restoring the finished Android engine for $REVISION."
             rclone cat "onedrive:$STAGING/engine.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
+            # Signals the build script that hooks and gn gen can be skipped.
+            echo "WAVE_ENGINE_RESTORED=1" >> "$GITHUB_ENV"
           elif rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
             echo "Restoring an unfinished Android build checkpoint for $REVISION."
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"

@@ -36,24 +36,32 @@ fi
 
 cd "${SRC_DIR}"
 
-# Chromium's vs_toolchain.py invokes ciopfs, which runhooks downloads into
-# src/build/. ciopfs links against libfuse.so.2; the Ubuntu 24.04 runner ships
-# fuse3 only, so the download succeeds but execution fails with
-# "libfuse.so.2: cannot open shared object file". Install the fuse2
-# compatibility library before runhooks needs it.
-if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
-  echo "Installing libfuse2 required by Chromium's ciopfs helper."
-  sudo apt-get update -qq
-  # Ubuntu 24.04 renamed the package to libfuse2t64 during the time_t
-  # transition; older images still ship libfuse2. Install whichever exists.
-  sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
-  ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2' || {
-    echo "libfuse.so.2 is still missing after installing libfuse2/libfuse2t64." >&2
-    exit 1
-  }
-fi
+# A restored finished engine already contains the hook output and the ninja
+# build files, so re-running hooks is wasted work. It also keeps the build off
+# the ciopfs/libfuse path entirely. gn gen and autoninja still run: the engine
+# is stored without APKs, so the package step has to produce the APK.
+if [[ "${WAVE_ENGINE_RESTORED:-0}" == "1" && -d "${OUT_DIR}" ]]; then
+  echo "Finished Android engine restored; skipping hooks and reconfiguration."
+else
+  # Chromium's vs_toolchain.py invokes ciopfs, which runhooks downloads into
+  # src/build/. ciopfs links against libfuse.so.2; the Ubuntu 24.04 runner ships
+  # fuse3 only, so the download succeeds but execution fails with
+  # "libfuse.so.2: cannot open shared object file". Install the fuse2
+  # compatibility library before runhooks needs it.
+  if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
+    echo "Installing libfuse2 required by Chromium's ciopfs helper."
+    sudo apt-get update -qq
+    # Ubuntu 24.04 renamed the package to libfuse2t64 during the time_t
+    # transition; older images still ship libfuse2. Install whichever exists.
+    sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
+    ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2' || {
+      echo "libfuse.so.2 is still missing after installing libfuse2/libfuse2t64." >&2
+      exit 1
+    }
+  fi
 
-gclient runhooks
+  gclient runhooks
+fi
 
 cat > "${OUT_DIR}.args" <<'EOF'
 target_os = "android"
