@@ -7,7 +7,7 @@
       "last_head_sha": "9468b7e337cb8930f1115604e1fe6f058c949173",
       "fixes_applied": 0,
       "attempted_signatures": [],
-      "note": "latest run stale (head 9468b7e), predates main 9aeb982; no run on current main; no action"
+      "note": "latest run cancelled (not a failure) and stale (head 9468b7e != main 9aeb982); no run on current main; no action"
     },
     "windows-build.yml": {
       "last_run_id": 36438267778,
@@ -15,7 +15,7 @@
       "last_head_sha": "f536f02b57adf1ab4f47d47ef418b1e4a3862b1d",
       "fixes_applied": 0,
       "attempted_signatures": [],
-      "note": "latest run stale (head f536f02), predates main 9aeb982; no run on current main; no action"
+      "note": "latest run stale (head f536f02 != main 9aeb982); no run on current main; no action"
     }
   },
   "last_checked_main_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0"
