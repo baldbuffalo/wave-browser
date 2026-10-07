@@ -18,5 +18,6 @@
       "note": "latest run FAILED but stale (head f536f02 != main 9aeb982); no action"
     }
   },
-  "last_checked_main_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0"
+  "last_checked_main_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+  "last_checked_at": "2026-10-07T10:02:00Z"
 }
