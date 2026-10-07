@@ -67,7 +67,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $env:WAVE_WORK_ROOT | Out-Null
 
       - name: Set up sccache compiler cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Enable sccache
         shell: pwsh
