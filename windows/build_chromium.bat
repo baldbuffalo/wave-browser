@@ -35,7 +35,7 @@ if errorlevel 1 exit /b 1
 call "%DEPOT_TOOLS%\gclient.bat" runhooks
 if errorlevel 1 exit /b 1
 
-python "%~dp0apply_wave_chromium_patch.py"
+python "%~dp0apply_wave_ui.py"
 if errorlevel 1 exit /b 1
 
 if not exist out\WaveWin mkdir out\WaveWin

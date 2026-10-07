@@ -88,15 +88,16 @@ jobs:
             Write-Host "Restoring the finalized Chromium engine for $revision."
             rclone cat $package | tar -xzf - -C $root
 
-            # Compiled output is cached per revision, so rebuilding the same
-            # engine is incremental (ninja relinks only what changed) instead
-            # of a full recompile. A new revision has no cache and builds fresh.
-            # Restore it after the source so the cached object files are newer
-            # than the source files, which is what makes ninja skip them.
+            # The compiled engine is cached per Chromium revision. It is
+            # restored BEFORE the UI layer is applied, so the UI patch makes its
+            # files newer than the cached objects and ninja rebuilds only those
+            # files plus the link. A UI-only change therefore never recompiles
+            # the engine. Restore after the source so unpatched objects are
+            # newer than the source and are skipped.
             $outReady = $false
             try { rclone lsf "onedrive:$staging/out.ready" | Out-Null; $outReady = $true } catch {}
             if ($outReady) {
-              Write-Host "Restoring cached compiled output for an incremental Windows rebuild."
+              Write-Host "Restoring cached compiled engine for an incremental Windows rebuild."
               rclone cat "onedrive:$staging/out.tar.gz" | tar -xzf - -C (Join-Path $root 'src')
             }
           }
