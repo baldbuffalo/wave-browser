@@ -21,6 +21,12 @@ if [[ ! "${REVISION}" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
+# gclient runhooks calls vs_toolchain.py update --force, which fetches the
+# Windows toolchain whenever DEPOT_TOOLS_WIN_TOOLCHAIN is unset, even on Linux.
+# That download needs LUCI auth and fails with a 401 against the
+# chrome-wintoolchain bucket. An Android build never uses it, so opt out.
+export DEPOT_TOOLS_WIN_TOOLCHAIN=0
+
 cd "${CHECKOUT_DIR}"
 
 if [[ "${WAVE_CHROMIUM_PREPARED:-0}" != "1" ]]; then
