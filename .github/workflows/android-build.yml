@@ -81,7 +81,13 @@ jobs:
           STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
           mkdir -p "$ROOT"
 
-          if rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
+          # Restore priority: a finished Android engine is best (the compile
+          # becomes a near no-op), then a partial checkpoint to resume, then the
+          # shared finalized engine package as the base to build from scratch.
+          if rclone lsf "onedrive:$STAGING/engine.ready" >/dev/null 2>&1; then
+            echo "Restoring the finished Android engine for $REVISION."
+            rclone cat "onedrive:$STAGING/engine.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
+          elif rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
             echo "Restoring an unfinished Android build checkpoint for $REVISION."
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
           else
@@ -143,7 +149,10 @@ jobs:
             FINAL="$STAGING/checkpoint.tar.zst"
             rclone deletefile "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1 || true
             echo "Uploading Android build checkpoint to OneDrive."
-            tar -C "$WAVE_WORK_ROOT" -cf - . | zstd -T0 -3 | rclone rcat "onedrive:$PARTIAL"
+            tar -C "$WAVE_WORK_ROOT" \
+              --exclude='*.apk' --exclude='*.aab' --exclude='*.apks' --exclude='*.idsig' \
+              --exclude='*/out/Wave/apks*' --exclude='WaveBrowser.apk' \
+              -cf - . | zstd -T0 -3 | rclone rcat "onedrive:$PARTIAL"
             rclone moveto "onedrive:$PARTIAL" "onedrive:$FINAL"
             printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/checkpoint.ready"
             echo "Checkpoint saved; the next matrix runner will resume it."
@@ -153,6 +162,26 @@ jobs:
 
           wait "$BUILD_PID"
           test -f android/WaveBrowser.apk
+
+          # Persist the finished engine so later runs reuse it instead of
+          # recompiling. Only build inputs and compiled objects are archived:
+          # APKs and other packaged outputs are excluded so the engine store
+          # never holds a release artifact.
+          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          ENGINE_PARTIAL="$STAGING/engine.tar.zst.partial"
+          ENGINE_FINAL="$STAGING/engine.tar.zst"
+          rclone deletefile "onedrive:$STAGING/engine.ready" >/dev/null 2>&1 || true
+          echo "Uploading the finished Android engine to OneDrive."
+          tar -C "$WAVE_WORK_ROOT" \
+            --exclude='*.apk' --exclude='*.aab' --exclude='*.apks' --exclude='*.idsig' \
+            --exclude='*/out/Wave/apks*' --exclude='WaveBrowser.apk' \
+            -cf - . | zstd -T0 -3 | rclone rcat "onedrive:$ENGINE_PARTIAL"
+          rclone moveto "onedrive:$ENGINE_PARTIAL" "onedrive:$ENGINE_FINAL"
+          printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/engine.ready"
+          # Drop any stale partial checkpoint so it cannot shadow the finished
+          # engine on the next restore.
+          rclone deletefile "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1 || true
+          rclone deletefile "onedrive:$STAGING/checkpoint.tar.zst" >/dev/null 2>&1 || true
 
           echo "built=true" >> "$GITHUB_OUTPUT"
           echo "Android engine build completed for $REVISION."
