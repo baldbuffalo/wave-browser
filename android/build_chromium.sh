@@ -2,7 +2,12 @@
 set -euo pipefail
 
 ANDROID_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# WAVE_CHROMIUM_ROOT may be a relative path (e.g. chromium-checkout). Resolve it
+# to an absolute path here, because this script cd's into CHECKOUT_DIR below;
+# a relative CHECKOUT_DIR would otherwise be re-interpreted against that new
+# working directory when SRC_DIR is used, doubling the path segment.
 CHECKOUT_DIR="${WAVE_CHROMIUM_ROOT:-${ANDROID_DIR}/chromium-checkout}"
+CHECKOUT_DIR="$(cd "${CHECKOUT_DIR}" 2>/dev/null && pwd || printf '%s' "${CHECKOUT_DIR}")"
 SRC_DIR="${CHECKOUT_DIR}/src"
 OUT_DIR="${SRC_DIR}/out/Wave"
 REVISION_FILE="${ANDROID_DIR}/chromium_revision.txt"
