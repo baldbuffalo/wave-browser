@@ -1,22 +1,58 @@
 {
-  "version": 1,
-  "workflows": {
-    "android-build.yml": {
-      "last_run_id": 36551604288,
-      "last_conclusion": "cancelled",
-      "last_head_sha": "9468b7e337cb8930f1115604e1fe6f058c949173",
-      "fixes_applied": 0,
-      "attempted_signatures": [],
-      "note": "latest run stale; predates main 80f4cb2; no action"
-    },
-    "windows-build.yml": {
-      "last_run_id": 36438267778,
-      "last_conclusion": "failure",
-      "last_head_sha": "f536f02b57adf1ab4f47d47ef418b1e4a3862b1d",
-      "fixes_applied": 0,
-      "attempted_signatures": [],
-      "note": "latest run stale; predates main 80f4cb2; no action"
-    },
-    "last_checked_main_sha": "80f4cb259230224adc990480a4f0d727db4114f8"
+ "version": 1,
+ "workflows": {
+  "android-build.yml": {
+   "last_run_id": 37608276109,
+   "last_conclusion": "in_progress",
+   "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+   "fixes_applied": 0,
+   "attempted_signatures": [],
+   "note": "Run 37608276109 at main (9aeb982). All 16 build_engine slots. Restore step uses identical package path to update-chromium.yml writer (onedrive:WaveBrowser/Chromium/$REVISION/package/chromium-$REVISION.tar.gz). No in-scope code defect; package for Chromium b57e7b0b not yet published on OneDrive. sccache 0.18.0 clean. NOISE only. No fix this cycle."
+  },
+  "windows-build.yml": {
+   "last_run_id": 37608279037,
+   "last_conclusion": "failure",
+   "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+   "fixes_applied": 0,
+   "attempted_signatures": [],
+   "note": "Run 37608279037 at main (9aeb982). All build_engine slots fail identically at Restore: 'Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...' (exit 1). Path logic correct and matches update-chromium.yml writer; external OneDrive package absent. No in-scope fix. Not re-dispatching to avoid tight fail loop."
+  },
+  "last_checked_main_sha": "80f4cb259230224adc990480a4f0d727db4114f8"
+ },
+ "findings": [
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37608279037,
+   "class": "FATAL",
+   "stale": false,
+   "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive ... skipping the engine build.",
+   "action": "recorded only (environmental; no in-scope fix)"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37608279037,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37608276109,
+   "class": "SOFT",
+   "stale": false,
+   "matched": "Restore engine step uses same package path as updater; package not yet present for b57e7b0b (in progress run)",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37608276109,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
   }
+ ],
+ "last_checked_main_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+ "last_checked_at": "2026-10-07T10:38:30Z"
 }
