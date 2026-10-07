@@ -131,7 +131,9 @@ jobs:
           $env:DEPOT_TOOLS = Join-Path $env:RUNNER_TEMP 'depot_tools'
           $env:GIT_CACHE_PATH = Join-Path $env:WAVE_WORK_ROOT 'git-cache'
           $env:WAVE_OUT = Join-Path $env:WAVE_WORK_ROOT 'outputs'
-          $build = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'windows\build_chromium.bat' -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru
+          # The batch file runs detached, so its output never reaches the job
+          # log; tee it to a file and replay the tail on failure.
+          $build = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'windows\build_chromium.bat > build_chromium.log 2>&1' -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru
 
           $checkpointed = $false
           while (-not $build.HasExited) {
@@ -163,7 +165,11 @@ jobs:
             exit 0
           }
 
-          if ($build.ExitCode -ne 0) { throw "Windows Chromium build failed with exit code $($build.ExitCode)." }
+          if ($build.ExitCode -ne 0) {
+            $batLog = Join-Path $env:GITHUB_WORKSPACE 'build_chromium.log'
+            if (Test-Path $batLog) { Write-Host "----- last 80 lines of build_chromium.log -----"; Get-Content $batLog -Tail 80 | ForEach-Object { Write-Host $_ } }
+            throw "Windows Chromium build failed with exit code $($build.ExitCode)."
+          }
           $exe = Join-Path $env:WAVE_WORK_ROOT 'outputs\WaveBrowser.exe'
           if (-not (Test-Path $exe)) { throw "WaveBrowser.exe was not produced." }
           Copy-Item $exe (Join-Path $env:GITHUB_WORKSPACE 'WaveBrowser.exe') -Force
