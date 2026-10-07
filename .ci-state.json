@@ -7,17 +7,17 @@
    "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
    "fixes_applied": 0,
    "attempted_signatures": [],
-   "note": "Run 37608276109 head 9aeb982 != main; STALE per rule. Restore step completed SUCCESS (step 8) using the same b57e7b0b package path, proving OneDrive reachable and the engine package present. Not re-dispatched (would be a STALE-based action). sccache 0.18.0 clean. No current-code FATAL, no in-scope fix."
+   "note": "Run 37608276109 head 9aeb982 != main; STALE per rule. Restore step completed SUCCESS (same b57e7b0b package path), proving OneDrive reachable and engine package present. No re-dispatch (would be STALE-based). sccache 0.18.0 clean. No in-scope fix."
   },
   "windows-build.yml": {
    "last_run_id": 37610399311,
    "last_conclusion": "queued",
    "last_head_sha": "7ae980dbbb",
-   "fixes_applied": 1,
+   "fixes_applied": 2,
    "attempted_signatures": [
     "windows-rclone-not-on-PATH-after-winget"
    ],
-   "note": "Non-stale FATAL in run 37609988784 (head 03b72cc) job 112754657437: 'Chromium engine b57e7b0b... is not on OneDrive...skipping the engine build', but rclone is not installed on the stock windows-latest image: winget install puts rclone on the current-process PATH only; later steps get a command-not-found swallowed by the bare catch{} into the misleading 'not on OneDrive' throw. Android succeeds at the same path because it installs rclone system-wide via rclone.org/install.sh. FIXED 7ae980d: re-read Machine/User registry PATH and publish the resolved dir via GITHUB_PATH. Re-dispatched run 37610399311."
+   "note": "Non-stale FATAL run 37609988784 (head 03b72cc) job 112754657437: 'Chromium engine b57e7b0b... is not on OneDrive...skipping the engine build'; rclone absent from stock windows-latest; winget sets only current-process PATH, so later steps get command-not-found swallowed by bare catch{} into misleading 'not on OneDrive'. Android succeeds same path via system-wide rclone.org/install.sh. FIXED 7ae980d: re-read Machine/User registry PATH + publish resolved dir via GITHUB_PATH. Re-dispatched run 37610399311."
   }
  },
  "findings": [
@@ -124,8 +124,32 @@
    "stale": true,
    "matched": "Restore engine and compiled output -> completed success (OneDrive reachable, engine package b57e7b0b present)",
    "action": "recorded only"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37609988784,
+   "class": "FATAL",
+   "stale": false,
+   "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build (job 112754657437, head 03b72cc)",
+   "action": "fixed: rclone PATH not propagated after winget install; commit 7ae980d"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37609988784,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Node.js 20 is deprecated (actions/checkout@v4)",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37608276109,
+   "class": "NOISE",
+   "stale": true,
+   "matched": "Restore engine and compiled output -> completed success",
+   "action": "recorded only"
   }
  ],
  "last_checked_main_sha": "7ae980dbbb",
- "last_checked_at": "2026-10-07T10:54:00Z"
+ "last_checked_at": "2026-10-07T10:54:30Z"
 }
