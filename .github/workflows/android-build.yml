@@ -110,30 +110,32 @@ jobs:
 
           ROOT="$WAVE_WORK_ROOT"
           STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          PACKAGE="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz"
           mkdir -p "$ROOT"
 
+          # The build outputs (checkpoint or finished engine) are stored without
+          # the Chromium source tree, because re-uploading ~20 GB of pristine
+          # checkout is what made saving too slow to finish. The source therefore
+          # always comes from the finalized package, and the saved outputs are
+          # extracted on top of it.
+          if ! rclone lsf "$PACKAGE" >/dev/null 2>&1; then
+            echo "::error::Chromium engine $REVISION is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build."
+            # Tell the always() save step to skip: there is nothing to save, and
+            # saving here would mask the real failure as a success.
+            printf '1\n' > "$ROOT/.wave_no_engine"
+            exit 1
+          fi
+          echo "Restoring the Chromium source from the finalized package for $REVISION."
+          rclone cat "$PACKAGE" | tar -xzf - -C "$ROOT"
+
           # Restore priority: a finished Android engine is best (the compile
-          # becomes a near no-op), then a partial checkpoint to resume, then the
-          # shared finalized engine package as the base to build from scratch.
+          # becomes a near no-op), then a partial checkpoint to resume.
           if rclone lsf "onedrive:$STAGING/engine.ready" >/dev/null 2>&1; then
             echo "Restoring the finished Android engine for $REVISION."
             rclone cat "onedrive:$STAGING/engine.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
-            # Signals the build script that hooks and gn gen can be skipped.
-            echo "WAVE_ENGINE_RESTORED=1" >> "$GITHUB_ENV"
           elif rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
             echo "Restoring an unfinished Android build checkpoint for $REVISION."
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
-          else
-            if rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" >/dev/null 2>&1; then
-              echo "Restoring the finalized Chromium engine for $REVISION."
-              rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" | tar -xzf - -C "$ROOT"
-            else
-              echo "::error::Chromium engine $REVISION is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build."
-              # Tell the always() checkpoint step to skip: there is nothing to
-              # save, and saving here would mask the real failure as a success.
-              printf '1\n' > "$ROOT/.wave_no_engine"
-              exit 1
-            fi
           fi
           printf '%s\n' "$REVISION" > "$ROOT/.wave_revision"
 
@@ -191,37 +193,20 @@ jobs:
           test -f android/WaveBrowser.apk
 
           # Persist the finished engine so later runs reuse it instead of
-          # recompiling. Only build inputs and compiled objects are archived:
-          # APKs and other packaged outputs are excluded so the engine store
-          # never holds a release artifact.
-          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
-          ENGINE_PARTIAL="$STAGING/engine.tar.zst.partial"
-          ENGINE_FINAL="$STAGING/engine.tar.zst"
-          rclone deletefile "onedrive:$STAGING/engine.ready" >/dev/null 2>&1 || true
-          echo "Uploading the finished Android engine to OneDrive."
-          tar -C "$WAVE_WORK_ROOT" \
-            --exclude='*.apk' --exclude='*.aab' --exclude='*.apks' --exclude='*.idsig' \
-            --exclude='*/out/Wave/apks*' --exclude='WaveBrowser.apk' \
-            -cf - . | zstd -T0 -3 | rclone rcat "onedrive:$ENGINE_PARTIAL"
-          rclone moveto "onedrive:$ENGINE_PARTIAL" "onedrive:$ENGINE_FINAL"
-          printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/engine.ready"
-          # Drop every checkpoint artefact for this revision so none can shadow
-          # the finished engine on the next restore.
-          rclone deletefile "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1 || true
-          rclone deletefile "onedrive:$STAGING/checkpoint.tar.zst" >/dev/null 2>&1 || true
-          rclone deletefile "onedrive:$STAGING/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
-          rclone deletefile "onedrive:$STAGING/chain.txt" >/dev/null 2>&1 || true
+          # recompiling. Only src/out/Wave is archived; the source tree comes
+          # from the finalized package on the next run.
+          bash .github/scripts/save-build-outputs.sh engine
 
           echo "built=true" >> "$GITHUB_OUTPUT"
           echo "Android engine build completed for $REVISION."
 
       - name: Save the build checkpoint
         # Runs on every outcome so a slot that dies for any reason - compile
-        # error, runner loss, timeout, cancellation - is still resumable. It
-        # skips when a finished engine exists or the engine was never restored.
+        # error, runner loss, cancellation - is still resumable. It skips when a
+        # finished engine exists or the engine was never restored.
         if: always()
         shell: bash
-        run: bash .github/scripts/save-checkpoint.sh
+        run: bash .github/scripts/save-build-outputs.sh checkpoint
 
       - name: Upload WaveBrowser.apk
         if: success() && hashFiles('android/WaveBrowser.apk') != ''
