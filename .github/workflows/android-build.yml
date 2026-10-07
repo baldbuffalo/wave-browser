@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   # A newer dispatch replaces an older in-flight build. Without this, every
-  # dispatch leaves another 256-slot run racing for the same checkpoint.
+  # dispatch leaves another 256-slot run racing for the same checkpoint. A
+  # batch that chains the next run also lands here: the incoming run cancels
+  # the outgoing one, which is already at its final step by then.
   group: wave-android-build
   cancel-in-progress: true
 
@@ -222,6 +224,50 @@ jobs:
           name: WaveBrowser-Android
           path: android/WaveBrowser.apk
           retention-days: 90
+
+      - name: Chain the next batch
+        # Slot 256 finished without completing the engine, so a single batch is
+        # not enough. Start another run; it restores this batch's checkpoint and
+        # carries on. workflow_dispatch is explicitly allowed from GITHUB_TOKEN,
+        # unlike push, so no extra credential is needed.
+        if: success() && matrix.slot == 256 && steps.build.outputs.built != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REVISION=$(cat "$WAVE_WORK_ROOT/.wave_revision")
+          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          CHAIN_FILE="$STAGING/chain.txt"
+
+          # Guard against an endless chain: if a whole batch of slots left the
+          # checkpoint exactly the same size, the build is stuck, not progressing.
+          cur_bytes=$(rclone size --json "onedrive:$STAGING/checkpoint.tar.zst" 2>/dev/null \
+            | grep -oE '"bytes":[0-9]+' | cut -d: -f2 || true)
+          cur_bytes=${cur_bytes:-0}
+
+          prev_size=0
+          stalled=0
+          chain=0
+          prev_line=$(rclone cat "onedrive:$CHAIN_FILE" 2>/dev/null || true)
+          if [ -n "$prev_line" ]; then
+            read -r prev_size stalled chain <<< "$prev_line" || true
+          fi
+          if [ "${prev_size:-0}" = "$cur_bytes" ]; then
+            stalled=$((stalled + 1))
+          else
+            stalled=0
+          fi
+          chain=$((chain + 1))
+          printf '%s %s %s\n' "$cur_bytes" "$stalled" "$chain" | rclone rcat "onedrive:$CHAIN_FILE"
+
+          if [ "$stalled" -ge 2 ]; then
+            echo "::error::The Android build made no progress across a full batch of 256 slots; stopping instead of chaining another run."
+            exit 1
+          fi
+
+          echo "Batch finished without completing the engine; starting the next batch."
+          gh workflow run android-build.yml --ref "$GITHUB_REF_NAME"
 
       - name: End the remaining slots
         # The engine is on OneDrive and the APK is an artifact by now, so the
