@@ -52,7 +52,7 @@ jobs:
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
           echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 
-      - name: Restore checkpoint or Chromium engine
+      - name: Restore engine and compiled output
         shell: bash
         run: |
           set -euo pipefail
@@ -64,14 +64,26 @@ jobs:
           mkdir -p "$ROOT"
 
           if rclone lsf "onedrive:$STAGING/checkpoint.ready" >/dev/null 2>&1; then
-            echo "Restoring Android build checkpoint for $REVISION."
+            echo "Restoring an unfinished Android build checkpoint for $REVISION."
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
-          elif rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" >/dev/null 2>&1; then
-            echo "Restoring the finalized Chromium engine for $REVISION."
-            rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" | tar -xzf - -C "$ROOT"
           else
-            echo "::error::Chromium engine $REVISION is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build."
-            exit 1
+            if rclone lsf "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" >/dev/null 2>&1; then
+              echo "Restoring the finalized Chromium engine for $REVISION."
+              rclone cat "onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz" | tar -xzf - -C "$ROOT"
+            else
+              echo "::error::Chromium engine $REVISION is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build."
+              exit 1
+            fi
+
+            # Compiled output is cached per revision, so rebuilding the same
+            # engine is incremental (ninja relinks only what changed) instead
+            # of a full recompile. A new revision has no cache and builds fresh.
+            # Restore it after the source so the cached object files are newer
+            # than the source files, which is what makes ninja skip them.
+            if rclone lsf "onedrive:$STAGING/out.ready" >/dev/null 2>&1; then
+              echo "Restoring cached compiled output for an incremental Android rebuild."
+              rclone cat "onedrive:$STAGING/out.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT/src"
+            fi
           fi
           printf '%s\n' "$REVISION" > "$ROOT/.wave_revision"
 
@@ -126,6 +138,16 @@ jobs:
 
           wait "$BUILD_PID"
           test -f android/WaveBrowser.apk
+
+          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          if rclone lsf "onedrive:$STAGING/out.ready" >/dev/null 2>&1; then
+            echo "Compiled output cache already exists for $REVISION; keeping it."
+          else
+            echo "Caching the compiled output so future builds of $REVISION are incremental."
+            tar -C "$WAVE_WORK_ROOT/src" -cf - out | zstd -T0 -3 | rclone rcat "onedrive:$STAGING/out.tar.zst"
+            printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/out.ready"
+          fi
+
           echo "built=true" >> "$GITHUB_OUTPUT"
           echo "Android engine build completed for $REVISION."
 
