@@ -111,7 +111,20 @@ jobs:
           if ($ready) {
             Write-Host "Restoring an unfinished Windows build checkpoint for $revision."
             rclone cat "onedrive:$staging/checkpoint.tar.gz" | tar -xzf - -C $root
-          } else {
+            # A checkpoint captured while an earlier run was aborted can be
+            # incomplete. It is only usable if the Chromium checkout came back:
+            # the build skips gclient sync once WAVE_CHROMIUM_PREPARED is set, so
+            # a checkpoint without src/.git can never be repaired. Discard a bad
+            # one and fall back to the finalized engine package.
+            if (-not (Test-Path (Join-Path $root 'src\.git'))) {
+              Write-Host "Checkpoint for $revision is incomplete (no src/.git); discarding it and restoring the finalized engine."
+              rclone deletefile "onedrive:$staging/checkpoint.ready" *> $null
+              Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
+              New-Item -ItemType Directory -Force -Path $root | Out-Null
+              $ready = $false
+            }
+          }
+          if (-not $ready) {
             $package = "onedrive:$env:WAVE_ONEDRIVE_PATH/$revision/package/chromium-$revision.tar.gz"
             rclone lsf $package *> $null
             if ($LASTEXITCODE -ne 0) { throw "Chromium engine $revision is not on OneDrive. Run update-chromium.yml (and let finalize-chromium.yml finish) first; skipping the engine build." }
