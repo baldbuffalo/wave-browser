@@ -4,17 +4,17 @@
     "android-build.yml": {
       "last_run_id": 37613512774,
       "last_conclusion": null,
-      "last_head_sha": "036935105cb24753b63a076d920319104a7e9396",
+      "last_head_sha": "8016809dd7ccfe5c0380efa1b606e0246f4cfed2",
       "fixes_applied": 1,
       "attempted_signatures": [
         "android-relative-WAVE_CHROMIUM_ROOT-double-cd"
       ],
-      "note": "Dispatched fresh run 37613512774 at main 0369351 (keeps android aligned with the new main tip). Prior fresh run 37612973907 (head 110e884) was still in early setup: job1 in_progress, log blob not yet available (BlobNotFound), other slots queued; no log signal obtainable this cycle. Known SOFT residual: checkpoint upload resourceModified eTag mismatch (recorded, inconclusive). No code change this cycle."
+      "note": "main-head run 37613512774 active and progressing (build step in_progress; log blob unavailable while job runs). A second run 37612973907 and older ones remain queued behind max-parallel:1. No FATAL/SOFT from current-main log yet. Prior android fix (relative WAVE_CHROMIUM_ROOT -> absolute, commit 110e884) is contained in the current main and not repeated."
     },
     "windows-build.yml": {
       "last_run_id": 37614584606,
       "last_conclusion": null,
-      "last_head_sha": "8016809dd7cc",
+      "last_head_sha": "8016809dd7ccfe5c0380efa1b606e0246f4cfed2",
       "fixes_applied": 5,
       "attempted_signatures": [
         "windows-rclone-not-on-PATH-after-winget",
@@ -23,7 +23,7 @@
         "windows-build_chromium.bat-output-not-captured",
         "windows-incomplete-checkpoint-no-src-git-fallback-finalized"
       ],
-      "note": "FIXED at main 0369351: windows/build_chromium.bat is launched via Start-Process detached, so its stdout never reached the job log; the job only showed 'Windows Chromium build failed with exit code 1' after ~20s with 0 sccache compile requests, making the real error invisible. Now redirect the bat output to build_chromium.log and replay its last 80 lines before throwing. Windows re-dispatched as run 37613503166 at 0369351 for fresh evidence. Analysis of stale run 37610825779 (head 53e70fa): restore succeeded, disk fix works (D: 146.97 GiB free, no checkpoint loop), then bat exit 1."
+      "note": "main-head run 37614584606 active and progressing (restore step in_progress; log blob unavailable while job runs). Prior fix (capture bat output + discard incomplete checkpoint and fall back to finalized engine, commit 8016809) is the current main HEAD and not repeated. No new signal this cycle."
     }
   },
   "findings": [
@@ -385,8 +385,32 @@
       "class": "NOISE",
       "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
       "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37613512774,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "latest (main) run job1 in_progress, step 'Build the Android engine' running; queued behind the long Windows run; log blob not yet available (BlobNotFound)",
+      "action": "recorded only; not dispatched again because a main-head run is already active"
+    },
+    {
+      "workflow": "windows-build.yml",
+      "run_id": 37614584606,
+      "class": "NOISE",
+      "stale": false,
+      "matched": "latest (main) run job1 in_progress at step 'Restore engine and compiled output'; log blob not yet available (BlobNotFound)",
+      "action": "recorded only"
+    },
+    {
+      "workflow": "android-build.yml",
+      "run_id": 37613512774,
+      "class": "SOFT",
+      "stale": false,
+      "matched": "WAVE_DISK_LIMIT_GIB=13 checked against df of $GITHUB_WORKSPACE used GiB; an earlier stale run tripped it at 99.86 GiB used / 44.38 GiB free",
+      "action": "recorded only (config ambiguity; no root-cause evidence this cycle, no churn)"
     }
   ],
-  "last_checked_main_sha": "036935105cb2",
-  "last_checked_at": "2026-10-07T11:21:30Z"
+  "last_checked_main_sha": "8016809dd7cc",
+  "last_checked_at": "2026-10-07T11:45:00Z"
 }
