@@ -3,19 +3,19 @@
  "workflows": {
   "android-build.yml": {
    "last_run_id": 37608276109,
-   "last_conclusion": "queued",
+   "last_conclusion": "in_progress",
    "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
    "fixes_applied": 0,
    "attempted_signatures": [],
-   "note": "Prior run 36551604288 stale (head 9468b7e != main). build-android(1) died at Restore: pinned chrome revision 9468b7e had no package on OneDrive. Current main rev b57e7b0b. No fix (stale). Dispatched fresh run at main."
+   "note": "Run 37608276109 at main (9aeb982) now in_progress, all 16 build_engine slots. Restore step uses the same package path as update-chromium.yml's writer (onedrive:WaveBrowser/Chromium/$REVISION/package/chromium-$REVISION.tar.gz); no in-scope defect. Package for b57e7b0b not published on OneDrive yet. sccache 0.18.0 clean. NOISE only. No fix this cycle."
   },
   "windows-build.yml": {
    "last_run_id": 37608279037,
-   "last_conclusion": "queued",
+   "last_conclusion": "failure",
    "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
    "fixes_applied": 0,
    "attempted_signatures": [],
-   "note": "Prior run 36438267778 stale (head f536f02 != main). build-windows(1) threw 'Invalid Chromium revision:' (chromium_revision.txt parsed empty at that revision). Current main rev b57e7b0b. No fix (stale). Dispatched fresh run at main."
+   "note": "Run 37608279037 at main (9aeb982). Every build_engine slot fails identically at Restore: 'Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...' exit 1. Path logic matches update-chromium.yml writer; external OneDrive package absent. No in-scope fix possible. Not re-dispatching to avoid a tight fail loop (same FATAL would recur)."
   }
  },
  "findings": [
@@ -66,8 +66,40 @@
    "stale": false,
    "matched": "new run queued at main 9aeb982 (previously no run at main)",
    "action": "dispatched"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37608279037,
+   "class": "FATAL",
+   "stale": false,
+   "matched": "Chromium engine b57e7b0b080410c589694faf93fcdff09e55b5a7 is not on OneDrive...skipping the engine build.",
+   "action": "recorded only (environmental/out-of-scope; no fix)"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37608279037,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37608276109,
+   "class": "SOFT",
+   "stale": false,
+   "matched": "Restore package path matches updater; package not yet present for b57e7b0b (run in progress)",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37608276109,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
   }
  ],
  "last_checked_main_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
- "last_checked_at": "2026-10-07T10:34:35Z"
+ "last_checked_at": "2026-10-07T10:40:00Z"
 }
