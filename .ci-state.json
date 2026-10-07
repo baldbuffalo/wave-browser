@@ -1,23 +1,73 @@
 {
-  "version": 1,
-  "workflows": {
-    "android-build.yml": {
-      "last_run_id": 36551604288,
-      "last_conclusion": "cancelled",
-      "last_head_sha": "9468b7e337cb8930f1115604e1fe6f058c949173",
-      "fixes_applied": 0,
-      "attempted_signatures": [],
-      "note": "latest run cancelled at stale sha; no run at main 9aeb982; no action"
-    },
-    "windows-build.yml": {
-      "last_run_id": 36438267778,
-      "last_conclusion": "failure",
-      "last_head_sha": "f536f02b57adf1ab4f47d47ef418b1e4a3862b1d",
-      "fixes_applied": 0,
-      "attempted_signatures": [],
-      "note": "latest run FAILED but stale; no run at main 9aeb982; no action"
-    }
+ "version": 1,
+ "workflows": {
+  "android-build.yml": {
+   "last_run_id": 37608276109,
+   "last_conclusion": "queued",
+   "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+   "fixes_applied": 0,
+   "attempted_signatures": [],
+   "note": "Prior run 36551604288 stale (head 9468b7e != main). build-android(1) died at Restore: pinned chrome revision 9468b7e had no package on OneDrive. Current main rev b57e7b0b. No fix (stale). Dispatched fresh run at main."
   },
-  "last_checked_main_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
-  "last_checked_at": "2026-10-07T10:28:39Z"
+  "windows-build.yml": {
+   "last_run_id": 37608279037,
+   "last_conclusion": "queued",
+   "last_head_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+   "fixes_applied": 0,
+   "attempted_signatures": [],
+   "note": "Prior run 36438267778 stale (head f536f02 != main). build-windows(1) threw 'Invalid Chromium revision:' (chromium_revision.txt parsed empty at that revision). Current main rev b57e7b0b. No fix (stale). Dispatched fresh run at main."
+  }
+ },
+ "findings": [
+  {
+   "workflow": "android-build.yml",
+   "run_id": 36551604288,
+   "class": "FATAL",
+   "stale": true,
+   "matched": "Chromium engine 9468b7e... is not on OneDrive ... skipping the engine build.",
+   "action": "recorded only (stale)"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 36551604288,
+   "class": "NOISE",
+   "stale": true,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 36438267778,
+   "class": "FATAL",
+   "stale": true,
+   "matched": "Invalid Chromium revision:",
+   "action": "recorded only (stale)"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 36438267778,
+   "class": "NOISE",
+   "stale": true,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37608276109,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "new run queued at main 9aeb982 (previously no run at main)",
+   "action": "dispatched"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37608279037,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "new run queued at main 9aeb982 (previously no run at main)",
+   "action": "dispatched"
+  }
+ ],
+ "last_checked_main_sha": "9aeb982d699b59d16deeb1c2760b165485b9bcf0",
+ "last_checked_at": "2026-10-07T10:34:35Z"
 }
