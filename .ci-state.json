@@ -2,12 +2,14 @@
  "version": 1,
  "workflows": {
   "android-build.yml": {
-   "last_run_id": 37610857184,
-   "last_conclusion": "queued",
-   "last_head_sha": "53e70fae4ac4",
-   "fixes_applied": 0,
-   "attempted_signatures": [],
-   "note": "Re-dispatched 37610857184 at main 53e70fa (my windows commit advanced main). Prior run 37608276109 head 9aeb982 was STALE; in-progress job1 log not yet fetchable. Android restore logic correct (bash gates on rclone exit code) and restore succeeded, proving OneDrive reachable and engine b57e7b0b package present. No in-scope fix."
+   "last_run_id": 37612973907,
+   "last_conclusion": null,
+   "last_head_sha": "110e88459ba5",
+   "fixes_applied": 1,
+   "attempted_signatures": [
+    "android-relative-WAVE_CHROMIUM_ROOT-double-cd"
+   ],
+   "note": "FIXED 110e884: android/build_chromium.sh used CHECKOUT_DIR from WAVE_CHROMIUM_ROOT (relative 'chromium-checkout'), then cd'd into it at line 19, so module-level SRC_DIR resolved to chromium-checkout/chromium-checkout/src. Live run 37610857184 (head 53e70fa) restored the finalized engine then died on 'cd: chromium-checkout/src: No such file or directory'. Now resolve CHECKOUT_DIR to absolute before deriving SRC_DIR. Re-dispatched run 37612973907 at main 110e884. Also observed: checkpoint upload hit a OneDrive eTag 'resourceModified' error."
   },
   "windows-build.yml": {
    "last_run_id": 37610825779,
@@ -19,7 +21,7 @@
     "windows-disk-monitor-checked-C-drive-always-over-limit",
     "windows-rclone-lsf-try-catch-not-catching-native-exit"
    ],
-   "note": "FIXED 53e70fa two defects: (1) disk monitor used Get-PSDrive C => C: used 117GiB >= 13GiB limit always true, so every runner checkpointed within seconds of starting the build and exited 'success' having compiled nothing; now monitors the WAVE_WORK_ROOT drive (D:). (2) try/catch does not catch a native command's non-zero exit in pwsh 7, so 'rclone lsf' failing still set $ready=$true (wrong branch) and the package check never threw; now gated on $LASTEXITCODE. Re-dispatched run 37610825779 at main 53e70fa."
+   "note": "Investigated run 37610825779 (head 53e70fa, fresh). Restore succeeded (restored an unfinished checkpoint). Then windows/build_chromium.bat exited 1 after ~20s; the bat is launched via Start-Process, so its stdout is not captured and the real error is invisible. Disk fix from 53e70fa verified working (D: 146.97 GiB free, no checkpoint loop). No safe in-scope fix identified; bat exit 1 with 0 compile requests is most consistent with a missing dependency in the restored checkpoint / source, which is outside the editable allowlist. Reported for owner: capture bat stdout/exit for diagnosis."
   }
  },
  "findings": [
@@ -222,8 +224,64 @@
    "stale": false,
    "matched": "new run queued at main 53e70fa after windows commit advanced main",
    "action": "dispatched"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37610857184,
+   "class": "FATAL",
+   "stale": false,
+   "matched": "android/build_chromium.sh: line 32: cd: chromium-checkout/src: No such file or directory",
+   "action": "fixed: resolve relative WAVE_CHROMIUM_ROOT to absolute; commit 110e884"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37610857184,
+   "class": "SOFT",
+   "stale": false,
+   "matched": "rclone rcat checkpoint.tar.zst.partial: resourceModified: eTag mismatch",
+   "action": "recorded only (checkpoint upload failed; residual, inconclusive)"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37610857184,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Restoring the finalized Chromium engine for b57e7b0b (OneDrive reachable, engine present)",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610825779,
+   "class": "FATAL",
+   "stale": false,
+   "matched": "Windows Chromium build failed with exit code 1 (bat run via Start-Process; stdout not captured)",
+   "action": "recorded only (no safe in-scope fix; needs owner log capture)"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610825779,
+   "class": "SOFT",
+   "stale": false,
+   "matched": "sccache 0 compile requests / 0 cache hits (no compilation occurred)",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "windows-build.yml",
+   "run_id": 37610825779,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "Node.js 20 is deprecated ... actions/checkout@v4",
+   "action": "recorded only"
+  },
+  {
+   "workflow": "android-build.yml",
+   "run_id": 37612973907,
+   "class": "NOISE",
+   "stale": false,
+   "matched": "new run queued at main 110e884 after android fix",
+   "action": "dispatched"
   }
  ],
- "last_checked_main_sha": "53e70fae4ac4",
- "last_checked_at": "2026-10-07T10:58:00Z"
+ "last_checked_main_sha": "110e88459ba5",
+ "last_checked_at": "2026-10-07T11:18:00Z"
 }
