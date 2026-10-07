@@ -149,12 +149,20 @@ jobs:
           $build = Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', 'windows\build_chromium.bat > build_chromium.log 2>&1' -WorkingDirectory $env:GITHUB_WORKSPACE -PassThru
 
           $checkpointed = $false
+          # WAVE_DISK_LIMIT_GIB is a per-slot consumption budget: checkpoint once
+          # the build has consumed that much, not when the whole drive is already
+          # above it. The build drive holds tens of GiB of tooling at slot start,
+          # so an absolute "used >= limit" test trips on the first poll and the
+          # build is killed before it compiles anything.
+          $driveName = (Split-Path -Qualifier $env:WAVE_WORK_ROOT).TrimEnd(':')
+          $baselineUsed = [double](Get-PSDrive -Name $driveName).Used
           while (-not $build.HasExited) {
-            $drive = Get-PSDrive -Name (Split-Path -Qualifier $env:WAVE_WORK_ROOT).TrimEnd(':')
+            $drive = Get-PSDrive -Name $driveName
             $used = [math]::Round(($drive.Used / 1GB), 2)
             $free = [math]::Round(($drive.Free / 1GB), 2)
-            Write-Host "Disk: $used GiB used, $free GiB free."
-            if (($used -ge [double]$env:WAVE_DISK_LIMIT_GIB) -or ($free -le [double]$env:WAVE_DISK_SAFETY_GIB)) {
+            $consumed = [math]::Round((($drive.Used - $baselineUsed) / 1GB), 2)
+            Write-Host "Disk: $used GiB used, $free GiB free, $consumed GiB consumed this slot."
+            if (($consumed -ge [double]$env:WAVE_DISK_LIMIT_GIB) -or ($free -le [double]$env:WAVE_DISK_SAFETY_GIB)) {
               Write-Host "Checkpoint threshold reached; stopping Windows build."
               & taskkill.exe /PID $build.Id /T /F | Out-Host
               $checkpointed = $true
