@@ -151,15 +151,10 @@ jobs:
           Copy-Item $exe (Join-Path $env:GITHUB_WORKSPACE 'WaveBrowser.exe') -Force
 
           $staging = "$env:WAVE_CHECKPOINT_ROOT/$revision"
-          $outReady = $false
-          try { rclone lsf "onedrive:$staging/out.ready" | Out-Null; $outReady = $true } catch {}
-          if ($outReady) {
-            Write-Host "Compiled output cache already exists for $revision; keeping it."
-          } else {
-            Write-Host "Caching the compiled output so future builds of $revision are incremental."
-            tar -C (Join-Path $env:WAVE_WORK_ROOT 'src') -czf - out | rclone rcat "onedrive:$staging/out.tar.gz"
-            $revision | rclone rcat "onedrive:$staging/out.ready"
-          }
+          Write-Host "Caching the compiled output so future builds of $revision are incremental."
+          tar -C (Join-Path $env:WAVE_WORK_ROOT 'src') -czf - out | rclone rcat "onedrive:$staging/out.tar.gz.partial"
+          rclone moveto "onedrive:$staging/out.tar.gz.partial" "onedrive:$staging/out.tar.gz"
+          $revision | rclone rcat "onedrive:$staging/out.ready"
 
           "built=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "Windows engine build completed for $revision."

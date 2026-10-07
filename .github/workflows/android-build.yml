@@ -140,13 +140,10 @@ jobs:
           test -f android/WaveBrowser.apk
 
           STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
-          if rclone lsf "onedrive:$STAGING/out.ready" >/dev/null 2>&1; then
-            echo "Compiled output cache already exists for $REVISION; keeping it."
-          else
-            echo "Caching the compiled output so future builds of $REVISION are incremental."
-            tar -C "$WAVE_WORK_ROOT/src" -cf - out | zstd -T0 -3 | rclone rcat "onedrive:$STAGING/out.tar.zst"
-            printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/out.ready"
-          fi
+          echo "Caching the compiled output so future builds of $REVISION are incremental."
+          tar -C "$WAVE_WORK_ROOT/src" -cf - out | zstd -T0 -3 | rclone rcat "onedrive:$STAGING/out.tar.zst.partial"
+          rclone moveto "onedrive:$STAGING/out.tar.zst.partial" "onedrive:$STAGING/out.tar.zst"
+          printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/out.ready"
 
           echo "built=true" >> "$GITHUB_OUTPUT"
           echo "Android engine build completed for $REVISION."
