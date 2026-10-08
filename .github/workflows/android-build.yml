@@ -54,8 +54,15 @@ jobs:
       # keeps the old debug artefacts from being restored into this build.
       WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android-official
       WAVE_WORK_ROOT: chromium-checkout
-      WAVE_DISK_LIMIT_GIB: "13.90"
-      WAVE_DISK_SAFETY_GIB: "1"
+      # Fill the disk before handing off. The free-space floor below is what
+      # actually governs when a slot stops: the slot keeps compiling until only
+      # WAVE_DISK_SAFETY_GIB is left, then checkpoints. The consumption limit is
+      # set high so it does not bind first.
+      WAVE_DISK_LIMIT_GIB: "9999"
+      # Reserve this much free space so the checkpoint (tar | zstd | rclone)
+      # always has room to be written and uploaded. Without it the disk can fill
+      # mid-save and the slot's progress is lost instead of chained.
+      WAVE_DISK_SAFETY_GIB: "8"
       # A slot must stop and checkpoint before the job's 360-minute hard timeout
       # fires. A timeout kills the whole job and the always() save step with it,
       # so the slot's progress is lost rather than chained. Ending on our own
