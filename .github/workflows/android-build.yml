@@ -54,7 +54,7 @@ jobs:
       # keeps the old debug artefacts from being restored into this build.
       WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android-official
       WAVE_WORK_ROOT: chromium-checkout
-      WAVE_DISK_LIMIT_GIB: "13"
+      WAVE_DISK_LIMIT_GIB: "13.90"
       WAVE_DISK_SAFETY_GIB: "1"
       # A slot must stop and checkpoint before the job's 360-minute hard timeout
       # fires. A timeout kills the whole job and the always() save step with it,
