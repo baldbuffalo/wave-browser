@@ -181,7 +181,6 @@ jobs:
             elapsed_min=$(awk -v n="$(date +%s)" -v s="$slot_start" 'BEGIN {printf "%.1f", (n-s)/60}')
             if [ "$used_kib" != "$prev_used_kib" ]; then
               echo "Disk: $used_gib GiB used of $total_gib GiB total ($avail_gib GiB free), $consumed_gib GiB consumed, $elapsed_min min elapsed this slot."
-              echo "::notice::Disk $used_gib/$total_gib GiB used, $avail_gib GiB free"
               prev_used_kib="$used_kib"
             fi
             stop=0
