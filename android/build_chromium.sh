@@ -79,6 +79,15 @@ is_debug = false
 symbol_level = 0
 blink_symbol_level = 0
 v8_symbol_level = 0
+# is_official_build turns ThinLTO on by default for Android, and the LTO link
+# of libchrome is a long single-threaded step that the disk-budget checkpoint
+# would interrupt. This build is about producing the engine, not shipping a
+# maximally optimized binary.
+use_thin_lto = false
+# Warnings are already errors in every Chromium build (treat_warnings_as_errors
+# defaults to true), so this is belt-and-braces. Our own patch cannot fail
+# harder in official mode than it already can today.
+treat_warnings_as_errors = false
 chrome_public_manifest_package = "com.wavebrowser.android"
 EOF
 
