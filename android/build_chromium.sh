@@ -69,7 +69,16 @@ cat > "${OUT_DIR}.args" <<'EOF'
 target_os = "android"
 target_cpu = "arm64"
 is_component_build = false
-is_official_build = false
+is_official_build = true
+# is_debug defaults to true, which is what made this a debug build: it emitted a
+# split-debug (.dwo) file for nearly every compile and produced ~20 GB of
+# output. It must be off for is_official_build to take effect at all.
+is_debug = false
+# Debug info is the single largest cost in the build. With no symbols the
+# compiles are roughly twice as fast and the checkpoint roughly half the size.
+symbol_level = 0
+blink_symbol_level = 0
+v8_symbol_level = 0
 chrome_public_manifest_package = "com.wavebrowser.android"
 EOF
 

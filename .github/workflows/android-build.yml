@@ -48,7 +48,11 @@ jobs:
                241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 256]
     env:
       WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
-      WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android
+      # Namespaced by build config. A checkpoint or engine is only reusable when
+      # the gn args that produced it still match, and switching from a debug
+      # build to an official one invalidates every object. A separate prefix
+      # keeps the old debug artefacts from being restored into this build.
+      WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android-official
       WAVE_WORK_ROOT: chromium-checkout
       WAVE_DISK_LIMIT_GIB: "13"
       WAVE_DISK_SAFETY_GIB: "1"
