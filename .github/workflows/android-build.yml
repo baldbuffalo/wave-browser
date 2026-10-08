@@ -56,6 +56,12 @@ jobs:
       WAVE_WORK_ROOT: chromium-checkout
       WAVE_DISK_LIMIT_GIB: "13"
       WAVE_DISK_SAFETY_GIB: "1"
+      # A slot must stop and checkpoint before the job's 360-minute hard timeout
+      # fires. A timeout kills the whole job and the always() save step with it,
+      # so the slot's progress is lost rather than chained. Ending on our own
+      # terms leaves a clean checkpoint for the next slot to resume from. The
+      # margin covers restore and the checkpoint upload.
+      WAVE_TIME_LIMIT_MINUTES: "300"
     outputs:
       built: ${{ steps.build.outputs.built }}
     steps:
@@ -170,15 +176,24 @@ jobs:
           # absolute "used >= limit" test trips on the first poll and the build is
           # killed before it compiles anything.
           baseline_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $3}')
+          slot_start=$(date +%s)
           while kill -0 "$BUILD_PID" 2>/dev/null; do
             used_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $3}')
             avail_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
             used_gib=$(awk -v k="$used_kib" 'BEGIN {printf "%.2f", k/1024/1024}')
             avail_gib=$(awk -v k="$avail_kib" 'BEGIN {printf "%.2f", k/1024/1024}')
             consumed_gib=$(awk -v u="$used_kib" -v b="$baseline_kib" 'BEGIN {printf "%.2f", (u-b)/1024/1024}')
-            echo "Disk: $used_gib GiB used, $avail_gib GiB free, $consumed_gib GiB consumed this slot."
+            elapsed_min=$(awk -v n="$(date +%s)" -v s="$slot_start" 'BEGIN {printf "%.1f", (n-s)/60}')
+            echo "Disk: $used_gib GiB used, $avail_gib GiB free, $consumed_gib GiB consumed, $elapsed_min min elapsed this slot."
+            stop=0
             if awk -v c="$consumed_gib" -v a="$avail_gib" -v l="$WAVE_DISK_LIMIT_GIB" -v s="$WAVE_DISK_SAFETY_GIB" 'BEGIN {exit !((c >= l) || (a <= s))}'; then
               echo "Checkpoint threshold reached; stopping Android build."
+              stop=1
+            elif awk -v e="$elapsed_min" -v t="$WAVE_TIME_LIMIT_MINUTES" 'BEGIN {exit !(e >= t)}'; then
+              echo "Time budget reached; stopping Android build to checkpoint before the job timeout."
+              stop=1
+            fi
+            if [ "$stop" -eq 1 ]; then
               kill -- "-$BUILD_PID" 2>/dev/null || true
               sleep 5
               kill -KILL -- "-$BUILD_PID" 2>/dev/null || true
@@ -191,7 +206,7 @@ jobs:
           if [ "$checkpointed" -eq 1 ]; then
             # The checkpoint is uploaded by the always() step below, which covers
             # this path and every abnormal exit with one implementation.
-            echo "Disk budget reached; stopping the build. The checkpoint is saved next."
+            echo "Slot budget reached; stopping the build. The checkpoint is saved next."
             echo "built=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
