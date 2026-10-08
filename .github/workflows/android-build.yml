@@ -109,12 +109,23 @@ jobs:
           printf '%s\n' "$RCLONE_CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
 
-      - name: Prepare Chromium tooling
+      - name: Install build tools
         shell: bash
         run: |
           set -euo pipefail
+          # Everything the Android engine build needs beyond what depot_tools
+          # provides (gclient, gn, ninja, autoninja). zstd compresses the
+          # checkpoint; libfuse2 backs Chromium's ciopfs helper during runhooks;
+          # the rest are common build helpers.
           sudo apt-get update -qq
-          sudo apt-get install -y zstd
+          sudo apt-get install -y zstd pkg-config unzip zip curl git python3
+          # Ubuntu 24.04 renamed the FUSE2 package to libfuse2t64; older images
+          # still ship libfuse2. Install whichever exists.
+          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
+          ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2' || {
+            echo "libfuse.so.2 is missing after installing libfuse2/libfuse2t64." >&2
+            exit 1
+          }
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
           echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 

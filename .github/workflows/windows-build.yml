@@ -70,10 +70,29 @@ jobs:
           [IO.File]::WriteAllText($configPath, $env:RCLONE_CONFIG_CONTENT)
           "RCLONE_CONFIG=$configPath" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Prepare Chromium tooling
+      - name: Install build tools
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # Tools the Windows engine build needs beyond what depot_tools provides
+          # (gclient, gn, ninja, autoninja). windows-latest ships Python, Git and
+          # tar; verify them and install any that are missing so the job does not
+          # depend on the image contents.
+          function Ensure-Tool($cmd, $wingetId) {
+            if (Get-Command $cmd -ErrorAction SilentlyContinue) {
+              Write-Host "$cmd present: $((Get-Command $cmd).Source)"
+              return
+            }
+            Write-Host "$cmd missing; installing $wingetId"
+            winget install --id $wingetId --exact --silent `
+              --accept-package-agreements --accept-source-agreements | Out-Host
+            $env:Path = "$([Environment]::GetEnvironmentVariable('Path','Machine'));$([Environment]::GetEnvironmentVariable('Path','User'));$env:Path"
+            if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { throw "$cmd is still missing after installing $wingetId." }
+          }
+          Ensure-Tool 'git' 'Git.Git'
+          Ensure-Tool 'python' 'Python.Python.3.11'
+          Ensure-Tool 'tar' 'libarchive.libarchive'
+
           $depot = Join-Path $env:RUNNER_TEMP 'depot_tools'
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git $depot
           $depot | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
