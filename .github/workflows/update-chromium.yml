@@ -36,9 +36,23 @@ jobs:
       - name: Free Runner Disk Space
         shell: bash
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          set -euo pipefail
+          echo "Before:"
+          df -h / /mnt | sed 's/^/  /'
+          # The runner image ships several toolchains this job never uses. The
+          # Android SDK is the large one; nothing here is needed to sync and
+          # package the Chromium source.
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/share/boost \
+            /usr/share/swift \
+            /usr/local/share/chipper \
+            "$AGENT_TOOLSDIRECTORY"
           sudo docker image prune --all --force >/dev/null 2>&1 || true
-          df -h / /mnt
+          echo "After:"
+          df -h / /mnt | sed 's/^/  /'
 
       - name: Install Chromium tools locally
         shell: bash

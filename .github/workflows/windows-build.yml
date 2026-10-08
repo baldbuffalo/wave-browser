@@ -20,8 +20,14 @@ jobs:
       WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
       WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/windows
       WAVE_WORK_ROOT: D:\wave-build
-      WAVE_DISK_LIMIT_GIB: "13"
-      WAVE_DISK_SAFETY_GIB: "1"
+      # Let a slot keep compiling until the drive is nearly full; the free-space
+      # reserve below is what actually stops it. The consumption limit is set
+      # high so it never binds first.
+      WAVE_DISK_LIMIT_GIB: "9999"
+      # Reserve this much free space so the checkpoint (tar | rclone) always has
+      # room to be written and uploaded. Without it the drive fills mid-save and
+      # the slot's progress is lost instead of chained.
+      WAVE_DISK_SAFETY_GIB: "8"
     outputs:
       built: ${{ steps.build.outputs.built }}
     steps:
