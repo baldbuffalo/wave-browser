@@ -74,6 +74,24 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      # The runner image ships several GB of toolchains this job never uses.
+      # The Android SDK under /usr/local/lib/android is the big one: Chromium
+      # builds against its own copy in third_party/android_sdk/public and
+      # overrides ANDROID_SDK_ROOT/ANDROID_HOME to point there, so the runner's
+      # SDK, NDK and emulator are dead weight. Freeing them grows the space a
+      # build slot can use before it has to checkpoint.
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Before:"
+          df -h / | awk 'NR==2 {print "  "$3" used, "$4" free"}'
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/share/boost /usr/share/swift /usr/local/share/chipper
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "After:"
+          df -h / | awk 'NR==2 {print "  "$3" used, "$4" free"}'
+
       - name: Install rclone
         shell: bash
         run: |
