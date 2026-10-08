@@ -177,21 +177,24 @@ jobs:
           set -e
 
           checkpointed=0
-          # WAVE_DISK_LIMIT_GIB is a per-slot consumption budget: checkpoint once
-          # the build has consumed that much, not when the workspace filesystem is
-          # already above it. The runner root fills up before the checkout, so an
-          # absolute "used >= limit" test trips on the first poll and the build is
-          # killed before it compiles anything.
+          # The free-space floor (WAVE_DISK_SAFETY_GIB) is what stops a slot: it
+          # keeps compiling until only that much space is left, then checkpoints.
+          # WAVE_DISK_LIMIT_GIB is set high enough that it never binds first. The
+          # runner root is already ~100 GiB used before the checkout, so only a
+          # free-space test is meaningful here; an absolute used test would trip
+          # on the first poll and kill the build before it compiles anything.
           baseline_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $3}')
           slot_start=$(date +%s)
           while kill -0 "$BUILD_PID" 2>/dev/null; do
             used_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $3}')
             avail_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
+            total_gib=$(awk -v u="$used_kib" -v a="$avail_kib" 'BEGIN {printf "%.1f", (u+a)/1024/1024}')
             used_gib=$(awk -v k="$used_kib" 'BEGIN {printf "%.2f", k/1024/1024}')
             avail_gib=$(awk -v k="$avail_kib" 'BEGIN {printf "%.2f", k/1024/1024}')
             consumed_gib=$(awk -v u="$used_kib" -v b="$baseline_kib" 'BEGIN {printf "%.2f", (u-b)/1024/1024}')
             elapsed_min=$(awk -v n="$(date +%s)" -v s="$slot_start" 'BEGIN {printf "%.1f", (n-s)/60}')
-            echo "Disk: $used_gib GiB used, $avail_gib GiB free, $consumed_gib GiB consumed, $elapsed_min min elapsed this slot."
+            echo "Disk: $used_gib GiB used of $total_gib GiB total ($avail_gib GiB free), $consumed_gib GiB consumed, $elapsed_min min elapsed this slot."
+            echo "::notice::Disk $used_gib/$total_gib GiB used, $avail_gib GiB free"
             stop=0
             if awk -v c="$consumed_gib" -v a="$avail_gib" -v l="$WAVE_DISK_LIMIT_GIB" -v s="$WAVE_DISK_SAFETY_GIB" 'BEGIN {exit !((c >= l) || (a <= s))}'; then
               echo "Checkpoint threshold reached; stopping Android build."
