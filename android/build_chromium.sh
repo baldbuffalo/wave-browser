@@ -88,6 +88,17 @@ use_thin_lto = false
 # defaults to true), so this is belt-and-braces. Our own patch cannot fail
 # harder in official mode than it already can today.
 treat_warnings_as_errors = false
+# is_official_build also turns on V8 builtins PGO, which makes gen/v8/embedded.S
+# depend on v8/tools/builtins-pgo/profiles/x64.profile. That profile is fetched
+# by a gclient hook and the finalized package is produced with --nohooks, so the
+# file is absent and no rule can build it:
+#   "../../v8/tools/builtins-pgo/profiles/x64.profile", needed by
+#   "gen/v8/embedded.S", missing and no known rule to make it
+# Build V8 without builtins PGO instead of adding a profile download.
+v8_enable_builtins_optimization = false
+# Chrome PGO likewise wants a downloaded profile that a no-hooks checkout does
+# not have. Off.
+chrome_pgo_phase = 0
 chrome_public_manifest_package = "com.wavebrowser.android"
 EOF
 
