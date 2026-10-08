@@ -66,7 +66,16 @@ fi
 rclone deletefile "onedrive:$STAGING/$READY" >/dev/null 2>&1 || true
 echo "Saving Android build $MODE for $REVISION."
 
-tar -C "$ROOT" \
+# --format=pax is required, not cosmetic. The default (gnu) format stores
+# second-resolution mtimes, and ninja compares nanosecond mtimes to decide what
+# is stale. Truncating them makes every restored object look modified, so a
+# resumed slot recompiles the whole tree from scratch instead of continuing.
+#
+# The file-changed warnings are suppressed because GNU tar exits 1 on them. On
+# the failure path the killed build may still be flushing an object, which would
+# otherwise turn a save that actually succeeded into a failed step.
+tar -C "$ROOT" --format=pax \
+  --warning=no-file-changed --warning=no-file-removed \
   --exclude='*.apk' --exclude='*.aab' --exclude='*.apks' --exclude='*.idsig' \
   --exclude='*/out/Wave/apks*' \
   -cf - "${INCLUDES[@]}" \

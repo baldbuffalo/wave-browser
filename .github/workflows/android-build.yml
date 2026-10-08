@@ -112,6 +112,9 @@ jobs:
           STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
           PACKAGE="onedrive:$WAVE_ONEDRIVE_PATH/$REVISION/package/chromium-$REVISION.tar.gz"
           mkdir -p "$ROOT"
+          # A previous slot may have failed before the engine was restored; that
+          # marker must not suppress this slot's save.
+          rm -f "$ROOT/.wave_no_engine"
 
           # The build outputs (checkpoint or finished engine) are stored without
           # the Chromium source tree, because re-uploading ~20 GB of pristine
