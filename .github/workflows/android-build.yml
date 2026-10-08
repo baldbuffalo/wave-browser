@@ -167,6 +167,10 @@ jobs:
           # on the first poll and kill the build before it compiles anything.
           baseline_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $3}')
           slot_start=$(date +%s)
+          # The build spends most of its time at a constant disk usage (fetching,
+          # configuring, linking). Only report when the used figure actually
+          # moves, so the log shows real progress instead of one repeated line.
+          prev_used_kib=""
           while kill -0 "$BUILD_PID" 2>/dev/null; do
             used_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $3}')
             avail_kib=$(df -Pk "$GITHUB_WORKSPACE" | awk 'NR==2 {print $4}')
@@ -175,8 +179,11 @@ jobs:
             avail_gib=$(awk -v k="$avail_kib" 'BEGIN {printf "%.2f", k/1024/1024}')
             consumed_gib=$(awk -v u="$used_kib" -v b="$baseline_kib" 'BEGIN {printf "%.2f", (u-b)/1024/1024}')
             elapsed_min=$(awk -v n="$(date +%s)" -v s="$slot_start" 'BEGIN {printf "%.1f", (n-s)/60}')
-            echo "Disk: $used_gib GiB used of $total_gib GiB total ($avail_gib GiB free), $consumed_gib GiB consumed, $elapsed_min min elapsed this slot."
-            echo "::notice::Disk $used_gib/$total_gib GiB used, $avail_gib GiB free"
+            if [ "$used_kib" != "$prev_used_kib" ]; then
+              echo "Disk: $used_gib GiB used of $total_gib GiB total ($avail_gib GiB free), $consumed_gib GiB consumed, $elapsed_min min elapsed this slot."
+              echo "::notice::Disk $used_gib/$total_gib GiB used, $avail_gib GiB free"
+              prev_used_kib="$used_kib"
+            fi
             stop=0
             if awk -v c="$consumed_gib" -v a="$avail_gib" -v l="$WAVE_DISK_LIMIT_GIB" -v s="$WAVE_DISK_SAFETY_GIB" 'BEGIN {exit !((c >= l) || (a <= s))}'; then
               echo "Checkpoint threshold reached; stopping Android build."
