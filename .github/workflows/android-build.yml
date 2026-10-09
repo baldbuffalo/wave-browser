@@ -2,11 +2,6 @@ name: Wave Android Build
 
 on:
   workflow_dispatch:
-    inputs:
-      link_only:
-        description: Run only the linking job (compiles have finished).
-        type: boolean
-        default: false
 
 permissions:
   # The workflow cancels superseded runs and, once the engine is finished,
@@ -28,7 +23,6 @@ jobs:
   # matrix entirely. A finished engine or a completed compile set only needs
   # the linking job to produce the APK.
   preflight:
-    if: ${{ !inputs.link_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -79,10 +73,9 @@ jobs:
   build_engine:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    # Runs only when the preflight says the compile matrix is needed, and never
-    # in a link_only dispatch.
+    # Runs only when preflight determines the compile matrix is needed.
     needs: preflight
-    if: ${{ always() && !inputs.link_only && needs.preflight.outputs.mode == 'build' }}
+    if: ${{ always() && needs.preflight.outputs.mode == 'build' }}
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -296,7 +289,7 @@ jobs:
             rm -f android/.wave_link_only
             echo "Compiles are complete; the linking job will finish the link."
             echo "built=false" >> "$GITHUB_OUTPUT"
-            echo "link_only=true" >> "$GITHUB_OUTPUT"
+            echo "handoff=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -321,14 +314,14 @@ jobs:
           # The compile slot that reached the link handoff records that the
           # compiles are done, so a later plain dispatch can route straight to
           # the linking job without rerunning the compile matrix.
-          if [ "${{ steps.build.outputs.link_only }}" = "true" ]; then
+          if [ "${{ steps.build.outputs.handoff }}" = "true" ]; then
             REVISION=$(cat "$WAVE_WORK_ROOT/.wave_revision")
             STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
             printf '%s\n' "$REVISION" | rclone rcat "onedrive:$STAGING/link.ready" \
               || echo "::warning::Could not record the link handoff marker."
             # A previous compile slot may already have dispatched the linking
             # run (a slot can die after marking the handoff but before this
-            # step). Only dispatch if no link_only run is already active, so two
+            # step). Only dispatch if no other build run is already active, so two
             # runs do not race the same link.
             active=$(GH_TOKEN="${{ github.token }}" gh run list \
               --workflow android-build.yml --json status \
@@ -338,7 +331,7 @@ jobs:
             else
               echo "Compiles are complete; dispatching the linking job."
               GH_TOKEN="${{ github.token }}" gh workflow run android-build.yml \
-                --ref "$GITHUB_REF_NAME" -f link_only=true
+                --ref "$GITHUB_REF_NAME" 
             fi
           fi
 
@@ -355,7 +348,7 @@ jobs:
         # not enough. Start another run; it restores this batch's checkpoint and
         # carries on. workflow_dispatch is explicitly allowed from GITHUB_TOKEN,
         # unlike push, so no extra credential is needed.
-        if: success() && matrix.slot == 16 && steps.build.outputs.built != 'true' && steps.build.outputs.link_only != 'true'
+        if: success() && matrix.slot == 16 && steps.build.outputs.built != 'true' && steps.build.outputs.handoff != 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -402,7 +395,7 @@ jobs:
         # later steps, so it is deliberately last, after the APK upload. The
         # handoff case cancels too, after the linking run is dispatched, so the
         # remaining compile slots do not each re-detect the handoff.
-        if: steps.build.outputs.built == 'true' || steps.build.outputs.link_only == 'true'
+        if: steps.build.outputs.built == 'true' || steps.build.outputs.handoff == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -414,12 +407,11 @@ jobs:
   # Job 3: run the ThinLTO link to completion. The compile matrix stops before
   # this link because it is a long single-threaded step that a slot's time
   # budget would interrupt, leaving nothing to checkpoint. This job has no slot
-  # budget, so the link runs once to the end. It is dispatched by the compile
-  # slot that reaches the handoff, as a link_only run.
+  # budget, so the link runs once to the end. Preflight routes here automatically
+  # when OneDrive says the compile phase is complete.
   linking:
-    # Runs in a link_only dispatch, or when the preflight found the compiles
-    # already done. The engine build itself is the normal matrix job.
-    if: ${{ always() && (inputs.link_only || needs.preflight.outputs.mode == 'link') }}
+    # Runs whenever preflight detects a finished engine or compile handoff.
+    if: ${{ always() && needs.preflight.outputs.mode == 'link' }}
     needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -541,8 +533,8 @@ jobs:
           retention-days: 90
 
   # Job 2: hand over the APK built by either the compile matrix or the linking
-  # job. In a link_only run the compile matrix is skipped, so success of the
-  # linking job is what gates this.
+  # job. When preflight skips the compile matrix, success of the linking job
+  # is what gates this.
   publish_app:
     needs: [build_engine, linking]
     if: always() && (needs.build_engine.outputs.built == 'true' || needs.linking.result == 'success')
