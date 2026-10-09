@@ -95,7 +95,9 @@ else
   echo "No PGO profile present; building without PGO."
 fi
 
-# No custom keystore or release-signing configuration is used.\n\n# No compiler cache is wired in. sccache refuses every Chromium compile because
+# No custom keystore or release-signing configuration is used.
+
+# No compiler cache is wired in. sccache refuses every Chromium compile because
 # of -fmodules, so it stored nothing and only added a wrapper process per file.
 # Resuming a build is handled by the ninja checkpoint instead.
 
