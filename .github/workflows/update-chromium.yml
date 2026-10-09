@@ -495,6 +495,33 @@ jobs:
           df -h "$WORK_ROOT"
           du -sh "$WORK_ROOT" 2>/dev/null || true
 
+      - name: Fetch the public PGO profile
+        if: steps.revision.outputs.skip != 'true'
+        # Best effort: the official Android build uses the profile when it is
+        # present and otherwise builds without PGO. A fetch failure must not
+        # fail the package, so this step never fails the job either.
+        continue-on-error: true
+        env:
+          REVISION: ${{ steps.revision.outputs.revision }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          cd "$WORK_ROOT"
+          export DEPOT_TOOLS_WIN_TOOLCHAIN=0
+          if python3 src/tools/update_pgo_profiles.py \
+              --target=android-arm64 update \
+              --gs-url-base=chromium-optimization-profiles/pgo_profiles -v; then
+            if compgen -G "src/chrome/build/pgo_profiles/*.profdata" >/dev/null; then
+              echo "PGO profile fetched:"
+              ls -lh src/chrome/build/pgo_profiles/
+              exit 0
+            fi
+            echo "Fetch reported success but no .profdata is present."
+            exit 1
+          fi
+          echo "::warning::Could not fetch the PGO profile; the Android build will run without PGO."
+          exit 1
+
       - name: Stream Chromium package to OneDrive
         if: steps.revision.outputs.skip != 'true'
         timeout-minutes: 150

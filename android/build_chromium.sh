@@ -65,49 +65,83 @@ fi
 # the subsequent compile a near no-op, which is the expensive part.
 gclient runhooks
 
-cat > "${OUT_DIR}.args" <<'EOF'
+OUT_ARGS="${OUT_DIR}.args"
+cat > "${OUT_ARGS}" <<'EOF'
 target_os = "android"
 target_cpu = "arm64"
 is_component_build = false
 is_official_build = true
-# is_debug defaults to true, which is what made this a debug build: it emitted a
-# split-debug (.dwo) file for nearly every compile and produced ~20 GB of
-# output. It must be off for is_official_build to take effect at all.
 is_debug = false
-# Debug info is the single largest cost in the build. With no symbols the
-# compiles are roughly twice as fast and the checkpoint roughly half the size.
 symbol_level = 0
 blink_symbol_level = 0
 v8_symbol_level = 0
-# is_official_build turns ThinLTO on by default for Android, and the LTO link
-# of libchrome is a long single-threaded step that the disk-budget checkpoint
-# would interrupt. This build is about producing the engine, not shipping a
-# maximally optimized binary.
-use_thin_lto = false
-# Warnings are already errors in every Chromium build (treat_warnings_as_errors
-# defaults to true), so this is belt-and-braces. Our own patch cannot fail
-# harder in official mode than it already can today.
+use_thin_lto = true
 treat_warnings_as_errors = false
-# is_official_build also turns on V8 builtins PGO, which makes gen/v8/embedded.S
-# depend on v8/tools/builtins-pgo/profiles/x64.profile. That profile is fetched
-# by a gclient hook and the finalized package is produced with --nohooks, so the
-# file is absent and no rule can build it:
-#   "../../v8/tools/builtins-pgo/profiles/x64.profile", needed by
-#   "gen/v8/embedded.S", missing and no known rule to make it
-# Build V8 without builtins PGO instead of adding a profile download.
 v8_enable_builtins_optimization = false
-# Chrome PGO likewise wants a downloaded profile that a no-hooks checkout does
-# not have. Off.
+# Chrome PGO profile. Set to 0 here and raised to 2 below only when a profile
+# is actually present, because chrome_pgo_phase = 2 with no profile fails.
 chrome_pgo_phase = 0
 chrome_public_manifest_package = "com.wavebrowser.android"
 EOF
+
+# update-chromium.yml downloads the public android-arm64 PGO profile into
+# src/chrome/build/pgo_profiles when it packages the source. Use it only if it
+# is there: the profile is keyed to the Chromium revision, and a stale or
+# absent profile would either skew optimization or fail the build outright.
+if compgen -G "${SRC_DIR}/chrome/build/pgo_profiles/*.profdata" >/dev/null; then
+  echo "Using the PGO profile in src/chrome/build/pgo_profiles."
+  sed -i 's/^chrome_pgo_phase = 0$/chrome_pgo_phase = 2/' "${OUT_ARGS}"
+else
+  echo "No PGO profile present; building without PGO."
+fi
+
+# Sign with a Wave release key when one is supplied, instead of Chromium's
+# public chromium-debug.keystore. Without these the APK keeps Chromium's
+# well-known test key, which is fine for sideloading but not for release.
+if [[ -n "${WAVE_ANDROID_KEYSTORE_PATH:-}" ]]; then
+  echo "Signing with the supplied release keystore."
+  {
+    printf 'android_keystore_path = "%s"\n' "${WAVE_ANDROID_KEYSTORE_PATH}"
+    printf 'android_keystore_name = "%s"\n' "${WAVE_ANDROID_KEYSTORE_NAME}"
+    printf 'android_keystore_password = "%s"\n' "${WAVE_ANDROID_KEYSTORE_PASSWORD}"
+  } >> "${OUT_ARGS}"
+else
+  echo "No release keystore supplied; APK will use Chromium's public test key."
+fi
 
 # No compiler cache is wired in. sccache refuses every Chromium compile because
 # of -fmodules, so it stored nothing and only added a wrapper process per file.
 # Resuming a build is handled by the ninja checkpoint instead.
 
-gn gen "${OUT_DIR}" --args="$(cat "${OUT_DIR}.args")"
-autoninja -C "${OUT_DIR}" chrome_public_apk
+gn gen "${OUT_DIR}" --args="$(cat "${OUT_ARGS}")"
+
+# The ThinLTO link of libchrome is a long single-threaded step that a slot's
+# time budget can interrupt, and a killed link leaves nothing to checkpoint. So
+# the compile slots build the object files and stop before the link, and a
+# dedicated linking job (WAVE_LINK_ONLY=1) runs the link to completion without a
+# slot budget. Ninja does not expose a "compile only" target, so detect the
+# handoff point with a dry run: once no compile commands remain and a link is
+# the only work left, stop. A dry run that fails is treated as "compiles
+# remain" so the slot never hands off on an unreliable signal.
+if [[ "${WAVE_LINK_ONLY:-0}" == "1" ]]; then
+  autoninja -C "${OUT_DIR}" chrome_public_apk
+else
+  set +e
+  dry_run="$(ninja -C "${OUT_DIR}" -n chrome_public_apk 2>&1)"
+  dry_rc=$?
+  set -e
+  compiles_left=1
+  if [[ "${dry_rc}" -eq 0 ]]; then
+    compiles_left="$(printf '%s\n' "${dry_run}" | grep -cE '(^|/)(clang|clang\+\+)(-[0-9]+)? .* (-c|/c) ' || true)"
+  fi
+  if [[ "${dry_rc}" -eq 0 && "${compiles_left}" -eq 0 ]] &&
+     printf '%s\n' "${dry_run}" | grep -qE 'ld\.lld|solink'; then
+    echo "All compiles are done; only the ThinLTO link remains."
+    : > "${ANDROID_DIR}/.wave_link_only"
+    exit 0
+  fi
+  autoninja -C "${OUT_DIR}" chrome_public_apk
+fi
 
 APK="${OUT_DIR}/apks/ChromePublic.apk"
 if [[ ! -f "${APK}" ]]; then

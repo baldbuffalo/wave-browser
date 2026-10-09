@@ -98,6 +98,7 @@ if [ "$MODE" = "engine" ]; then
   rclone deletefile "onedrive:$STAGING/checkpoint.tar.zst" >/dev/null 2>&1 || true
   rclone deletefile "onedrive:$STAGING/checkpoint.tar.zst.partial" >/dev/null 2>&1 || true
   rclone deletefile "onedrive:$STAGING/chain.txt" >/dev/null 2>&1 || true
+  rclone deletefile "onedrive:$STAGING/link.ready" >/dev/null 2>&1 || true
 fi
 
 echo "Saved the Android $MODE for $REVISION."
