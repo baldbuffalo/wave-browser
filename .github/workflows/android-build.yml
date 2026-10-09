@@ -176,21 +176,6 @@ jobs:
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
           echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 
-      - name: Check whether ThinLTO linking is already complete
-        id: link_state
-        shell: bash
-        run: |
-          set -euo pipefail
-          REVISION=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]')
-          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
-          if rclone lsf "onedrive:$STAGING/engine.ready" >/dev/null 2>&1; then
-            echo "linked=true" >> "$GITHUB_OUTPUT"
-            echo "The completed engine marker exists; skipping the ThinLTO link."
-          else
-            echo "linked=false" >> "$GITHUB_OUTPUT"
-            echo "No completed engine marker; the ThinLTO link must run."
-          fi
-
       - name: Restore engine and compiled output
         shell: bash
         run: |
@@ -497,6 +482,21 @@ jobs:
             rclone cat "onedrive:$STAGING/checkpoint.tar.zst" | tar -I 'zstd -T0 -3' -xpf - -C "$ROOT"
           fi
           printf '%s\n' "$REVISION" > "$ROOT/.wave_revision"
+
+      - name: Check whether ThinLTO linking is already complete
+        id: link_state
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVISION=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]')
+          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          if rclone lsf "onedrive:$STAGING/engine.ready" >/dev/null 2>&1; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+            echo "The completed engine marker exists; skipping the ThinLTO link."
+          else
+            echo "linked=false" >> "$GITHUB_OUTPUT"
+            echo "No completed engine marker; the ThinLTO link must run."
+          fi
 
       - name: Run the ThinLTO link
         if: steps.link_state.outputs.linked != 'true'
