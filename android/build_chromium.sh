@@ -95,21 +95,7 @@ else
   echo "No PGO profile present; building without PGO."
 fi
 
-# Sign with a Wave release key when one is supplied, instead of Chromium's
-# public chromium-debug.keystore. Without these the APK keeps Chromium's
-# well-known test key, which is fine for sideloading but not for release.
-if [[ -n "${WAVE_ANDROID_KEYSTORE_PATH:-}" ]]; then
-  echo "Signing with the supplied release keystore."
-  {
-    printf 'android_keystore_path = "%s"\n' "${WAVE_ANDROID_KEYSTORE_PATH}"
-    printf 'android_keystore_name = "%s"\n' "${WAVE_ANDROID_KEYSTORE_NAME}"
-    printf 'android_keystore_password = "%s"\n' "${WAVE_ANDROID_KEYSTORE_PASSWORD}"
-  } >> "${OUT_ARGS}"
-else
-  echo "No release keystore supplied; APK will use Chromium's public test key."
-fi
-
-# No compiler cache is wired in. sccache refuses every Chromium compile because
+# No custom keystore or release-signing configuration is used.\n\n# No compiler cache is wired in. sccache refuses every Chromium compile because
 # of -fmodules, so it stored nothing and only added a wrapper process per file.
 # Resuming a build is handled by the ninja checkpoint instead.
 
