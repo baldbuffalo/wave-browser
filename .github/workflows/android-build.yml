@@ -176,6 +176,21 @@ jobs:
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
           echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
 
+      - name: Check whether ThinLTO linking is already complete
+        id: link_state
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVISION=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]')
+          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
+          if rclone lsf "onedrive:$STAGING/engine.ready" >/dev/null 2>&1; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+            echo "The completed engine marker exists; skipping the ThinLTO link."
+          else
+            echo "linked=false" >> "$GITHUB_OUTPUT"
+            echo "No completed engine marker; the ThinLTO link must run."
+          fi
+
       - name: Restore engine and compiled output
         shell: bash
         run: |
@@ -484,6 +499,7 @@ jobs:
           printf '%s\n' "$REVISION" > "$ROOT/.wave_revision"
 
       - name: Run the ThinLTO link
+        if: steps.link_state.outputs.linked != 'true'
         env:
           WAVE_LINK_ONLY: "1"
         shell: bash
@@ -496,8 +512,23 @@ jobs:
           chmod +x android/build_chromium.sh
           android/build_chromium.sh
 
+      - name: Recreate APK from the already-linked engine
+        if: steps.link_state.outputs.linked == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WAVE_CHROMIUM_ROOT="$WAVE_WORK_ROOT"
+          export GIT_CACHE_PATH="$WAVE_WORK_ROOT/git-cache"
+          export WAVE_DEPOT_TOOLS="$RUNNER_TEMP/depot_tools"
+          export WAVE_CHROMIUM_PREPARED=1
+          chmod +x android/build_chromium.sh
+          # The saved engine already contains the completed link. The build
+          # script reconfigures GN and asks Ninja for the APK; Ninja should only
+          # recreate packaging outputs unless something is actually stale.
+          android/build_chromium.sh
+
       - name: Save the finished engine
-        if: success()
+        if: success() && steps.link_state.outputs.linked != 'true'
         shell: bash
         run: bash .github/scripts/save-build-outputs.sh engine
 
