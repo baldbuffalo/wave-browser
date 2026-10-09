@@ -480,14 +480,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          REVISION=$(grep -v '^#' android/chromium_revision.txt | tr -d '[:space:]')
-          STAGING="$WAVE_CHECKPOINT_ROOT/$REVISION"
-          if rclone lsf "onedrive:$STAGING/engine.ready" >/dev/null 2>&1; then
-            echo "linked=true" >> "$GITHUB_OUTPUT"
-            echo "The completed engine marker exists; skipping the ThinLTO link."
-          else
+          # Do not trust engine.ready here: older saved engines may have been
+          # checkpointed before the dedicated ThinLTO link was added. Inspect
+          # Ninja's actual pending commands for this restored build instead.
+          ROOT="$WAVE_WORK_ROOT"
+          OUT="$ROOT/src/out/Wave"
+          test -f "$OUT/build.ninja" || { echo "::error::Restored build has no build.ninja; refusing to assume linking is complete."; exit 1; }
+          dry_run="$(ninja -C "$OUT" -n chrome_public_apk 2>&1)" || {
+            printf '%s\n' "$dry_run"
+            echo "::error::Ninja could not inspect the restored build; refusing to assume linking is complete."
+            exit 1
+          }
+          if printf '%s\n' "$dry_run" | grep -qE 'ld\.lld|solink'; then
             echo "linked=false" >> "$GITHUB_OUTPUT"
-            echo "No completed engine marker; the ThinLTO link must run."
+            echo "Ninja still has a linker command pending; the ThinLTO link must run."
+          else
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+            echo "Ninja reports no pending linker command; skipping the ThinLTO link and recreating the APK."
           fi
 
       - name: Run the ThinLTO link
