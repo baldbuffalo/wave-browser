@@ -20,12 +20,14 @@ CXX  := $(DEVKITPPC)/bin/powerpc-eabi-g++
 LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
-# WebKit-WiiU headers
-# The engine must be integrated from source; Wave Browser does not link a .a archive.
+# WebKit-WiiU integration
+# Keep WKC_AVAILABLE enabled here; build workflows must not toggle this flag.
+# The CI workflow downloads the prebuilt archive from webkit-wiiu Actions artifacts.
 #---------------------------------------------------------------------------------
 WEBKIT_INC  := vendor/webkit-wiiu/include
-WEBKIT_FLAGS := -I$(WEBKIT_INC)
-WEBKIT_LIBS  :=
+WEBKIT_LIB  := vendor/webkit-wiiu/lib/libWebKitWKC.a
+WEBKIT_FLAGS := -I$(WEBKIT_INC) -DWKC_AVAILABLE
+WEBKIT_LIBS  := $(WEBKIT_LIB)
 
 #---------------------------------------------------------------------------------
 # Source files
