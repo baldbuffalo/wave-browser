@@ -20,21 +20,12 @@ CXX  := $(DEVKITPPC)/bin/powerpc-eabi-g++
 LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
-# WebKit-WiiU (WKC) — optional; drop libWebKitWKC.a into vendor/webkit-wiiu/lib/
+# WebKit-WiiU headers
+# The engine must be integrated from source; Wave Browser does not link a .a archive.
 #---------------------------------------------------------------------------------
-WEBKIT_LIB  := vendor/webkit-wiiu/lib/libWebKitWKC.a
 WEBKIT_INC  := vendor/webkit-wiiu/include
-
-WEBKIT_FLAGS :=
+WEBKIT_FLAGS := -I$(WEBKIT_INC)
 WEBKIT_LIBS  :=
-ifneq ($(wildcard $(WEBKIT_LIB)),)
-    WEBKIT_FLAGS := -DWKC_AVAILABLE -I$(WEBKIT_INC)
-    WEBKIT_LIBS  := -L$(dir $(WEBKIT_LIB)) -lWebKitWKC
-    $(info WebKit-WiiU: ENABLED ($(WEBKIT_LIB) found))
-else
-    WEBKIT_FLAGS := -I$(WEBKIT_INC)
-    $(info WebKit-WiiU: stub mode ($(WEBKIT_LIB) not found — drop .a to enable))
-endif
 
 #---------------------------------------------------------------------------------
 # Source files
