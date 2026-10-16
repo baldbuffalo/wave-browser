@@ -85,6 +85,7 @@ jobs:
             exit 1
           fi
           RUN_ID=$(gh run list --repo baldbuffalo/webkit-wiiu --workflow build.yml --branch main --status success --limit 20 --json databaseId,createdAt --jq 'sort_by(.createdAt) | reverse | .[0].databaseId')
+          make clean
           if [ -z "${RUN_ID:-}" ] || [ "$RUN_ID" = "null" ]; then
             echo "::error::No successful WebKit-WiiU build run found on main."
             exit 1
