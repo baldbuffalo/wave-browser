@@ -60,14 +60,6 @@ jobs:
           echo "/opt/devkitpro/devkitPPC/bin" >> $GITHUB_PATH
           echo "/opt/devkitpro/tools/bin" >> $GITHUB_PATH
 
-      - name: Check WebKit-WiiU library
-        run: |
-          if [ -f vendor/webkit-wiiu/lib/libWebKitWKC.a ]; then
-            echo "WebKit-WiiU lib: FOUND ($(ls -lh vendor/webkit-wiiu/lib/libWebKitWKC.a | awk '{print $5}')) - full engine build"
-          else
-            echo "WebKit-WiiU lib: not in repo - stub mode"
-          fi
-
       - name: Vendor minizip source
         run: |
           mkdir -p vendor/minizip
@@ -107,12 +99,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest \\
-            WaveBrowser.zip \\
-            WaveBrowser/WaveBrowser.wuhb \\
-            --target "${GITHUB_SHA}" \\
-            --title "Wave Browser Latest" \\
-            --notes "Latest automated Wave Browser release." \\
+          gh release create latest \
+            WaveBrowser.zip \
+            WaveBrowser/WaveBrowser.wuhb \
+            --target "${GITHUB_SHA}" \
+            --title "Wave Browser Latest" \
+            --notes "Latest automated Wave Browser release." \
             --latest
 
       - name: Upload workflow artifact
