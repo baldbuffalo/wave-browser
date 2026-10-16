@@ -74,12 +74,55 @@ jobs:
           test -s wave_browser/font.ttf
           python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\\nstatic const unsigned int font_data_len='+str(len(data))+';\\n')"
 
-      - name: Download WebKit-WiiU Actions artifact
-        shell: bash
+      - name: Locate WebKit-WiiU artifact
+        id: webkit-artifact
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = 'baldbuffalo';
+            const repo = 'webkit-wiiu';
+            const workflowFile = 'build.yml';
+            const headers = {
+              accept: 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28'
+            };
+            // Search recent successful main-branch runs and use the newest run
+            // that actually contains the expected library artifact.
+            const runsResponse = await fetch(
+              `https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=main&status=success&per_page=30`,
+              { headers }
+            );
+            if (!runsResponse.ok) throw new Error(`Could not list WebKit-WiiU runs: ${runsResponse.status}`);
+            const runsData = await runsResponse.json();
+            let chosen = null;
+            let chosenArtifact = null;
+            for (const run of runsData.workflow_runs) {
+              if (run.path && !run.path.endsWith(`/${workflowFile}`)) continue;
+              const ar = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/actions/runs/${run.id}/artifacts?per_page=100`,
+                { headers }
+              );
+              if (!ar.ok) continue;
+              const data = await ar.json();
+              const artifact = data.artifacts.find(a => a.name === 'webkit-wiiu-lib' && !a.expired);
+              if (artifact) { chosen = run; chosenArtifact = artifact; break; }
+            }
+            if (!chosenArtifact) throw new Error('No unexpired webkit-wiiu-lib artifact was found in recent successful main runs.');
+            core.setOutput('run_id', String(chosen.id));
+            core.setOutput('artifact_id', String(chosenArtifact.id));
+            core.info(`Selected artifact from WebKit-WiiU run ${chosen.id} (${chosen.created_at}).`);
+      - name: Download artifact using workflow token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.webkit-artifact.outputs.artifact_id }}
         run: |
           set -euo pipefail
-          echo "::error::The GitHub bot can fetch the artifact for review, but GitHub Actions cannot access the bot's downloaded file. Cross-repository Actions artifact download requires repository authorization or a public transfer mechanism."
-          exit 1
+          mkdir -p build/webkit-wiiu-artifact
+          gh api -H "Accept: application/vnd.github+json" \
+            "repos/baldbuffalo/webkit-wiiu/actions/artifacts/${ARTIFACT_ID}/zip" > build/webkit-artifact.zip
+          unzip -q build/webkit-artifact.zip -d build/webkit-wiiu-artifact
+          test -s build/webkit-wiiu-artifact/lib/libWebKitWKC.a
+          test -d build/webkit-wiiu-artifact/include/wkc
 
       - name: Build Wave Browser
         run: make -j$(nproc)
