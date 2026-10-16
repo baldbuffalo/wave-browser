@@ -735,7 +735,7 @@ void webkit_engine_key_up(int keycode)
 
 // Stub implementation used when the optional WebKit-WiiU/WKC library is not
 // present. This keeps the main Wave Browser build working without WKC headers
-// or libWebKitWKC.a.
+// or a prebuilt static WebKit archive.
 
 bool webkit_engine_init(int, int) { return true; }
 void webkit_engine_set_renderer(SDL_Renderer*) {}
