@@ -1,9 +1,7 @@
 #pragma once
 // webkit_engine.h — WKC (NetFront/WebKit) integration for Wave Browser
 //
-// The compiled WKC library lives at vendor/webkit-wiiu/lib/libWebKitWKC.a
-// Drop a new build of the .a there to update the engine.
-// If the .a is absent the build still works in stub mode.
+// The WebKit-WiiU engine is intended to be integrated from source, not a static .a archive.
 
 #include <stdbool.h>
 
