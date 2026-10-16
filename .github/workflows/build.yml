@@ -74,8 +74,29 @@ jobs:
           test -s wave_browser/font.ttf
           python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\\nstatic const unsigned int font_data_len='+str(len(data))+';\\n')"
 
+      - name: Download WebKit-WiiU Actions artifact
+        env:
+          GH_TOKEN: ${{ secrets.WEBKIT_WIIU_ARTIFACT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Set WEBKIT_WIIU_ARTIFACT_TOKEN to a token that can read Actions artifacts in baldbuffalo/webkit-wiiu."
+            exit 1
+          fi
+          RUN_ID=$(gh run list --repo baldbuffalo/webkit-wiiu --workflow build.yml --branch main --status success --limit 20 --json databaseId,createdAt --jq 'sort_by(.createdAt) | reverse | .[0].databaseId')
+          if [ -z "${RUN_ID:-}" ] || [ "$RUN_ID" = "null" ]; then
+            echo "::error::No successful WebKit-WiiU build run found on main."
+            exit 1
+          fi
+          mkdir -p build/webkit-wiiu-artifact
+          gh run download "$RUN_ID" --repo baldbuffalo/webkit-wiiu --name webkit-wiiu-lib --dir build/webkit-wiiu-artifact
+          test -s build/webkit-wiiu-artifact/lib/libWebKitWKC.a
+          test -d build/webkit-wiiu-artifact/include/wkc
+          echo "Downloaded WebKit-WiiU artifact from run $RUN_ID."
+          
       - name: Build Wave Browser
-        run: make clean && make -j$(nproc)
+        run: make -j$(nproc)
 
       - name: Validate meta.xml
         run: |
