@@ -21,11 +21,12 @@ LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
 # WebKit-WiiU integration
-# Keep WKC_AVAILABLE enabled here; build workflows must not toggle this flag.
-# The CI workflow downloads the prebuilt archive from webkit-wiiu Actions artifacts.
+# WKC_AVAILABLE stays enabled in this Makefile. CI downloads the archive artifact
+# from baldbuffalo/webkit-wiiu into this temporary build directory (not vendor/).
 #---------------------------------------------------------------------------------
-WEBKIT_INC  := vendor/webkit-wiiu/include
-WEBKIT_LIB  := vendor/webkit-wiiu/lib/libWebKitWKC.a
+WEBKIT_ARTIFACT_DIR ?= $(BUILD)/webkit-wiiu-artifact
+WEBKIT_INC  := $(WEBKIT_ARTIFACT_DIR)/include
+WEBKIT_LIB  := $(WEBKIT_ARTIFACT_DIR)/lib/libWebKitWKC.a
 WEBKIT_FLAGS := -I$(WEBKIT_INC) -DWKC_AVAILABLE
 WEBKIT_LIBS  := $(WEBKIT_LIB)
 
