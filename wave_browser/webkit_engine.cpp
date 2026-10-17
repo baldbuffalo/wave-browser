@@ -445,8 +445,32 @@ int  wkcFileDirectoryNamePeer(const char* p,char* out,int mx){
     int n=(int)(s-p);if(n>=mx)n=mx-1;
     strncpy(out,p,n);out[n]='\0';return n;
 }
-void* wkcFileOpenTemporaryFilePeer(const char*,char* out,int mx){
-    strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser/tmp",mx-1);return nullptr;
+void* wkcFileOpenTemporaryFilePeer(const char* prefix,char* out,int mx){
+    if (!out || mx <= 1) return nullptr;
+
+    // WebKit uses temporary files for cache and intermediate resource data.
+    // Return an actual open FILE* as required by the peer API; returning a
+    // directory name with a null handle silently breaks those code paths.
+    static unsigned int serial = 0;
+    const char* dir = "fs:/vol/external01/wiiu/apps/WaveBrowser/tmp";
+    (void)mkdir("fs:/vol/external01/wiiu/apps/WaveBrowser", 0777);
+    (void)mkdir(dir, 0777);
+
+    for (unsigned int attempt = 0; attempt < 32; ++attempt) {
+        const unsigned int id = ++serial;
+        const char* safePrefix = (prefix && prefix[0]) ? prefix : "wkc";
+        int n = snprintf(out, (size_t)mx, "%s/%s-%08x.tmp", dir, safePrefix, id);
+        if (n < 0 || n >= mx) {
+            out[0] = '\\0';
+            return nullptr;
+        }
+        FILE* file = fopen(out, "w+b");
+        if (file) return file;
+        if (errno != EEXIST) break;
+    }
+
+    out[0] = '\\0';
+    return nullptr;
 }
 void* wkcFileOpenDirectoryPeer(int,const char*,const char*){ return nullptr; }
 void  wkcFileCloseDirectoryPeer(void*)      {}
