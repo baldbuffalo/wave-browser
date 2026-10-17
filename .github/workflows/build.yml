@@ -124,7 +124,10 @@ jobs:
             "repos/baldbuffalo/webkit-wiiu/actions/artifacts/${ARTIFACT_ID}/zip" > build/webkit-artifact.zip
           unzip -q build/webkit-artifact.zip -d build/webkit-wiiu-artifact
           test -s build/webkit-wiiu-artifact/lib/libWebKitWKC.a
-          test -d build/webkit-wiiu-artifact/include/wkc
+          test -s build/webkit-wiiu-artifact/include/wkc/wkcbase.h
+          test -s build/webkit-wiiu-artifact/include/wkc/WKCWebView.h
+          test -s build/webkit-wiiu-artifact/include/wkc/WKCClientBuilders.h
+          test -s build/webkit-wiiu-artifact/BUILD_PROFILE.txt
 
       - name: Build Wave Browser
         run: make -j$(nproc)
