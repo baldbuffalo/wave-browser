@@ -125,7 +125,7 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p "$(dir $@)"
 	$(CXX) $(CXXFLAGS) -c "$<" -o "$@"
 
-$(TARGET).elf: $(OFILES)
+$(TARGET).elf: check-webkit-engine $(OFILES)
 	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
 $(TARGET).rpx: $(TARGET).elf
