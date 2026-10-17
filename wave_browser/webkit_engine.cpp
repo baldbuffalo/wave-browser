@@ -69,22 +69,41 @@ static void schedule_wkc_wakeup(unsigned int ms, void* data)
         OSInitMutex(&s_timer_mtx);
         s_timer_init = true;
     }
-    if (ms == 0xFFFFFFFFu) {
-        OSLockMutex(&s_timer_mtx);
-        for (WKCTimer* t = s_timers; t; t = t->next)
-            if (t->wkc_wakeup && t->data == data) t->active = false;
+
+    const bool cancel = ms == 0xFFFFFFFFu;
+    OSLockMutex(&s_timer_mtx);
+
+    // WebKit frequently reschedules a wake-up for the same client data. Reuse
+    // its existing queue node instead of allocating another node on every
+    // animation/network/timer update.
+    for (WKCTimer* t = s_timers; t; t = t->next) {
+        if (!t->wkc_wakeup || t->data != data)
+            continue;
+
+        if (cancel) {
+            t->active = false;
+        } else {
+            t->fire_at = now_ms() + ms;
+            t->active = true;
+        }
         OSUnlockMutex(&s_timer_mtx);
         return;
     }
+
+    if (cancel) {
+        OSUnlockMutex(&s_timer_mtx);
+        return;
+    }
+
     auto* t = (WKCTimer*)calloc(1, sizeof(WKCTimer));
-    if (!t) return;
-    t->data = data;
-    t->fire_at = now_ms() + ms;
-    t->active = true;
-    t->wkc_wakeup = true;
-    OSLockMutex(&s_timer_mtx);
-    t->next = s_timers;
-    s_timers = t;
+    if (t) {
+        t->data = data;
+        t->fire_at = now_ms() + ms;
+        t->active = true;
+        t->wkc_wakeup = true;
+        t->next = s_timers;
+        s_timers = t;
+    }
     OSUnlockMutex(&s_timer_mtx);
 }
 
