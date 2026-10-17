@@ -85,6 +85,7 @@ jobs:
         timeout-minutes: 50
         run: |
           set -euo pipefail
+          mkdir -p build
           # Use the exact current WebKit main SHA so Wave never silently links a
           # stale bootstrap archive or an engine built from an older commit.
           WEBKIT_SHA=$(curl -fsSL \
