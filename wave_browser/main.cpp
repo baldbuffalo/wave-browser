@@ -936,6 +936,16 @@ int main(int, char**)
     settings_load();
     if (g_settings.improved_multitasking) load_session();
 
+    // Start on Google unless a restored session already has an active URL.
+    // This makes the first launch a real navigation rather than an empty tab.
+    if (s_tabs[s_active_tab].url[0] == '\\0') {
+        strncpy(s_tabs[s_active_tab].url, "https://www.google.com/", MAX_URL - 1);
+        s_tabs[s_active_tab].url[MAX_URL - 1] = '\\0';
+        strncpy(s_tabs[s_active_tab].title, "Google", sizeof(s_tabs[s_active_tab].title) - 1);
+        s_tabs[s_active_tab].title[sizeof(s_tabs[s_active_tab].title) - 1] = '\\0';
+    }
+    webkit_engine_navigate(s_tabs[s_active_tab].url);
+
     run_splash_and_update();
 
     while (s_running) {
