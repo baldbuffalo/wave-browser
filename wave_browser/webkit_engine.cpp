@@ -18,6 +18,11 @@ extern "C" {
 #include <wkc/wkcpeer.h>   // defines wkcTimeoutProc, wkc_uint64, wkc_int64, all file/timer/thread peers
 #include <wkc/wkcgpeer.h>  // defines fontPeerMalloc, fontPeerFree, wkcFontDrawTextPeer
 #include <wkc/wkcmpeer.h>
+#include <wkc/wkcmediapeer.h>
+#include <wkc/wkcsocket.h>
+#include <wkc/wkcheappeer.h>
+#include <wkc/WKCWebView.h>
+#include <wkc/WKCClientBuilders.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +42,8 @@ static SDL_Renderer*  s_renderer = nullptr;
 static SDL_Texture*   s_texture  = nullptr;
 static bool           s_dirty    = false;
 static char           s_url[512] = {};
+static WKC::WKCWebView* s_webview = nullptr;
+static bool s_webkit_initialized = false;
 
 // ─── Timer ───────────────────────────────────────────────────────────────────
 // wkcTimeoutProc returns bool (from wkcpeer.h)
@@ -47,15 +54,97 @@ struct WKCTimer {
     unsigned int   fire_at;
     unsigned int   interval;
     bool           active;
+    bool           wkc_wakeup;
     WKCTimer*      next;
 };
 static WKCTimer* s_timers     = nullptr;
 static OSMutex   s_timer_mtx;
 static bool      s_timer_init = false;
+static unsigned int now_ms();
+
+static void schedule_wkc_wakeup(unsigned int ms, void* data)
+{
+    if (!s_timer_init) {
+        OSInitMutex(&s_timer_mtx);
+        s_timer_init = true;
+    }
+    if (ms == 0xFFFFFFFFu) {
+        OSLockMutex(&s_timer_mtx);
+        for (WKCTimer* t = s_timers; t; t = t->next)
+            if (t->wkc_wakeup && t->data == data) t->active = false;
+        OSUnlockMutex(&s_timer_mtx);
+        return;
+    }
+    auto* t = (WKCTimer*)calloc(1, sizeof(WKCTimer));
+    if (!t) return;
+    t->data = data;
+    t->fire_at = now_ms() + ms;
+    t->active = true;
+    t->wkc_wakeup = true;
+    OSLockMutex(&s_timer_mtx);
+    t->next = s_timers;
+    s_timers = t;
+    OSUnlockMutex(&s_timer_mtx);
+}
+
 
 static unsigned int now_ms() {
     return (unsigned int)OSTicksToMilliseconds(OSGetTick());
 }
+
+class WaveMemoryEventHandler final : public WKC::WKCMemoryEventHandler {
+public:
+    bool checkMemoryAvailability(unsigned int, bool) override { return true; }
+    bool checkMemoryAllocatable(unsigned int, AllocationReason) override { return true; }
+    void* notifyMemoryExhaust(unsigned int requested, unsigned int& allocated) override {
+        allocated = requested;
+        return malloc(requested);
+    }
+    void notifyMemoryAllocationError(unsigned int, AllocationReason) override {}
+    void notifyCrash(const char*, int, const char*, const char*) override {}
+    void notifyStackOverflow(bool, unsigned int, unsigned int, unsigned int,
+                             void*, void*, void*, const char*, int, const char*) override {}
+};
+
+class WaveTimerEventHandler final : public WKC::WKCTimerEventHandler {
+public:
+    bool requestWakeUp(unsigned int ms, void* data) override {
+        schedule_wkc_wakeup(ms, data);
+        return true;
+    }
+};
+
+class WaveClientBuilders final : public WKC::WKCClientBuilders {
+public:
+    WKC::ChromeClientIf* createChromeClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteChromeClient(WKC::ChromeClientIf*) override {}
+    WKC::ContextMenuClientIf* createContextMenuClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteContextMenuClient(WKC::ContextMenuClientIf*) override {}
+    WKC::DragClientIf* createDragClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDragClient(WKC::DragClientIf*) override {}
+    WKC::EditorClientIf* createEditorClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteEditorClient(WKC::EditorClientIf*) override {}
+    WKC::FrameLoaderClientIf* createFrameLoaderClient(WKC::WKCWebFrame*) override { return nullptr; }
+    void deleteFrameLoaderClient(WKC::FrameLoaderClientIf*) override {}
+    WKC::InspectorClientIf* createInspectorClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteInspectorClient(WKC::InspectorClientIf*) override {}
+    WKC::DropDownListClientIf* createDropDownListClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDropDownListClient(WKC::DropDownListClientIf*) override {}
+    WKC::GeolocationClientIf* createGeolocationClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteGeolocationClient(WKC::GeolocationClientIf*) override {}
+    WKC::DeviceMotionClientIf* createDeviceMotionClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDeviceMotionClient(WKC::DeviceMotionClientIf*) override {}
+    WKC::DeviceOrientationClientIf* createDeviceOrientationClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDeviceOrientationClient(WKC::DeviceOrientationClientIf*) override {}
+    WKC::BackForwardClientIf* createBackForwardClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteBackForwardClient(WKC::BackForwardClientIf*) override {}
+    WKC::BatteryClientIf* createBatteryClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteBatteryClient(WKC::BatteryClientIf*) override {}
+};
+
+static WaveMemoryEventHandler s_memory_event_handler;
+static WaveTimerEventHandler s_timer_event_handler;
+static WaveClientBuilders s_client_builders;
 
 // ─── Thread ──────────────────────────────────────────────────────────────────
 
@@ -147,7 +236,7 @@ bool wkcTimerStartOneShotPeer(void* p, unsigned int ms, wkcTimeoutProc cb, void*
     if (!p) return false;
     auto* t=(WKCTimer*)p;
     OSLockMutex(&s_timer_mtx);
-    t->proc=cb; t->data=d; t->fire_at=now_ms()+ms; t->interval=0; t->active=true;
+    t->proc=cb; t->data=d; t->fire_at=now_ms()+ms; t->interval=0; t->active=true; t->wkc_wakeup=false;
     OSUnlockMutex(&s_timer_mtx);
     return true;
 }
@@ -155,7 +244,7 @@ bool wkcTimerStartPeriodicPeer(void* p, unsigned int ms, wkcTimeoutProc cb, void
     if (!p) return false;
     auto* t=(WKCTimer*)p;
     OSLockMutex(&s_timer_mtx);
-    t->proc=cb; t->data=d; t->fire_at=now_ms()+ms; t->interval=ms; t->active=true;
+    t->proc=cb; t->data=d; t->fire_at=now_ms()+ms; t->interval=ms; t->active=true; t->wkc_wakeup=false;
     OSUnlockMutex(&s_timer_mtx);
     return true;
 }
@@ -395,6 +484,22 @@ const unsigned char* wkcSystemGetSystemStringPeer(const unsigned char*)     { re
 
 // ── SSL ──────────────────────────────────────────────────────────────────────
 
+bool wkcHWOffscreenInitializePeer(void) { return true; }
+void wkcHWOffscreenFinalizePeer(void) {}
+void wkcHWOffscreenForceTerminatePeer(void) {}
+bool wkcAudioInitializePeer(void) { return true; }
+void wkcAudioFinalizePeer(void) {}
+void wkcAudioForceTerminatePeer(void) {}
+bool wkcMediaPlayerInitializePeer(void) { return true; }
+void wkcMediaPlayerFinalizePeer(void) {}
+void wkcMediaPlayerForceTerminatePeer(void) {}
+bool wkcNetInitializePeer(void) { return true; }
+void wkcNetFinalizePeer(void) {}
+void wkcNetForceTerminatePeer(void) {}
+void wkcHeapInitializePeer(void*, size_t) {}
+void wkcHeapFinalizePeer(void) {}
+void wkcHeapForceTerminatePeer(void) {}
+
 bool  wkcSSLInitializePeer(void)           { return true; }
 void  wkcSSLFinalizePeer(void)             {}
 void  wkcSSLForceTerminatePeer(void)       {}
@@ -618,22 +723,43 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
 
 bool webkit_engine_init(int w, int h)
 {
+    if (w <= 0 || h <= 0) return false;
     s_w=w; s_h=h;
-    s_pixels=(unsigned char*)malloc(w*h*4);
+    s_pixels=(unsigned char*)malloc((size_t)w*h*4);
     if(!s_pixels) return false;
-    memset(s_pixels,0xFF,w*h*4);
+    memset(s_pixels,0xFF,(size_t)w*h*4);
 
-    wkcTimerInitializePeer(nullptr);
-    wkcThreadInitializePeer();
-    wkcMemoryInitializePeer(nullptr,nullptr,nullptr);
-    wkcFileInitializePeer();
-    wkcDebugPrintInitializePeer();
-    wkcSystemInitializePeer();
-    wkcSSLInitializePeer();
-    wkcFontEngineInitializePeer(nullptr,0,nullptr,nullptr,false);
+    if (!WKC::WKCWebKitInitialize(nullptr, 0, nullptr, 0,
+                                  s_memory_event_handler, s_timer_event_handler)) {
+        free(s_pixels);
+        s_pixels = nullptr;
+        return false;
+    }
+    s_webkit_initialized = true;
 
-    // TODO: WKCWebKit::initialize + WKCWebView::create when available in .a
-    s_available=false;
+    s_webview = WKC::WKCWebView::create(s_client_builders);
+    if (!s_webview) {
+        WKC::WKCWebKitFinalize();
+        s_webkit_initialized = false;
+        free(s_pixels);
+        s_pixels = nullptr;
+        return false;
+    }
+
+    WKC::WKCSize size = { s_w, s_h };
+    if (!s_webview->setOffscreen(WKC::EOffscreenFormatARGB8888,
+                                 s_pixels, s_w * 4, size, size, true, &size, true)) {
+        WKC::WKCWebView::deleteWKCWebView(s_webview);
+        s_webview = nullptr;
+        WKC::WKCWebKitFinalize();
+        s_webkit_initialized = false;
+        free(s_pixels);
+        s_pixels = nullptr;
+        return false;
+    }
+
+    s_available = true;
+    s_dirty = true;
     return true;
 }
 
@@ -647,21 +773,11 @@ void webkit_engine_set_renderer(SDL_Renderer* ren)
 
 void webkit_engine_navigate(const char* url)
 {
-    if(!url) return;
+    if(!url || !s_webview || !s_available) return;
     strncpy(s_url,url,sizeof(s_url)-1);
-    if(s_available){
-        // TODO: s_webview->loadURL(url);
-        return;
-    }
-    // Placeholder: light grey with blue top stripe
-    if(s_pixels){
-        memset(s_pixels,0xF4,s_w*s_h*4);
-        for(int x=0;x<s_w;x++){
-            uint8_t*p=s_pixels+x*4;
-            p[0]=0xFF;p[1]=0x42;p[2]=0x85;p[3]=0xF4;
-        }
-        s_dirty=true;
-    }
+    s_url[sizeof(s_url)-1] = '\0';
+    s_webview->loadURLOrSearch(url);
+    s_dirty = true;
 }
 
 void webkit_engine_tick(void)
@@ -673,12 +789,22 @@ void webkit_engine_tick(void)
         if(!t->active||now<t->fire_at) continue;
         t->active=false;
         auto cb=t->proc; auto data=t->data; auto iv=t->interval;
+        bool wake_up=t->wkc_wakeup;
         if(iv){t->fire_at=now+iv;t->active=true;}
         OSUnlockMutex(&s_timer_mtx);
-        if(cb) cb(data);
+        if (wake_up) WKC::WKCWebKitWakeUp(data);
+        else if(cb) cb(data);
         OSLockMutex(&s_timer_mtx);
     }
     OSUnlockMutex(&s_timer_mtx);
+
+    if (s_webview && s_available) {
+        WKC::WKCWebKitWakeUp(nullptr);
+        s_webview->notifyServiceScriptedAnimations();
+        WKC::WKCRect rect = { 0, 0, s_w, s_h };
+        s_webview->notifyPaintOffscreen(rect);
+        s_dirty = true;
+    }
 }
 
 void webkit_engine_draw(int cx,int cy,int cw,int ch)
@@ -693,41 +819,73 @@ void webkit_engine_draw(int cx,int cy,int cw,int ch)
     SDL_RenderCopy(s_renderer,s_texture,&src,&dst);
 }
 
-void webkit_engine_input_text(const char* u){ (void)u; }
-void webkit_engine_scroll(int x,int y){ (void)x;(void)y; }
-void webkit_engine_touch_down(int x,int y){ (void)x;(void)y; }
-void webkit_engine_touch_up(int x,int y){ (void)x;(void)y; }
+void webkit_engine_input_text(const char* u)
+{
+    if (!u || !s_webview || !s_available) return;
+    const unsigned char* p = (const unsigned char*)u;
+    while (*p) {
+        unsigned int ch = *p++;
+        if (ch >= 0xF0 && p[0] && p[1] && p[2]) {
+            ch = ((ch & 0x07) << 18) | ((p[0] & 0x3F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F); p += 3;
+        } else if (ch >= 0xE0 && p[0] && p[1]) {
+            ch = ((ch & 0x0F) << 12) | ((p[0] & 0x3F) << 6) | (p[1] & 0x3F); p += 2;
+        } else if (ch >= 0xC0 && p[0]) {
+            ch = ((ch & 0x1F) << 6) | (p[0] & 0x3F); p += 1;
+        }
+        s_webview->notifyKeyChar(ch);
+    }
+}
+void webkit_engine_scroll(int x,int y)
+{
+    if (s_webview && s_available) s_webview->notifyScroll(x,y);
+}
+void webkit_engine_touch_down(int x,int y)
+{
+    if (!s_webview || !s_available) return;
+    WKC::WKCPoint p = { x, y };
+    s_webview->notifyMouseDown(p, WKC::EMouseButtonLeft, WKC::EModifierNone);
+}
+void webkit_engine_touch_up(int x,int y)
+{
+    if (!s_webview || !s_available) return;
+    WKC::WKCPoint p = { x, y };
+    s_webview->notifyMouseUp(p, WKC::EMouseButtonLeft, WKC::EModifierNone);
+}
+
 bool webkit_engine_available(void){ return s_available; }
 
 void webkit_engine_shutdown(void)
 {
     if(s_texture){SDL_DestroyTexture(s_texture);s_texture=nullptr;}
-    wkcSSLFinalizePeer();
-    wkcFontEngineFinalizePeer();
-    wkcSystemFinalizePeer();
-    wkcDebugPrintFinalizePeer();
-    wkcFileFinalizePeer();
-    wkcMemoryFinalizePeer();
-    wkcThreadFinalizePeer();
-    wkcTimerFinalizePeer();
-    free(s_pixels);s_pixels=nullptr;
+    if (s_webview) {
+        WKC::WKCWebView::deleteWKCWebView(s_webview);
+        s_webview = nullptr;
+    }
+    if (s_webkit_initialized) {
+        WKC::WKCWebKitFinalize();
+        s_webkit_initialized = false;
+    }
     s_available=false;
+    if (s_timer_init) {
+        OSLockMutex(&s_timer_mtx);
+        WKCTimer* t = s_timers;
+        s_timers = nullptr;
+        while (t) { WKCTimer* next=t->next; free(t); t=next; }
+        OSUnlockMutex(&s_timer_mtx);
+    }
+    free(s_pixels);s_pixels=nullptr;
 }
 
 void webkit_engine_key_down(int keycode)
 {
     if (!s_available) return;
-    // TODO: create WKC keyboard event and dispatch to s_webview
-    // WKCKeyEvent ev = {}; ev.m_type = WKC_KEYEVENT_KEYDOWN; ev.m_keyIdentity = keycode;
-    // s_webview->notifyKeyPress(&ev);
+    // SDL key codes are platform-specific; address-bar text uses notifyKeyChar().
     (void)keycode;
 }
 
 void webkit_engine_key_up(int keycode)
 {
     if (!s_available) return;
-    // TODO: WKCKeyEvent ev = {}; ev.m_type = WKC_KEYEVENT_KEYUP; ev.m_keyIdentity = keycode;
-    // s_webview->notifyKeyPress(&ev);
     (void)keycode;
 }
 
