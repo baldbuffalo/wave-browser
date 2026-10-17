@@ -83,6 +83,7 @@ jobs:
       - name: Locate WebKit-WiiU artifact
         id: webkit-artifact
         uses: actions/github-script@v7
+        timeout-minutes: 50
         with:
           script: |
             const owner = 'baldbuffalo';
@@ -92,33 +93,39 @@ jobs:
               accept: 'application/vnd.github+json',
               'X-GitHub-Api-Version': '2022-11-28'
             };
-            // Search recent completed main-branch runs and use the newest run
-            // that actually contains the complete WebCore engine artifact. The
-            // run may have a failed bootstrap job while the independent full-engine
-            // build succeeds and publishes its artifact.
-            const runsResponse = await fetch(
-              `https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=main&status=completed&per_page=30`,
-              { headers }
-            );
-            if (!runsResponse.ok) throw new Error(`Could not list WebKit-WiiU runs: ${runsResponse.status}`);
-            const runsData = await runsResponse.json();
+            // The engine build runs independently and can take a long time.
+            // Poll for its full-engine artifact instead of failing Wave's build
+            // just because the WebKit workflow is still compiling.
+            const deadline = Date.now() + 45 * 60 * 1000;
             let chosen = null;
             let chosenArtifact = null;
-            for (const run of runsData.workflow_runs) {
-              if (run.path && !run.path.endsWith(`/${workflowFile}`)) continue;
-              const ar = await fetch(
-                `https://api.github.com/repos/${owner}/${repo}/actions/runs/${run.id}/artifacts?per_page=100`,
+            while (Date.now() < deadline && !chosenArtifact) {
+              const runsResponse = await fetch(
+                `https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=main&status=completed&per_page=30`,
                 { headers }
               );
-              if (!ar.ok) continue;
-              const data = await ar.json();
-              const artifact = data.artifacts.find(a => a.name === 'webkit-wiiu-full-engine' && !a.expired);
-              if (artifact) { chosen = run; chosenArtifact = artifact; break; }
+              if (!runsResponse.ok) throw new Error(`Could not list WebKit-WiiU runs: ${runsResponse.status}`);
+              const runsData = await runsResponse.json();
+              for (const run of runsData.workflow_runs) {
+                if (run.path && !run.path.endsWith(`/${workflowFile}`)) continue;
+                const ar = await fetch(
+                  `https://api.github.com/repos/${owner}/${repo}/actions/runs/${run.id}/artifacts?per_page=100`,
+                  { headers }
+                );
+                if (!ar.ok) continue;
+                const data = await ar.json();
+                const artifact = data.artifacts.find(a => a.name === 'webkit-wiiu-full-engine' && !a.expired);
+                if (artifact) { chosen = run; chosenArtifact = artifact; break; }
+              }
+              if (!chosenArtifact) {
+                core.info('Full WebKit engine artifact is not published yet; checking again in 60 seconds.');
+                await new Promise(resolve => setTimeout(resolve, 60 * 1000));
+              }
             }
-            if (!chosenArtifact) throw new Error('No unexpired webkit-wiiu-full-engine artifact was found in recent completed main runs.');
+            if (!chosenArtifact) throw new Error('Timed out waiting for an unexpired webkit-wiiu-full-engine artifact.');
             core.setOutput('run_id', String(chosen.id));
             core.setOutput('artifact_id', String(chosenArtifact.id));
-            core.info(`Selected artifact from WebKit-WiiU run ${chosen.id} (${chosen.created_at}).`);
+            core.info(`Selected full engine artifact from WebKit-WiiU run ${chosen.id} (${chosen.created_at}).`);
       - name: Download artifact using workflow token
         env:
           GH_TOKEN: ${{ github.token }}
