@@ -6,9 +6,15 @@ on:
       - main
     paths:
       - 'wiiu/**'
+      - 'Makefile'
+      - 'wave_browser/**'
+      - '.github/workflows/build.yml'
   pull_request:
     paths:
       - 'wiiu/**'
+      - 'Makefile'
+      - 'wave_browser/**'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 jobs:
