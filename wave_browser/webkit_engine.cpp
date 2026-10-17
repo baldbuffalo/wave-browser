@@ -822,15 +822,39 @@ void webkit_engine_draw(int cx,int cy,int cw,int ch)
 void webkit_engine_input_text(const char* u)
 {
     if (!u || !s_webview || !s_available) return;
-    const unsigned char* p = (const unsigned char*)u;
+
+    // Decode UTF-8 without reading beyond the terminating NUL. The previous
+    // implementation inspected later bytes before proving they existed.
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(u);
     while (*p) {
         unsigned int ch = *p++;
-        if (ch >= 0xF0 && p[0] && p[1] && p[2]) {
-            ch = ((ch & 0x07) << 18) | ((p[0] & 0x3F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F); p += 3;
-        } else if (ch >= 0xE0 && p[0] && p[1]) {
-            ch = ((ch & 0x0F) << 12) | ((p[0] & 0x3F) << 6) | (p[1] & 0x3F); p += 2;
-        } else if (ch >= 0xC0 && p[0]) {
-            ch = ((ch & 0x1F) << 6) | (p[0] & 0x3F); p += 1;
+        if (ch < 0x80) {
+            // ASCII
+        } else if (ch >= 0xC2 && ch <= 0xDF &&
+                   p[0] && (p[0] & 0xC0) == 0x80) {
+            ch = ((ch & 0x1F) << 6) | (p[0] & 0x3F);
+            ++p;
+        } else if (ch >= 0xE0 && ch <= 0xEF &&
+                   p[0] && p[1] &&
+                   (p[0] & 0xC0) == 0x80 && (p[1] & 0xC0) == 0x80) {
+            ch = ((ch & 0x0F) << 12) | ((p[0] & 0x3F) << 6) | (p[1] & 0x3F);
+            if (ch >= 0x800 && !(ch >= 0xD800 && ch <= 0xDFFF))
+                p += 2;
+            else
+                ch = 0xFFFD;
+        } else if (ch >= 0xF0 && ch <= 0xF4 &&
+                   p[0] && p[1] && p[2] &&
+                   (p[0] & 0xC0) == 0x80 && (p[1] & 0xC0) == 0x80 &&
+                   (p[2] & 0xC0) == 0x80) {
+            ch = ((ch & 0x07) << 18) | ((p[0] & 0x3F) << 12) |
+                 ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+            if (ch >= 0x10000 && ch <= 0x10FFFF)
+                p += 3;
+            else
+                ch = 0xFFFD;
+        } else {
+            // Replace malformed UTF-8 instead of forwarding a raw byte.
+            ch = 0xFFFD;
         }
         s_webview->notifyKeyChar(ch);
     }
