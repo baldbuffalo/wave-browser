@@ -694,14 +694,32 @@ void wkcOffscreenGetSizePeer(void* p,WKCSize* sz){
     if(p&&sz){sz->fWidth=((WKCOff*)p)->w;sz->fHeight=((WKCOff*)p)->h;}
 }
 void wkcOffscreenScrollPeer(void* p,const WKCRect* r,const WKCSize* d){
-    // WKCRect uses fPoint.fX/fY and fSize.fWidth/fHeight
+    // Clip source and translated destination before calculating any copy size.
     if(!p||!r||!d) return;
-    auto*o=(WKCOff*)p;
-    int rx=r->fPoint.fX, ry=r->fPoint.fY, rh=r->fSize.fHeight;
-    int dx=d->fWidth,    dy=d->fHeight;
-    memmove(o->bmp+(ry+dy)*o->rb+(rx+dx)*4,
-            o->bmp+ry*o->rb+rx*4,
-            (size_t)(rh-abs(dy))*o->rb);
+    auto* o=(WKCOff*)p;
+    if(!o->bmp||o->w<=0||o->h<=0||o->rb<o->w*4) return;
+    int rx=r->fPoint.fX, ry=r->fPoint.fY;
+    int rw=r->fSize.fWidth, rh=r->fSize.fHeight;
+    int dx=d->fWidth, dy=d->fHeight;
+    if(rw<=0||rh<=0||(dx==0&&dy==0)) return;
+    int sx0=rx<0?0:rx, sy0=ry<0?0:ry;
+    int sx1=rx+rw, sy1=ry+rh;
+    if(sx1>o->w) sx1=o->w;
+    if(sy1>o->h) sy1=o->h;
+    if(dx<0&&sx0 < -dx) sx0=-dx;
+    if(dy<0&&sy0 < -dy) sy0=-dy;
+    if(dx>0&&sx1>o->w-dx) sx1=o->w-dx;
+    if(dy>0&&sy1>o->h-dy) sy1=o->h-dy;
+    if(sx0>=sx1||sy0>=sy1) return;
+    size_t bytes=(size_t)(sx1-sx0)*4;
+    int y=dy>0?sy1-1:sy0, end=dy>0?sy0-1:sy1, step=dy>0?-1:1;
+    for(;y!=end;y+=step){
+        unsigned char* src=o->bmp+(size_t)y*o->rb+(size_t)sx0*4;
+        unsigned char* dst=o->bmp+(size_t)(y+dy)*o->rb+(size_t)(sx0+dx)*4;
+        if(dx>0){ for(size_t x=bytes;x>0;x-=4) memcpy(dst+x-4,src+x-4,4); }
+        else if(dx<0){ for(size_t x=0;x<bytes;x+=4) memcpy(dst+x,src+x,4); }
+        else memmove(dst,src,bytes);
+    }
 }
 void wkcOffscreenSetOpticalZoomPeer(void*,float,const WKCFloatPoint*){}
 void wkcOffscreenSetUseInterpolationForImagePeer(void*,bool){}
