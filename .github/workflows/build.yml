@@ -110,7 +110,7 @@ jobs:
           import json,sys
           data=json.load(open("build/webkit-runs.json"))
           runs=[r for r in data.get("workflow_runs", [])
-                if r.get("head_sha") == sys.argv[1] and r.get("conclusion") == "success"]
+                if r.get("head_sha") == sys.argv[1]]
           print(runs[0]["id"] if runs else "")' "$WEBKIT_SHA")
               if [ -n "$RUN_ID" ]; then
                 CODE=$(curl -sS -o build/webkit-artifacts.json -w '%{http_code}' \
