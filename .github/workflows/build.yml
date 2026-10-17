@@ -88,13 +88,19 @@ jobs:
           mkdir -p build
           # Use the exact current WebKit main SHA so Wave never silently links a
           # stale bootstrap archive or an engine built from an older commit.
-          WEBKIT_SHA=$(curl -fsSL \
-            https://api.github.com/repos/baldbuffalo/webkit-wiiu/commits/main \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
-          TAG="engine-$WEBKIT_SHA"
-          RELEASE_URL="https://api.github.com/repos/baldbuffalo/webkit-wiiu/releases/tags/$TAG"
+          WEBKIT_SHA=""
+          RELEASE_URL=""
           ASSET_URL=""
           for attempt in $(seq 1 45); do
+            # Refresh the target SHA every five minutes in case WebKit main moves
+            # while this build is waiting for the corresponding engine artifact.
+            if [ -z "$WEBKIT_SHA" ] || [ $((attempt % 5)) -eq 0 ]; then
+              WEBKIT_SHA=$(curl -fsSL \
+                https://api.github.com/repos/baldbuffalo/webkit-wiiu/commits/main \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+              TAG="engine-$WEBKIT_SHA"
+              RELEASE_URL="https://api.github.com/repos/baldbuffalo/webkit-wiiu/releases/tags/$TAG"
+            fi
             CODE=$(curl -sS -o build/webkit-release.json -w '%{http_code}' "$RELEASE_URL" || true)
             if [ "$CODE" = "200" ]; then
               ASSET_URL=$(python3 -c '
