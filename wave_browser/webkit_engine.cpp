@@ -816,21 +816,37 @@ void webkit_engine_navigate(const char* url)
 
 void webkit_engine_tick(void)
 {
-    if(!s_timer_init) return;
-    unsigned int now=now_ms();
-    OSLockMutex(&s_timer_mtx);
-    for(WKCTimer*t=s_timers;t;t=t->next){
-        if(!t->active||now<t->fire_at) continue;
-        t->active=false;
-        auto cb=t->proc; auto data=t->data; auto iv=t->interval;
-        bool wake_up=t->wkc_wakeup;
-        if(iv){t->fire_at=now+iv;t->active=true;}
-        OSUnlockMutex(&s_timer_mtx);
-        if (wake_up) WKC::WKCWebKitWakeUp(data);
-        else if(cb) cb(data);
+    // A WebKit view must be serviced every frame, even before its first timer
+    // request. Returning here when the timer queue is empty can prevent the
+    // initial navigation, layout and paint pipeline from making progress.
+    if (s_timer_init) {
+        unsigned int now = now_ms();
         OSLockMutex(&s_timer_mtx);
+        for (WKCTimer* t = s_timers; t; t = t->next) {
+            if (!t->active || now < t->fire_at)
+                continue;
+
+            t->active = false;
+            wkcTimeoutProc cb = t->proc;
+            void* data = t->data;
+            unsigned int interval = t->interval;
+            bool wake_up = t->wkc_wakeup;
+            if (interval) {
+                t->fire_at = now + interval;
+                t->active = true;
+            }
+
+            // Callbacks may schedule or cancel timers; never invoke them while
+            // holding the timer-list mutex.
+            OSUnlockMutex(&s_timer_mtx);
+            if (wake_up)
+                WKC::WKCWebKitWakeUp(data);
+            else if (cb)
+                cb(data);
+            OSLockMutex(&s_timer_mtx);
+        }
+        OSUnlockMutex(&s_timer_mtx);
     }
-    OSUnlockMutex(&s_timer_mtx);
 
     if (s_webview && s_available) {
         WKC::WKCWebKitWakeUp(nullptr);
