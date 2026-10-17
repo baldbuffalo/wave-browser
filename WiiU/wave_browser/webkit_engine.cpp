@@ -17,6 +17,8 @@ extern "C" {
 #include <wkc/wkcpeer.h>   // defines wkcTimeoutProc, wkc_uint64, wkc_int64, all file/timer/thread peers
 #include <wkc/wkcgpeer.h>  // defines fontPeerMalloc, fontPeerFree, wkcFontDrawTextPeer
 #include <wkc/wkcmpeer.h>
+#include <wkc/WKCWebView.h>
+#include <wkc/WKCClientBuilders.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +38,68 @@ static SDL_Renderer*  s_renderer = nullptr;
 static SDL_Texture*   s_texture  = nullptr;
 static bool           s_dirty    = false;
 static char           s_url[512] = {};
+static WKC::WKCWebView* s_webview = nullptr;
+static bool s_webkit_initialized = false;
+
+namespace {
+class WaveMemoryHandler final : public WKC::WKCMemoryEventHandler {
+public:
+    bool checkMemoryAvailability(unsigned int, bool) override { return true; }
+    bool checkMemoryAllocatable(unsigned int, AllocationReason) override { return true; }
+    void* notifyMemoryExhaust(unsigned int, unsigned int& allocated) override
+    {
+        allocated = 0;
+        return nullptr;
+    }
+    void notifyMemoryAllocationError(unsigned int, AllocationReason) override {}
+    void notifyCrash(const char* file, int line, const char* function, const char* assertion) override
+    {
+        fprintf(stderr, "WebKit-WiiU crash: %s:%d %s (%s)\\n",
+                file ? file : "?", line, function ? function : "?",
+                assertion ? assertion : "?");
+    }
+    void notifyStackOverflow(bool, unsigned int, unsigned int, unsigned int,
+                             void*, void*, void*, const char*, int, const char*) override {}
+};
+
+class WaveTimerHandler final : public WKC::WKCTimerEventHandler {
+public:
+    bool requestWakeUp(unsigned int, void*) override { return true; }
+};
+
+// The modern WKCWebView constructs its WebCore clients internally. These
+// legacy WKC API callbacks are not used by the current port's page pipeline.
+class WaveClientBuilders final : public WKC::WKCClientBuilders {
+public:
+    WKC::ChromeClientIf* createChromeClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteChromeClient(WKC::ChromeClientIf*) override {}
+    WKC::ContextMenuClientIf* createContextMenuClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteContextMenuClient(WKC::ContextMenuClientIf*) override {}
+    WKC::DragClientIf* createDragClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDragClient(WKC::DragClientIf*) override {}
+    WKC::EditorClientIf* createEditorClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteEditorClient(WKC::EditorClientIf*) override {}
+    WKC::FrameLoaderClientIf* createFrameLoaderClient(WKC::WKCWebFrame*) override { return nullptr; }
+    void deleteFrameLoaderClient(WKC::FrameLoaderClientIf*) override {}
+    WKC::InspectorClientIf* createInspectorClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteInspectorClient(WKC::InspectorClientIf*) override {}
+    WKC::DropDownListClientIf* createDropDownListClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDropDownListClient(WKC::DropDownListClientIf*) override {}
+    WKC::GeolocationClientIf* createGeolocationClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteGeolocationClient(WKC::GeolocationClientIf*) override {}
+    WKC::DeviceMotionClientIf* createDeviceMotionClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDeviceMotionClient(WKC::DeviceMotionClientIf*) override {}
+    WKC::DeviceOrientationClientIf* createDeviceOrientationClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteDeviceOrientationClient(WKC::DeviceOrientationClientIf*) override {}
+    WKC::BackForwardClientIf* createBackForwardClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteBackForwardClient(WKC::BackForwardClientIf*) override {}
+    WKC::BatteryClientIf* createBatteryClient(WKC::WKCWebView*) override { return nullptr; }
+    void deleteBatteryClient(WKC::BatteryClientIf*) override {}
+};
+static WaveMemoryHandler s_memory_handler;
+static WaveTimerHandler s_timer_handler;
+static WaveClientBuilders s_client_builders;
+}
 
 // ─── Timer ───────────────────────────────────────────────────────────────────
 // wkcTimeoutProc returns bool (from wkcpeer.h)
@@ -631,8 +695,35 @@ bool webkit_engine_init(int w, int h)
     wkcSSLInitializePeer();
     wkcFontEngineInitializePeer(nullptr,0,nullptr,nullptr,false);
 
-    // TODO: WKCWebKit::initialize + WKCWebView::create when available in .a
-    s_available=false;
+    // Initialize the actual WebKit runtime from the downloaded full-engine
+    // archive, then create a WebView backed by the WKC platform peers above.
+    if (!WKC::WKCWebKitInitialize(nullptr, 0, nullptr, 0,
+                                  s_memory_handler, s_timer_handler)) {
+        fprintf(stderr, "WebKit-WiiU initialization failed\\n");
+        return false;
+    }
+    s_webkit_initialized = true;
+    s_webview = WKC::WKCWebView::create(s_client_builders);
+    if (!s_webview) {
+        fprintf(stderr, "WebKit-WiiU could not create WKCWebView\\n");
+        WKC::WKCWebKitFinalize();
+        s_webkit_initialized = false;
+        return false;
+    }
+
+    WKCSize offscreen = {};
+    offscreen.fWidth = w;
+    offscreen.fHeight = h;
+    if (!s_webview->setOffscreen(WKC::EOffscreenFormatARGB8888, s_pixels, w * 4,
+                                 offscreen, offscreen, true, &offscreen, true)) {
+        fprintf(stderr, "WebKit-WiiU could not attach the page framebuffer\\n");
+        WKC::WKCWebView::deleteWKCWebView(s_webview);
+        s_webview = nullptr;
+        WKC::WKCWebKitFinalize();
+        s_webkit_initialized = false;
+        return false;
+    }
+    s_available = true;
     return true;
 }
 
@@ -648,23 +739,31 @@ void webkit_engine_navigate(const char* url)
 {
     if(!url) return;
     strncpy(s_url,url,sizeof(s_url)-1);
-    if(s_available){
-        // TODO: s_webview->loadURL(url);
-        return;
-    }
-    // Placeholder: light grey with blue top stripe
-    if(s_pixels){
-        memset(s_pixels,0xF4,s_w*s_h*4);
-        for(int x=0;x<s_w;x++){
-            uint8_t*p=s_pixels+x*4;
-            p[0]=0xFF;p[1]=0x42;p[2]=0x85;p[3]=0xF4;
+    if (s_available && s_webview) {
+        if (s_webview->loadURLOrSearch(url)) {
+            s_dirty = true;
+            return;
         }
-        s_dirty=true;
+        fprintf(stderr, "WebKit-WiiU rejected navigation URL: %s\\n", url);
+    }
+    // Keep a visible failure surface rather than pretending the placeholder is
+    // a loaded page; navigation is retried when the engine becomes available.
+    if (s_pixels) {
+        memset(s_pixels, 0xF4, (size_t)s_w * s_h * 4);
+        for (int x = 0; x < s_w; ++x) {
+            uint8_t* p = s_pixels + x * 4;
+            p[0] = 0xFF; p[1] = 0x42; p[2] = 0x85; p[3] = 0xF4;
+        }
+        s_dirty = true;
     }
 }
 
 void webkit_engine_tick(void)
 {
+    if (s_available && s_webview) {
+        WKC::WKCWebKitWakeUp(nullptr);
+        s_webview->notifyServiceScriptedAnimations();
+    }
     if(!s_timer_init) return;
     unsigned int now=now_ms();
     OSLockMutex(&s_timer_mtx);
@@ -692,15 +791,37 @@ void webkit_engine_draw(int cx,int cy,int cw,int ch)
     SDL_RenderCopy(s_renderer,s_texture,&src,&dst);
 }
 
-void webkit_engine_input_text(const char* u){ (void)u; }
-void webkit_engine_scroll(int x,int y){ (void)x;(void)y; }
-void webkit_engine_touch_down(int x,int y){ (void)x;(void)y; }
-void webkit_engine_touch_up(int x,int y){ (void)x;(void)y; }
+void webkit_engine_input_text(const char* u)
+{
+    if (!s_available || !s_webview || !u) return;
+    for (const unsigned char* p = (const unsigned char*)u; *p; ++p)
+        s_webview->notifyKeyChar(*p);
+}
+void webkit_engine_scroll(int x,int y)
+{
+    if (s_available && s_webview) s_webview->notifyMouseWheel(WKCPoint{x, y}, WKCSize{x, y}, WKC::EModifierNone);
+}
+void webkit_engine_touch_down(int x,int y)
+{
+    if (s_available && s_webview) s_webview->notifyMouseDown(WKCPoint{x, y}, WKC::EMouseButtonLeft, WKC::EModifierNone);
+}
+void webkit_engine_touch_up(int x,int y)
+{
+    if (s_available && s_webview) s_webview->notifyMouseUp(WKCPoint{x, y}, WKC::EMouseButtonLeft, WKC::EModifierNone);
+}
 bool webkit_engine_available(void){ return s_available; }
 
 void webkit_engine_shutdown(void)
 {
     if(s_texture){SDL_DestroyTexture(s_texture);s_texture=nullptr;}
+    if (s_webview) {
+        WKC::WKCWebView::deleteWKCWebView(s_webview);
+        s_webview = nullptr;
+    }
+    if (s_webkit_initialized) {
+        WKC::WKCWebKitFinalize();
+        s_webkit_initialized = false;
+    }
     wkcSSLFinalizePeer();
     wkcFontEngineFinalizePeer();
     wkcSystemFinalizePeer();
@@ -715,17 +836,12 @@ void webkit_engine_shutdown(void)
 
 void webkit_engine_key_down(int keycode)
 {
-    if (!s_available) return;
-    // TODO: create WKC keyboard event and dispatch to s_webview
-    // WKCKeyEvent ev = {}; ev.m_type = WKC_KEYEVENT_KEYDOWN; ev.m_keyIdentity = keycode;
-    // s_webview->notifyKeyPress(&ev);
-    (void)keycode;
+    if (!s_available || !s_webview) return;
+    s_webview->notifyKeyPress((WKC::Key)keycode, WKC::EModifierNone);
 }
 
 void webkit_engine_key_up(int keycode)
 {
-    if (!s_available) return;
-    // TODO: WKCKeyEvent ev = {}; ev.m_type = WKC_KEYEVENT_KEYUP; ev.m_keyIdentity = keycode;
-    // s_webview->notifyKeyPress(&ev);
-    (void)keycode;
+    if (!s_available || !s_webview) return;
+    s_webview->notifyKeyRelease((WKC::Key)keycode, WKC::EModifierNone);
 }
