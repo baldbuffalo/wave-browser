@@ -461,7 +461,7 @@ void* wkcFileOpenTemporaryFilePeer(const char* prefix,char* out,int mx){
         const char* safePrefix = (prefix && prefix[0]) ? prefix : "wkc";
         int n = snprintf(out, (size_t)mx, "%s/%s-%08x.tmp", dir, safePrefix, id);
         if (n < 0 || n >= mx) {
-            out[0] = '\\0';
+            out[0] = '\0';
             return nullptr;
         }
         FILE* file = fopen(out, "w+b");
@@ -469,7 +469,7 @@ void* wkcFileOpenTemporaryFilePeer(const char* prefix,char* out,int mx){
         if (errno != EEXIST) break;
     }
 
-    out[0] = '\\0';
+    out[0] = '\0';
     return nullptr;
 }
 void* wkcFileOpenDirectoryPeer(int,const char*,const char*){ return nullptr; }
