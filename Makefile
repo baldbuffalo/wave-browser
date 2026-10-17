@@ -28,7 +28,11 @@ WEBKIT_ARTIFACT_DIR ?= $(BUILD)/webkit-wiiu-artifact
 WEBKIT_INC  := $(WEBKIT_ARTIFACT_DIR)/include
 WEBKIT_LIB  := $(WEBKIT_ARTIFACT_DIR)/lib/libWebKitWKC.a
 WEBKIT_FLAGS := -I$(WEBKIT_INC) -DWKC_AVAILABLE
-WEBKIT_LIBS  := $(WEBKIT_LIB)
+# The full-engine bundle may include separate static dependencies (for
+# example the WebRTC backend). Link WebKit first and group the archives so
+# cross-archive references resolve without relying on incidental ordering.
+WEBKIT_DEPS := $(filter-out $(WEBKIT_LIB),$(wildcard $(WEBKIT_ARTIFACT_DIR)/lib/*.a))
+WEBKIT_LIBS := -Wl,--start-group $(WEBKIT_LIB) $(WEBKIT_DEPS) -Wl,--end-group
 
 #---------------------------------------------------------------------------------
 # Source files
