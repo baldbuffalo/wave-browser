@@ -855,10 +855,26 @@ int main(int, char**)
     gamepad_keyboard_init();
 
     memset(s_tabs, 0, sizeof(s_tabs));
-    strncpy(s_tabs[0].title, "New Tab", 63);
+    strncpy(s_tabs[0].title, "Google", 63);
+    strncpy(s_tabs[0].url, "https://www.google.com/", MAX_URL - 1);
+    s_tabs[0].url[MAX_URL - 1] = '\0';
+    s_tab_count = 1;
+    s_active_tab = 0;
 
     settings_load();
-    if (g_settings.improved_multitasking) load_session();
+    if (g_settings.improved_multitasking) {
+        load_session();
+        // Google remains the first-run startup page, while an existing saved
+        // session is preserved when it contains usable tabs.
+        if (s_tab_count == 0 || s_tabs[0].url[0] == '\0') {
+            strncpy(s_tabs[0].title, "Google", 63);
+            strncpy(s_tabs[0].url, "https://www.google.com/", MAX_URL - 1);
+            s_tabs[0].url[MAX_URL - 1] = '\0';
+            s_tab_count = 1;
+            s_active_tab = 0;
+        }
+    }
+    webkit_engine_navigate(s_tabs[s_active_tab].url);
 
     run_splash_and_update();
 
