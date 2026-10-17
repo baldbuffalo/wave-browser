@@ -936,6 +936,18 @@ int main(int, char**)
     settings_load();
     if (g_settings.improved_multitasking) load_session();
 
+    // Always begin with Google, regardless of a previously saved session.
+    // The session can be restored later by the user, but it must not replace
+    // the requested default startup page.
+    memset(&s_tabs[0], 0, sizeof(s_tabs[0]));
+    strncpy(s_tabs[0].url, "https://www.google.com/", MAX_URL - 1);
+    s_tabs[0].url[MAX_URL - 1] = '\\0';
+    strncpy(s_tabs[0].title, "Google", sizeof(s_tabs[0].title) - 1);
+    s_tabs[0].title[sizeof(s_tabs[0].title) - 1] = '\\0';
+    s_active_tab = 0;
+    if (s_tab_count < 1) s_tab_count = 1;
+    webkit_engine_navigate(s_tabs[0].url);
+
     run_splash_and_update();
 
     while (s_running) {
