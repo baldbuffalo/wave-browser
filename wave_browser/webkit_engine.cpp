@@ -668,14 +668,20 @@ const unsigned char* wkcStockImageGetPlatformResourceImagePeer(const char*,unsig
 // WKCRect: { WKCPoint fPoint{fX,fY}; WKCSize fSize{fWidth,fHeight}; }
 
 void* wkcOffscreenNewPeer(int,void* bmp,int rb,const WKCSize* sz){
+    const int w=sz?sz->fWidth:s_w, h=sz?sz->fHeight:s_h;
+    if(w<=0||h<=0||w>INT_MAX/4) return nullptr;
+    const int stride=rb?rb:w*4;
+    if(stride<w*4) return nullptr;
+    const size_t bytes=(size_t)stride*(size_t)h;
+    if(bytes/(size_t)h!=(size_t)stride) return nullptr;
     auto* o=(WKCOff*)calloc(1,sizeof(WKCOff));
     if(!o) return nullptr;
-    o->w=sz?sz->fWidth:s_w; o->h=sz?sz->fHeight:s_h; o->rb=rb?rb:o->w*4;
+    o->w=w; o->h=h; o->rb=stride;
     if(bmp){o->bmp=(unsigned char*)bmp;o->owned=false;}
-    else{o->bmp=(unsigned char*)malloc(o->rb*o->h);o->owned=true;if(o->bmp)memset(o->bmp,0xFF,o->rb*o->h);}
+    else{o->bmp=(unsigned char*)malloc(bytes);o->owned=true;if(o->bmp)memset(o->bmp,0xFF,bytes);}
+    if(!o->bmp){free(o);return nullptr;}
     return o;
-}
-bool wkcOffscreenIsAcceleratedPeer(void*) { return false; }
+}bool wkcOffscreenIsAcceleratedPeer(void*) { return false; }
 void* wkcTextureNewPeer(const WKCSize*)   { return nullptr; }
 void wkcTextureSetImagePeer(void*,void*)  {}
 void wkcTextureClearImagePeer(void*,void*){}
@@ -683,12 +689,16 @@ void wkcOffscreenDeletePeer(void* p)      { if(p){auto*o=(WKCOff*)p;if(o->owned)
 void wkcTextureDeletePeer(void*)          {}
 void wkcOffscreenForceTerminatePeer(void) {}
 void wkcOffscreenResizePeer(void* p,const WKCSize* sz){
-    if(!p||!sz) return;
-    auto*o=(WKCOff*)p;
-    if(o->owned)free(o->bmp);
-    o->w=sz->fWidth;o->h=sz->fHeight;o->rb=o->w*4;
-    o->bmp=(unsigned char*)malloc(o->rb*o->h);o->owned=true;
-    if(o->bmp)memset(o->bmp,0xFF,o->rb*o->h);
+    if(!p||!sz||sz->fWidth<=0||sz->fHeight<=0||sz->fWidth>INT_MAX/4) return;
+    auto* o=(WKCOff*)p;
+    const int stride=sz->fWidth*4;
+    const size_t bytes=(size_t)stride*(size_t)sz->fHeight;
+    if(bytes/(size_t)sz->fHeight!=(size_t)stride) return;
+    unsigned char* next=(unsigned char*)malloc(bytes);
+    if(!next) return;
+    memset(next,0xFF,bytes);
+    if(o->owned) free(o->bmp);
+    o->bmp=next; o->w=sz->fWidth; o->h=sz->fHeight; o->rb=stride; o->owned=true;
 }
 void wkcOffscreenGetSizePeer(void* p,WKCSize* sz){
     if(p&&sz){sz->fWidth=((WKCOff*)p)->w;sz->fHeight=((WKCOff*)p)->h;}
@@ -728,6 +738,7 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
     if(!p) return nullptr;
     auto*o=(WKCOff*)p;
     if(rb) *rb=o->rb;
+    if(!o->bmp||o->w<=0||o->h<=0||o->rb<o->w*4) return nullptr;
     if(s_pixels&&o->w==s_w&&o->h==s_h){
         memcpy(s_pixels,o->bmp,(size_t)o->rb*o->h);
         s_dirty=true;
