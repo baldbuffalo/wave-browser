@@ -973,15 +973,22 @@ void webkit_engine_shutdown(void)
 
 void webkit_engine_key_down(int keycode)
 {
-    if (!s_available) return;
-    // SDL key codes are platform-specific; address-bar text uses notifyKeyChar().
-    (void)keycode;
+    if (!s_webview || !s_available) return;
+
+    // The public Wave API specifies browser/virtual-key codes, matching WKC::Key
+    // values (for example Backspace=0x08, Enter=0x0D, arrows=0x25..0x28).
+    // Do not pass raw SDL scancode-masked key symbols through this interface.
+    if (keycode < 0 || keycode > 0xFF) return;
+    s_webview->notifyKeyPress(static_cast<WKC::Key>(keycode),
+                              WKC::EModifierNone, false);
 }
 
 void webkit_engine_key_up(int keycode)
 {
-    if (!s_available) return;
-    (void)keycode;
+    if (!s_webview || !s_available) return;
+    if (keycode < 0 || keycode > 0xFF) return;
+    s_webview->notifyKeyRelease(static_cast<WKC::Key>(keycode),
+                                WKC::EModifierNone);
 }
 
 #else
