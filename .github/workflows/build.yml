@@ -86,66 +86,53 @@ jobs:
           test -s wave_browser/font.ttf
           python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\\nstatic const unsigned int font_data_len='+str(len(data))+';\\n')"
 
-      - name: Wait for the matching WebKit-WiiU Actions artifact
+      - name: Wait for the matching WebKit-WiiU full-engine release asset
         shell: bash
         timeout-minutes: 50
         run: |
           set -euo pipefail
           mkdir -p build build/webkit-wiiu-artifact
           WEBKIT_SHA=""
-          ARTIFACT_URL=""
-          RUN_ID=""
+          ASSET_URL=""
           for attempt in $(seq 1 45); do
-            # Bind the download to the exact WebKit main commit. Never accept the
-            # bootstrap archive or a full-engine artifact from an older revision.
+            # Resolve the current engine revision and accept only the release
+            # generated from that exact commit. No PAT or user-created secret.
             if [ -z "$WEBKIT_SHA" ] || [ $((attempt % 5)) -eq 0 ]; then
               WEBKIT_SHA=$(curl -fsSL \
                 https://api.github.com/repos/baldbuffalo/webkit-wiiu/commits/main \
                 | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
             fi
-            CODE=$(curl -sS -o build/webkit-runs.json -w '%{http_code}' \
-              "https://api.github.com/repos/baldbuffalo/webkit-wiiu/actions/runs?head_sha=$WEBKIT_SHA&status=completed&per_page=100" || true)
+            TAG="engine-$WEBKIT_SHA"
+            CODE=$(curl -sS -o build/webkit-release.json -w '%{http_code}' \
+              "https://api.github.com/repos/baldbuffalo/webkit-wiiu/releases/tags/$TAG" || true)
             if [ "$CODE" = "200" ]; then
-              RUN_ID=$(python3 -c '
+              ASSET_URL=$(python3 -c '
           import json,sys
-          data=json.load(open("build/webkit-runs.json"))
-          runs=[r for r in data.get("workflow_runs", [])
-                if r.get("head_sha") == sys.argv[1]]
-          print(runs[0]["id"] if runs else "")' "$WEBKIT_SHA")
-              if [ -n "$RUN_ID" ]; then
-                CODE=$(curl -sS -o build/webkit-artifacts.json -w '%{http_code}' \
-                  "https://api.github.com/repos/baldbuffalo/webkit-wiiu/actions/runs/$RUN_ID/artifacts?name=webkit-wiiu-full-engine&per_page=100" || true)
-                if [ "$CODE" = "200" ]; then
-                  ARTIFACT_URL=$(python3 -c '
-          import json,sys
-          data=json.load(open("build/webkit-artifacts.json"))
-          artifacts=[a for a in data.get("artifacts", [])
-                     if a.get("name") == "webkit-wiiu-full-engine"
-                     and not a.get("expired", False)]
-          print(artifacts[0]["archive_download_url"] if artifacts else "")')
-                  if [ -n "$ARTIFACT_URL" ]; then break; fi
-                fi
-              fi
+          data=json.load(open("build/webkit-release.json"))
+          assets=[a for a in data.get("assets", [])
+                  if a.get("name") == "webkit-wiiu-full-engine.tar.gz"
+                  and a.get("state") == "uploaded"
+                  and a.get("size", 0) > 0]
+          print(assets[0]["browser_download_url"] if assets else "")')
+              if [ -n "$ASSET_URL" ]; then break; fi
             fi
-            echo "Waiting for successful full-engine Actions artifact for $WEBKIT_SHA (attempt $attempt/45)."
+            echo "Waiting for full-engine release asset for $WEBKIT_SHA (attempt $attempt/45)."
             sleep 60
           done
-          if [ -z "$ARTIFACT_URL" ] || [ -z "$RUN_ID" ]; then
-            echo "::error::No successful, unexpired webkit-wiiu-full-engine Actions artifact exists for current main commit $WEBKIT_SHA."
+          if [ -z "$ASSET_URL" ]; then
+            echo "::error::No full-engine release asset exists for current webkit-wiiu main commit $WEBKIT_SHA."
             exit 1
           fi
 
-          # The source repository is public, so the artifact API can be read
-          # directly without a personal token or user-created secret.
-          curl -fL --retry 3 --retry-delay 2 "$ARTIFACT_URL" -o build/webkit-engine-artifact.zip
-          unzip -q build/webkit-engine-artifact.zip -d build/webkit-wiiu-artifact
+          curl -fL --retry 3 --retry-delay 2 "$ASSET_URL" -o build/webkit-engine-artifact.tar.gz
+          tar -xzf build/webkit-engine-artifact.tar.gz -C build/webkit-wiiu-artifact
           test -s build/webkit-wiiu-artifact/lib/libWebKitWKC.a
           test -s build/webkit-wiiu-artifact/include/wkc/wkcbase.h
           test -s build/webkit-wiiu-artifact/include/wkc/WKCWebView.h
           test -s build/webkit-wiiu-artifact/include/wkc/WKCClientBuilders.h
           test -s build/webkit-wiiu-artifact/BUILD_PROFILE.txt
           grep -q "Full WebKit page engine" build/webkit-wiiu-artifact/BUILD_PROFILE.txt
-          echo "Using full WebKit engine Actions artifact from run $RUN_ID at commit $WEBKIT_SHA"
+          echo "Using full WebKit engine release asset from exact commit $WEBKIT_SHA"
 
       - name: Build Wave Browser
         run: make -j$(nproc)
