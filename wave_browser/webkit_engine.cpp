@@ -30,6 +30,7 @@ extern "C" {
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <limits.h>
 #include <unistd.h>
 #include <math.h>
 
@@ -740,7 +741,11 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
     if(rb) *rb=o->rb;
     if(!o->bmp||o->w<=0||o->h<=0||o->rb<o->w*4) return nullptr;
     if(s_pixels&&o->w==s_w&&o->h==s_h){
-        memcpy(s_pixels,o->bmp,(size_t)o->rb*o->h);
+        // The SDL framebuffer is tightly packed; WKC may supply a padded
+        // row stride. Copy only visible pixel bytes to avoid overrunning it.
+        const size_t rowBytes=(size_t)o->w*4;
+        for(int y=0;y<o->h;y++)
+            memcpy(s_pixels+(size_t)y*rowBytes,o->bmp+(size_t)y*o->rb,rowBytes);
         s_dirty=true;
     }
     return o->bmp;
