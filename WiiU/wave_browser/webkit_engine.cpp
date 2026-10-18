@@ -405,21 +405,39 @@ bool wkcFileMakeAllDirectoriesPeer(const char* path) {
     return mkdir(t,0777)==0||errno==EEXIST;
 }
 int wkcFilePathGetFileNamePeer(const char* p,char* out,int mx){
+    if (!p || !out || mx <= 0) return 0;
     const char* s=strrchr(p,'/'); s=s?s+1:p;
-    strncpy(out,s,mx-1); return (int)strlen(out);
+    const size_t n=strlen(s);
+    const size_t copy=n<(size_t)(mx-1)?n:(size_t)(mx-1);
+    if (copy) memcpy(out,s,copy);
+    out[copy]='\0';
+    return (int)copy;
 }
 int wkcFilePathByAppendingComponentPeer(const char* p,const char* c,char* out,int mx){
-    snprintf(out,mx,"%s/%s",p,c); return (int)strlen(out);
+    if (!p || !c || !out || mx <= 0) return 0;
+    const int written=snprintf(out,(size_t)mx,"%s/%s",p,c);
+    if (written < 0) { out[0]='\0'; return 0; }
+    return written < mx ? written : mx-1;
 }
 int wkcFileHomeDirectoryPathPeer(char* out,int mx){
-    strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser",mx-1); return (int)strlen(out);
+    static const char home[]="fs:/vol/external01/wiiu/apps/WaveBrowser";
+    if (!out || mx <= 0) return 0;
+    const size_t n=strlen(home);
+    const size_t copy=n<(size_t)(mx-1)?n:(size_t)(mx-1);
+    if (copy) memcpy(out,home,copy);
+    out[copy]='\0';
+    return (int)copy;
 }
 int  wkcFileListDirectoryPeer(const char*,const char*,char**,int,int){ return 0; }
 int  wkcFileDirectoryNamePeer(const char* p,char* out,int mx){
+    if (!p || !out || mx <= 0) return 0;
     const char* s=strrchr(p,'/');
-    if(!s){strncpy(out,".",mx-1);return 1;}
-    int n=(int)(s-p);if(n>=mx)n=mx-1;
-    strncpy(out,p,n);out[n]='\0';return n;
+    if(!s){out[0]='.'; if(mx>1) out[1]='\0'; return 1;}
+    size_t n=(size_t)(s-p);
+    if(n>(size_t)(mx-1)) n=(size_t)(mx-1);
+    if(n) memcpy(out,p,n);
+    out[n]='\0';
+    return (int)n;
 }
 void* wkcFileOpenTemporaryFilePeer(const char*,char* out,int mx){
     strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser/tmp",mx-1);return nullptr;
