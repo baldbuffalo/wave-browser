@@ -65,6 +65,7 @@ COMMON_FLAGS := \
     -I$(DEVKITPRO)/portlibs/wiiu/include/SDL2 \
     -I$(DEVKITPRO)/portlibs/ppc/include/freetype2 \
     -I$(DEVKITPRO)/portlibs/ppc/include \
+    -I$(DEVKITPRO)/wums/include \
     -Ivendor/minizip \
     -Iwave_browser \
     -Iwave_browser/tv_remotes \
@@ -81,7 +82,8 @@ LDFLAGS := \
     -Wl,--gc-sections \
     -L$(WUT_ROOT)/lib \
     -L$(DEVKITPRO)/portlibs/wiiu/lib \
-    -L$(DEVKITPRO)/portlibs/ppc/lib
+    -L$(DEVKITPRO)/portlibs/ppc/lib \
+    -L$(DEVKITPRO)/wums/lib
 
 LIBS := \
     $(WEBKIT_LIBS) \
@@ -89,7 +91,7 @@ LIBS := \
     -lcurl -lmbedtls -lmbedx509 -lmbedcrypto \
     -lbrotlidec -lbrotlicommon \
     -lfreetype -lpng -lbz2 -lz \
-    -lwut -lm
+    -lrpxloader -lwut -lm
 
 #---------------------------------------------------------------------------------
 # Object files
