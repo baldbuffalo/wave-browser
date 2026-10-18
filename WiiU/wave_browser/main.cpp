@@ -440,7 +440,21 @@ static size_t write_cb(void* c, size_t sz, size_t nm, void* up)
 }
 
 static size_t file_write_cb(void* c, size_t sz, size_t nm, void* up)
-{ return fwrite(c,sz,nm,(FILE*)up); }
+{
+    if (!up || (!c && sz && nm) || (nm && sz > SIZE_MAX / nm))
+        return 0;
+
+    const size_t requested = sz * nm;
+    if (requested == 0)
+        return 0;
+
+    // libcurl expects a byte count, not fwrite()'s item count. Returning
+    // items can make a short disk write look successful and corrupt updates.
+    const size_t writtenItems = fwrite(c, sz, nm, (FILE*)up);
+    if (writtenItems > SIZE_MAX / sz)
+        return 0;
+    return writtenItems * sz;
+}
 
 static int progress_cb(void*, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t)
 { if(dltotal>0) draw_splash("Downloading update...", (double)dlnow/dltotal*100.0); return 0; }
@@ -471,17 +485,41 @@ static char* fetch_string(const char* url)
 
 static int fetch_file(const char* url, const char* path)
 {
-    FILE* f = fopen(path,"wb"); if(!f) return 1;
-    CURL* curl = curl_easy_init(); if(!curl){fclose(f);return 1;}
+    if (!url || !path || !url[0] || !path[0])
+        return 1;
+
+    FILE* f = fopen(path, "wb");
+    if (!f)
+        return 1;
+
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        fclose(f);
+        remove(path);
+        return 1;
+    }
+
     curl_easy_setopt(curl, CURLOPT_URL,              url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,    file_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA,        f);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS,       0L);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT,          180L);
+    // HTTP 4xx/5xx responses must not be treated as a valid ZIP artifact.
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR,       1L);
     curl_common(curl);
-    CURLcode res = curl_easy_perform(curl); curl_easy_cleanup(curl); fclose(f);
-    return (res == CURLE_OK) ? 0 : 1;
+
+    CURLcode res = curl_easy_perform(curl);
+    const CURLcode closeResult = (fclose(f) == 0) ? CURLE_OK : CURLE_WRITE_ERROR;
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK || closeResult != CURLE_OK) {
+        // Never leave a truncated download that a later update attempt could
+        // mistake for a complete artifact.
+        remove(path);
+        return 1;
+    }
+    return 0;
 }
 
 // ─── Run-ID helpers ───────────────────────────────────────────────────────────
