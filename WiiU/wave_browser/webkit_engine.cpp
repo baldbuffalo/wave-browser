@@ -25,6 +25,7 @@ extern "C" {
 #include <stdio.h>
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
@@ -444,9 +445,50 @@ int  wkcFileDirectoryNamePeer(const char* p,char* out,int mx){
 void* wkcFileOpenTemporaryFilePeer(const char*,char* out,int mx){
     strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser/tmp",mx-1);return nullptr;
 }
-void* wkcFileOpenDirectoryPeer(int,const char*,const char*){ return nullptr; }
-void  wkcFileCloseDirectoryPeer(void*)      {}
-int   wkcFileReadDirectoryPeer(void*,char*,int){ return 0; }
+// WKC expects an opaque directory handle and a filename copied into the
+// caller's buffer on each read. Use the platform C directory API rather than
+// reporting an empty directory for every request.
+void* wkcFileOpenDirectoryPeer(int, const char* path, const char*)
+{
+    if (!path || !path[0])
+        return nullptr;
+    return (void*)opendir(path);
+}
+
+void wkcFileCloseDirectoryPeer(void* handle)
+{
+    if (handle)
+        closedir((DIR*)handle);
+}
+
+int wkcFileReadDirectoryPeer(void* handle, char* name, int maxLength)
+{
+    if (!handle || !name || maxLength <= 0)
+        return -1;
+
+    name[0] = '\\0';
+    DIR* dir = (DIR*)handle;
+    struct dirent* entry = nullptr;
+    while ((entry = readdir(dir)) != nullptr) {
+        // Skip the current and parent-directory entries; WebCore callers
+        // should see real children, not traversal pseudo-entries.
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+
+        const size_t length = strlen(entry->d_name);
+        if (length >= (size_t)maxLength) {
+            // Do not return a truncated name as if it were complete.
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        memcpy(name, entry->d_name, length + 1);
+        return (int)length;
+    }
+
+    // A zero return indicates end-of-directory; distinguish an actual
+    // directory read error with -1.
+    return (errno == 0) ? 0 : -1;
+}
 
 bool wkcFileInitializePeer(void)     { return true; }
 void wkcFileFinalizePeer(void)       {}
