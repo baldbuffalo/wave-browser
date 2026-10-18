@@ -636,7 +636,10 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
             char fname[256] = {0};
             unz_file_info fi;
             if (unzGetCurrentFileInfo(zf, &fi, fname, sizeof(fname)-1,
-                                      nullptr, 0, nullptr, 0) != UNZ_OK) {
+                                      nullptr, 0, nullptr, 0) != UNZ_OK ||
+                fi.size_filename >= sizeof(fname)) {
+                // Reject truncated names instead of validating or writing a
+                // different path from the one actually stored in the archive.
                 result = 1;
                 break;
             }
@@ -734,7 +737,8 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
         result = 1;
     }
 
-    unzClose(zf);
+    if (unzClose(zf) != UNZ_OK)
+        result = 1;
     return result;
 }
 
@@ -831,7 +835,14 @@ static void run_splash_and_update()
         }
 
         draw_splash("Preparing to restart with the update...", 75.0);
-        mkdir_p(INSTALL_DIR);
+        if (!mkdir_p(INSTALL_DIR)) {
+            draw_splash("Could not prepare install directory. Starting current version...", -1.0);
+            usleep(16000*120);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
 
         // A WUHB cannot safely replace itself while its bundle is mounted.
         // Use the same RPXLoader handoff as NUSspli: resolve the running bundle,
