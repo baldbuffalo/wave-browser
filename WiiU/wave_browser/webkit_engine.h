@@ -1,7 +1,7 @@
 #pragma once
 // webkit_engine.h — WKC (NetFront/WebKit) integration for Wave Browser
 //
-// The WebKit-WiiU engine is intended to be integrated from source, not a static .a archive.
+// Links against the full-engine libWebKitWKC.a downloaded by the WiiU CI workflow.
 
 #include <stdbool.h>
 
