@@ -431,6 +431,35 @@ int wkcFileHomeDirectoryPathPeer(char* out,int mx){
     out[copy]='\0';
     return (int)copy;
 }
+static bool wkc_filename_matches_filter(const char* name, const char* pattern)
+{
+    if (!pattern || !pattern[0] || !strcmp(pattern, "*"))
+        return true;
+
+    // Small glob matcher for the WKC filter contract: '*' matches any
+    // sequence and '?' matches one character. No platform-specific fnmatch
+    // dependency is required.
+    const char* star = nullptr;
+    const char* retry = nullptr;
+    while (*name) {
+        if (*pattern == '?' || *pattern == *name) {
+            ++name;
+            ++pattern;
+        } else if (*pattern == '*') {
+            star = pattern++;
+            retry = name;
+        } else if (star) {
+            pattern = star + 1;
+            name = ++retry;
+        } else {
+            return false;
+        }
+    }
+    while (*pattern == '*')
+        ++pattern;
+    return *pattern == '\0';
+}
+
 int wkcFileListDirectoryPeer(const char* path, const char* filter,
                              char** entries, int maxEntryLength, int maxEntries)
 {
@@ -443,7 +472,7 @@ int wkcFileListDirectoryPeer(const char* path, const char* filter,
     if (!dir)
         return -1;
 
-    const char* needle = (filter && filter[0]) ? filter : nullptr;
+    const char* pattern = (filter && filter[0]) ? filter : nullptr;
     int count = 0;
     int readError = 0;
     errno = 0;
@@ -457,9 +486,9 @@ int wkcFileListDirectoryPeer(const char* path, const char* filter,
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
             continue;
         // WKC callers provide a preallocated char buffer for each entry.
-        // An empty filter lists everything; a non-empty filter matches names
-        // containing that text.
-        if (needle && !strstr(entry->d_name, needle))
+        // Support wildcard filters such as "*.html" instead of treating
+        // the filter as a literal substring.
+        if (!wkc_filename_matches_filter(entry->d_name, pattern))
             continue;
 
         const size_t nameLength = strlen(entry->d_name);
