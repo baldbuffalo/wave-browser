@@ -431,7 +431,60 @@ int wkcFileHomeDirectoryPathPeer(char* out,int mx){
     out[copy]='\0';
     return (int)copy;
 }
-int  wkcFileListDirectoryPeer(const char*,const char*,char**,int,int){ return 0; }
+int wkcFileListDirectoryPeer(const char* path, const char* filter,
+                             char** entries, int maxEntryLength, int maxEntries)
+{
+    if (!path || !path[0] || !entries || maxEntryLength <= 0 || maxEntries < 0)
+        return -1;
+    if (maxEntries == 0)
+        return 0;
+
+    DIR* dir = opendir(path);
+    if (!dir)
+        return -1;
+
+    const char* needle = (filter && filter[0]) ? filter : nullptr;
+    int count = 0;
+    int readError = 0;
+    errno = 0;
+
+    for (;;) {
+        struct dirent* entry = readdir(dir);
+        if (!entry) {
+            readError = errno;
+            break;
+        }
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+        // WKC callers provide a preallocated char buffer for each entry.
+        // An empty filter lists everything; a non-empty filter matches names
+        // containing that text.
+        if (needle && !strstr(entry->d_name, needle))
+            continue;
+
+        const size_t nameLength = strlen(entry->d_name);
+        if (nameLength >= (size_t)maxEntryLength) {
+            readError = ENAMETOOLONG;
+            break;
+        }
+        if (count >= maxEntries)
+            break;
+
+        if (!entries[count]) {
+            readError = EINVAL;
+            break;
+        }
+        memcpy(entries[count], entry->d_name, nameLength + 1);
+        ++count;
+    }
+
+    closedir(dir);
+    if (readError != 0 && count == 0) {
+        errno = readError;
+        return -1;
+    }
+    return count;
+}
 int  wkcFileDirectoryNamePeer(const char* p,char* out,int mx){
     if (!p || !out || mx <= 0) return 0;
     const char* s=strrchr(p,'/');
