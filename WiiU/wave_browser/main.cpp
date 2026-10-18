@@ -872,7 +872,7 @@ static void run_splash_and_update()
         // This launches the newly installed WUHB through RPXLoader. On success
         // the title handoff replaces the running instance rather than returning
         // to the Home Menu.
-        RPXLoaderStatus launch_status = RPXLoader_LaunchHomebrew(INSTALL_WUHB);
+        RPXLoaderStatus launch_status = RPXLoader_LaunchHomebrew(relative_path);
         if (launch_status != RPX_LOADER_RESULT_SUCCESS) {
             draw_splash("Update installed. Please reopen Wave Browser.", -1.0);
             RPXLoader_DeInitLibrary();
