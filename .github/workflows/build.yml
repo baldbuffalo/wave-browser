@@ -134,6 +134,13 @@ jobs:
           grep -q "Full WebKit page engine" build/webkit-wiiu-artifact/BUILD_PROFILE.txt
           echo "Using full WebKit engine release asset from exact commit $WEBKIT_SHA"
 
+      - name: Build and install RPXLoader library
+        run: |
+          git clone --depth 1 https://github.com/wiiu-env/librpxloader.git build/librpxloader
+          make -C build/librpxloader install
+          test -s /opt/devkitpro/wums/include/rpxloader/rpxloader.h
+          test -s /opt/devkitpro/wums/lib/librpxloader.a
+
       - name: Build Wave Browser
         run: make -j$(nproc)
 
