@@ -527,7 +527,13 @@ size_t wkcOsslRandFilefWritePeer(const void* b,size_t s,size_t n,FILE* f){ retur
 
 int          wkcNetCheckCorrectIPAddressPeer(const char*) { return 1; }
 unsigned int wkcRandomNumberPeer(void)            { return (unsigned int)rand(); }
-int          wkcRandomNumbersPeer(unsigned char* b,int n){ for(int i=0;i<n;i++)b[i]=(unsigned char)rand();return n; }
+int          wkcRandomNumbersPeer(unsigned char* b,int n){
+    // Reject invalid requests instead of dereferencing a null buffer or
+    // reporting a negative byte count as a successful result.
+    if (n < 0 || (n > 0 && !b)) return -1;
+    for (int i = 0; i < n; ++i) b[i] = (unsigned char)rand();
+    return n;
+}
 unsigned int wkcRandomMaxPeer(void)               { return RAND_MAX; }
 
 // ── PCAP ─────────────────────────────────────────────────────────────────────
