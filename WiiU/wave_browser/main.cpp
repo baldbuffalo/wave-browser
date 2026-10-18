@@ -790,7 +790,7 @@ static void run_splash_and_update()
         char running_bundle[512] = {0};
         if (loader_status != RPX_LOADER_RESULT_SUCCESS ||
             RPXLoader_GetPathOfRunningExecutable(running_relative, sizeof(running_relative)) != RPX_LOADER_RESULT_SUCCESS ||
-            running_relative[0] != '/') {
+            running_relative[0] == '\0') {
             draw_splash("Update needs Aroma RPXLoader. Starting current version...", -1.0);
             usleep(16000*120);
             remove(STAGE_WUHB);
@@ -798,11 +798,13 @@ static void run_splash_and_update()
             rmdir(UPDATE_STAGE_DIR);
             continue;
         }
-        // RPXLoader returns a path relative to the SD volume, like
-        // "/wiiu/apps/WaveBrowser/WaveBrowser.wuhb". Prefix the mounted SD path
-        // before using POSIX file operations, as NUSspli does for its WUHB.
+        // RPXLoader returns the path relative to the SD volume (NUSspli uses
+        // the same API and prefixes NUSDIR_SD before file operations). Accept
+        // either "wiiu/apps/..." or "/wiiu/apps/..." from the loader.
+        const char* relative_path = running_relative[0] == '/'
+            ? running_relative + 1 : running_relative;
         int bundle_path_len = snprintf(running_bundle, sizeof(running_bundle),
-                                       "fs:/vol/external01%s", running_relative);
+                                       "fs:/vol/external01/%s", relative_path);
         if (bundle_path_len < 0 || (size_t)bundle_path_len >= sizeof(running_bundle)) {
             RPXLoader_DeInitLibrary();
             draw_splash("Running bundle path is too long. Update cancelled.", -1.0);
