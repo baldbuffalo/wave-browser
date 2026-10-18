@@ -26,6 +26,8 @@ extern "C" {
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <limits.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <math.h>
 
@@ -736,38 +738,47 @@ void wkcOffscreenGetSizePeer(void* p,WKCSize* sz){
 }
 void wkcOffscreenScrollPeer(void* p,const WKCRect* r,const WKCSize* d){
     // Scroll only the requested rectangle and clip both source and destination
-    // to the bitmap. A single large memmove is incorrect for row-strided
-    // rectangles and can read/write outside the offscreen allocation.
-    if(!p||!r||!d) return;
-    auto* o=(WKCOff*)p;
-    if(!o->bmp||o->w<=0||o->h<=0||o->rb<o->w*4) return;
+    // to the bitmap. Use 64-bit intermediates because caller-supplied rectangle
+    // and delta values can overflow signed int before clipping.
+    if (!p || !r || !d) return;
+    auto* o = (WKCOff*)p;
+    if (!o->bmp || o->w <= 0 || o->h <= 0 ||
+        o->w > INT_MAX / 4 || o->rb < o->w * 4)
+        return;
 
-    const int rx=r->fPoint.fX, ry=r->fPoint.fY;
-    const int rw=r->fSize.fWidth, rh=r->fSize.fHeight;
-    const int dx=d->fWidth, dy=d->fHeight;
-    if(rw<=0||rh<=0||(dx==0&&dy==0)) return;
+    const int64_t rx = r->fPoint.fX, ry = r->fPoint.fY;
+    const int64_t rw = r->fSize.fWidth, rh = r->fSize.fHeight;
+    const int64_t dx = d->fWidth, dy = d->fHeight;
+    if (rw <= 0 || rh <= 0 || (!dx && !dy)) return;
 
-    // Source coordinates must keep both (x,y) and (x+dx,y+dy) in bounds.
-    int sx0=rx, sy0=ry, sx1=rx+rw, sy1=ry+rh;
-    if(sx0<0) sx0=0;
-    if(sy0<0) sy0=0;
-    if(sx0 < -dx) sx0=-dx;
-    if(sy0 < -dy) sy0=-dy;
-    if(sx1>o->w) sx1=o->w;
-    if(sy1>o->h) sy1=o->h;
-    if(sx1>o->w-dx) sx1=o->w-dx;
-    if(sy1>o->h-dy) sy1=o->h-dy;
-    if(sx0>=sx1||sy0>=sy1) return;
+    // Source pixels must be in bounds, as must their translated destination.
+    int64_t sx0 = rx > 0 ? rx : 0;
+    int64_t sy0 = ry > 0 ? ry : 0;
+    int64_t sx1 = rx + rw;
+    int64_t sy1 = ry + rh;
+    if (sx0 < -dx) sx0 = -dx;
+    if (sy0 < -dy) sy0 = -dy;
+    if (sx1 > o->w) sx1 = o->w;
+    if (sy1 > o->h) sy1 = o->h;
+    if (sx1 > (int64_t)o->w - dx) sx1 = (int64_t)o->w - dx;
+    if (sy1 > (int64_t)o->h - dy) sy1 = (int64_t)o->h - dy;
+    if (sx0 < 0) sx0 = 0;
+    if (sy0 < 0) sy0 = 0;
+    if (sx0 >= sx1 || sy0 >= sy1) return;
 
-    const size_t rowBytes=(size_t)(sx1-sx0)*4;
-    if(dy>0){
-        for(int y=sy1-1;y>=sy0;--y)
-            memmove(o->bmp+(y+dy)*o->rb+(sx0+dx)*4,
-                    o->bmp+y*o->rb+sx0*4,rowBytes);
+    const size_t rowBytes = (size_t)(sx1 - sx0) * 4;
+    if (dy > 0) {
+        for (int64_t y = sy1 - 1; y >= sy0; --y) {
+            const size_t src = (size_t)y * (size_t)o->rb + (size_t)sx0 * 4;
+            const size_t dst = (size_t)(y + dy) * (size_t)o->rb + (size_t)(sx0 + dx) * 4;
+            memmove(o->bmp + dst, o->bmp + src, rowBytes);
+        }
     } else {
-        for(int y=sy0;y<sy1;++y)
-            memmove(o->bmp+(y+dy)*o->rb+(sx0+dx)*4,
-                    o->bmp+y*o->rb+sx0*4,rowBytes);
+        for (int64_t y = sy0; y < sy1; ++y) {
+            const size_t src = (size_t)y * (size_t)o->rb + (size_t)sx0 * 4;
+            const size_t dst = (size_t)(y + dy) * (size_t)o->rb + (size_t)(sx0 + dx) * 4;
+            memmove(o->bmp + dst, o->bmp + src, rowBytes);
+        }
     }
 }
 void wkcOffscreenSetOpticalZoomPeer(void*,float,const WKCFloatPoint*){}
