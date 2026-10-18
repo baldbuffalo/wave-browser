@@ -651,6 +651,13 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
             if (is_dir)
                 fname[nlen-1] = '\0';
 
+            // ZIP tools commonly include the top-level "WaveBrowser/"
+            // directory as an explicit entry. It maps to the staging root,
+            // so accept and skip that entry rather than treating it as unsafe.
+            if (is_dir && strlen(fname) == pfx_len - 1 &&
+                strncmp(fname, ZIP_FOLDER_PFX, pfx_len - 1) == 0)
+                continue;
+
             const char* rel = (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
                 ? fname + pfx_len : fname;
             if (!safe_zip_relative_path(rel)) {
