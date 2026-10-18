@@ -442,8 +442,62 @@ int  wkcFileDirectoryNamePeer(const char* p,char* out,int mx){
     out[n]='\0';
     return (int)n;
 }
-void* wkcFileOpenTemporaryFilePeer(const char*,char* out,int mx){
-    strncpy(out,"fs:/vol/external01/wiiu/apps/WaveBrowser/tmp",mx-1);return nullptr;
+void* wkcFileOpenTemporaryFilePeer(const char* prefix, char* out, int mx)
+{
+    if (!out || mx <= 0)
+        return nullptr;
+    out[0] = '\0';
+
+    static unsigned int sequence = 0;
+    const char* safePrefix = (prefix && prefix[0]) ? prefix : "wkc";
+    char dirPath[160];
+    int dirLength = snprintf(dirPath, sizeof(dirPath),
+        "fs:/vol/external01/wiiu/apps/WaveBrowser/tmp");
+    if (dirLength < 0 || (size_t)dirLength >= sizeof(dirPath))
+        return nullptr;
+    if (mkdir(dirPath, 0777) != 0 && errno != EEXIST)
+        return nullptr;
+
+    // Keep the caller's prefix to a basename so it cannot inject path
+    // components into the temporary-file location.
+    char basename[48];
+    size_t j = 0;
+    for (size_t i = 0; safePrefix[i] && j < sizeof(basename) - 1; ++i) {
+        const unsigned char ch = (unsigned char)safePrefix[i];
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')
+            basename[j++] = (char)ch;
+    }
+    if (j == 0) {
+        memcpy(basename, "wkc", 3);
+        j = 3;
+    }
+    basename[j] = '\0';
+
+    for (unsigned int attempt = 0; attempt < 32; ++attempt) {
+        ++sequence;
+        char candidate[256];
+        int n = snprintf(candidate, sizeof(candidate), "%s/%s-%u-%u.tmp",
+                         dirPath, basename, now_ms(), sequence);
+        if (n < 0 || (size_t)n >= sizeof(candidate) ||
+            (size_t)n >= (size_t)mx)
+            return nullptr;
+
+        // Avoid clobbering an existing temporary file from a previous run.
+        struct stat st;
+        if (stat(candidate, &st) == 0)
+            continue;
+
+        FILE* file = fopen(candidate, "w+b");
+        if (!file) {
+            if (errno == EEXIST)
+                continue;
+            return nullptr;
+        }
+        memcpy(out, candidate, (size_t)n + 1);
+        return file;
+    }
+    return nullptr;
 }
 // WKC expects an opaque directory handle and a filename copied into the
 // caller's buffer on each read. Use the platform C directory API rather than
