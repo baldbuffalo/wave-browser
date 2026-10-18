@@ -4,6 +4,7 @@
 #include <coreinit/foreground.h>
 #include <coreinit/memdefaultheap.h>
 #include <sysapp/launch.h>
+#include <rpxloader/rpxloader.h>
 #include <vpad/input.h>
 #include <nn/swkbd.h>
 #include <curl/curl.h>
@@ -778,44 +779,88 @@ static void run_splash_and_update()
             continue;
         }
 
-        draw_splash("Installing update...", 75.0);
+        draw_splash("Preparing to restart with the update...", 75.0);
         mkdir_p(INSTALL_DIR);
 
-        // Replace only after both required files have been extracted. Keep the
-        // prior files as rollback copies until the new pair is in place.
-        const char* old_bundle_backup = INSTALL_DIR "/WaveBrowser.wuhb.old";
-        const char* old_meta_backup = INSTALL_DIR "/meta.xml.old";
-        remove(old_bundle_backup);
-        remove(old_meta_backup);
-
-        struct stat old_bundle_stat;
-        struct stat old_meta_stat;
-        bool had_bundle = stat(INSTALL_WUHB, &old_bundle_stat) == 0;
-        bool had_meta = stat(INSTALL_META, &old_meta_stat) == 0;
-        bool bundle_backed_up = !had_bundle || rename(INSTALL_WUHB, old_bundle_backup) == 0;
-        bool meta_backed_up = !had_meta || rename(INSTALL_META, old_meta_backup) == 0;
-        bool bundle_ok = bundle_backed_up && meta_backed_up &&
-                         rename(STAGE_WUHB, INSTALL_WUHB) == 0;
-        bool meta_ok = bundle_ok && rename(STAGE_META, INSTALL_META) == 0;
-
-        if (!bundle_ok || !meta_ok) {
-            if (bundle_ok) remove(INSTALL_WUHB);
-            if (meta_ok) remove(INSTALL_META);
-            if (had_bundle && bundle_backed_up) rename(old_bundle_backup, INSTALL_WUHB);
-            if (had_meta && meta_backed_up) rename(old_meta_backup, INSTALL_META);
-            draw_splash("Install failed; previous files restored.", -1.0);
-            usleep(16000*90);
+        // A WUHB cannot safely replace itself while its bundle is mounted.
+        // Use the same RPXLoader handoff as NUSspli: resolve the running bundle,
+        // unmount it, replace the bundle, then launch the updated WUHB.
+        RPXLoaderStatus loader_status = RPXLoader_InitLibrary();
+        char running_bundle[512] = {0};
+        if (loader_status != RPX_LOADER_RESULT_SUCCESS ||
+            RPXLoader_GetPathOfRunningExecutable(running_bundle, sizeof(running_bundle)) != RPX_LOADER_RESULT_SUCCESS) {
+            draw_splash("Update needs Aroma RPXLoader. Starting current version...", -1.0);
+            usleep(16000*120);
             remove(STAGE_WUHB);
             remove(STAGE_META);
             rmdir(UPDATE_STAGE_DIR);
             continue;
         }
 
+        const char* old_bundle_backup = INSTALL_DIR "/WaveBrowser.wuhb.old";
+        const char* old_meta_backup = INSTALL_DIR "/meta.xml.old";
         remove(old_bundle_backup);
         remove(old_meta_backup);
+
+        // Back up metadata first; the bundle itself is moved only after the
+        // running bundle has been unmounted successfully.
+        struct stat old_meta_stat;
+        bool had_meta = stat(INSTALL_META, &old_meta_stat) == 0;
+        bool meta_backed_up = !had_meta || rename(INSTALL_META, old_meta_backup) == 0;
+        if (!meta_backed_up ||
+            RPXLoader_UnmountCurrentRunningBundle() != RPX_LOADER_RESULT_SUCCESS) {
+            if (had_meta && meta_backed_up) rename(old_meta_backup, INSTALL_META);
+            RPXLoader_DeInitLibrary();
+            draw_splash("Could not unmount Wave Browser. Update cancelled.", -1.0);
+            usleep(16000*120);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
+
+        // The current WUHB is now unmounted and can be replaced. Keep a rollback
+        // copy until both the new bundle and metadata are in place.
+        bool bundle_backed_up = rename(running_bundle, old_bundle_backup) == 0;
+        bool bundle_ok = bundle_backed_up && rename(STAGE_WUHB, INSTALL_WUHB) == 0;
+        bool meta_ok = bundle_ok && rename(STAGE_META, INSTALL_META) == 0;
+        if (!bundle_ok || !meta_ok) {
+            if (bundle_ok) remove(INSTALL_WUHB);
+            if (meta_ok) remove(INSTALL_META);
+            if (bundle_backed_up) rename(old_bundle_backup, running_bundle);
+            if (had_meta && meta_backed_up) rename(old_meta_backup, INSTALL_META);
+            RPXLoader_DeInitLibrary();
+            draw_splash("Install failed; previous files restored.", -1.0);
+            usleep(16000*120);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
+
         write_run_id(latest_run_id);
         file_restore(SESSION_PATH, session_buf, session_len);
-        success = true;
+        remove(old_bundle_backup);
+        remove(old_meta_backup);
+        remove(ZIP_TMP_PATH);
+        remove(STAGE_WUHB);
+        remove(STAGE_META);
+        rmdir(UPDATE_STAGE_DIR);
+        free(session_buf);
+        session_buf = nullptr;
+
+        draw_splash("Update installed! Restarting Wave Browser...", 100.0);
+        usleep(16000*90);
+        // This launches the newly installed WUHB through RPXLoader. On success
+        // the title handoff replaces the running instance rather than returning
+        // to the Home Menu.
+        RPXLoaderStatus launch_status = RPXLoader_LaunchHomebrew(INSTALL_WUHB);
+        if (launch_status != RPX_LOADER_RESULT_SUCCESS) {
+            draw_splash("Update installed. Please reopen Wave Browser.", -1.0);
+            RPXLoader_DeInitLibrary();
+            usleep(16000*180);
+        }
+        return;
     }
 
     remove(ZIP_TMP_PATH);
@@ -830,8 +875,8 @@ static void run_splash_and_update()
         return;
     }
 
-    draw_splash("Update installed! Please restart Wave Browser.", 100.0);
-    usleep(16000*300);
+    draw_splash("Update failed. Starting current version...", -1.0);
+    usleep(16000*120);
 }
 
 static bool touch_hit(int tx,int ty,int x,int y,int w,int h)
