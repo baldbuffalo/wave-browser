@@ -554,9 +554,6 @@ static void mkdir_p(const char* path)
     for (char* p=tmp+1;*p;p++){if(*p=='/'){*p='\0';mkdir(tmp,0777);*p='/';}} mkdir(tmp,0777);
 }
 
-static void remove_old_install()
-{ remove(INSTALL_WUHB); remove(INSTALL_META); remove(RUN_ID_PATH); remove(SESSION_PATH); rmdir(INSTALL_DIR); }
-
 // ─── ZIP extraction ───────────────────────────────────────────────────────────
 
 static bool safe_zip_relative_path(const char* path)
@@ -791,16 +788,21 @@ static void run_splash_and_update()
         remove(old_bundle_backup);
         remove(old_meta_backup);
 
-        bool had_bundle = (rename(INSTALL_WUHB, old_bundle_backup) == 0);
-        bool had_meta = (rename(INSTALL_META, old_meta_backup) == 0);
-        bool bundle_ok = rename(STAGE_WUHB, INSTALL_WUHB) == 0;
+        struct stat old_bundle_stat;
+        struct stat old_meta_stat;
+        bool had_bundle = stat(INSTALL_WUHB, &old_bundle_stat) == 0;
+        bool had_meta = stat(INSTALL_META, &old_meta_stat) == 0;
+        bool bundle_backed_up = !had_bundle || rename(INSTALL_WUHB, old_bundle_backup) == 0;
+        bool meta_backed_up = !had_meta || rename(INSTALL_META, old_meta_backup) == 0;
+        bool bundle_ok = bundle_backed_up && meta_backed_up &&
+                         rename(STAGE_WUHB, INSTALL_WUHB) == 0;
         bool meta_ok = bundle_ok && rename(STAGE_META, INSTALL_META) == 0;
 
         if (!bundle_ok || !meta_ok) {
-            remove(INSTALL_WUHB);
-            remove(INSTALL_META);
-            if (had_bundle) rename(old_bundle_backup, INSTALL_WUHB);
-            if (had_meta) rename(old_meta_backup, INSTALL_META);
+            if (bundle_ok) remove(INSTALL_WUHB);
+            if (meta_ok) remove(INSTALL_META);
+            if (had_bundle && bundle_backed_up) rename(old_bundle_backup, INSTALL_WUHB);
+            if (had_meta && meta_backed_up) rename(old_meta_backup, INSTALL_META);
             draw_splash("Install failed; previous files restored.", -1.0);
             usleep(16000*90);
             remove(STAGE_WUHB);
