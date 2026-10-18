@@ -724,6 +724,17 @@ bool webkit_engine_init(int w, int h)
         return false;
     }
     s_available = true;
+
+    // Wave Browser may set its startup URL before the engine has been created.
+    // Replay that pending navigation now that WKCWebView is ready; otherwise
+    // the early Google request would only paint the fallback surface.
+    if (s_url[0] != '\0') {
+        if (!s_webview->loadURLOrSearch(s_url)) {
+            fprintf(stderr, "WebKit-WiiU rejected pending startup URL: %s\\n", s_url);
+        } else {
+            s_dirty = true;
+        }
+    }
     return true;
 }
 
