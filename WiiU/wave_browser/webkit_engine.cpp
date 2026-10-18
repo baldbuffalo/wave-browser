@@ -1,5 +1,5 @@
 // webkit_engine.cpp — WKC peer implementations + SDL integration
-// All signatures match vendor/webkit-wiiu/include/wkc/wkc*.h exactly.
+// WKC API headers come from the matching WebKit-WiiU full-engine release artifact.
 
 #include "webkit_engine.h"
 #include "font_data.h"
