@@ -672,11 +672,32 @@ const unsigned char* wkcStockImageGetPlatformResourceImagePeer(const char*,unsig
 // WKCRect: { WKCPoint fPoint{fX,fY}; WKCSize fSize{fWidth,fHeight}; }
 
 void* wkcOffscreenNewPeer(int,void* bmp,int rb,const WKCSize* sz){
-    auto* o=(WKCOff*)calloc(1,sizeof(WKCOff));
-    if(!o) return nullptr;
-    o->w=sz?sz->fWidth:s_w; o->h=sz?sz->fHeight:s_h; o->rb=rb?rb:o->w*4;
-    if(bmp){o->bmp=(unsigned char*)bmp;o->owned=false;}
-    else{o->bmp=(unsigned char*)malloc(o->rb*o->h);o->owned=true;if(o->bmp)memset(o->bmp,0xFF,o->rb*o->h);}
+    const int width = sz ? sz->fWidth : s_w;
+    const int height = sz ? sz->fHeight : s_h;
+    if (width <= 0 || height <= 0 || width > INT_MAX / 4)
+        return nullptr;
+    const int rowBytes = rb ? rb : width * 4;
+    if (rowBytes < width * 4 || (size_t)height > SIZE_MAX / (size_t)rowBytes)
+        return nullptr;
+
+    auto* o = (WKCOff*)calloc(1, sizeof(WKCOff));
+    if (!o)
+        return nullptr;
+    o->w = width;
+    o->h = height;
+    o->rb = rowBytes;
+    if (bmp) {
+        o->bmp = (unsigned char*)bmp;
+        o->owned = false;
+    } else {
+        o->bmp = (unsigned char*)malloc((size_t)o->rb * (size_t)o->h);
+        if (!o->bmp) {
+            free(o);
+            return nullptr;
+        }
+        o->owned = true;
+        memset(o->bmp, 0xFF, (size_t)o->rb * (size_t)o->h);
+    }
     return o;
 }
 bool wkcOffscreenIsAcceleratedPeer(void*) { return false; }
@@ -687,12 +708,28 @@ void wkcOffscreenDeletePeer(void* p)      { if(p){auto*o=(WKCOff*)p;if(o->owned)
 void wkcTextureDeletePeer(void*)          {}
 void wkcOffscreenForceTerminatePeer(void) {}
 void wkcOffscreenResizePeer(void* p,const WKCSize* sz){
-    if(!p||!sz) return;
-    auto*o=(WKCOff*)p;
-    if(o->owned)free(o->bmp);
-    o->w=sz->fWidth;o->h=sz->fHeight;o->rb=o->w*4;
-    o->bmp=(unsigned char*)malloc(o->rb*o->h);o->owned=true;
-    if(o->bmp)memset(o->bmp,0xFF,o->rb*o->h);
+    if (!p || !sz || sz->fWidth <= 0 || sz->fHeight <= 0 ||
+        sz->fWidth > INT_MAX / 4)
+        return;
+    auto* o = (WKCOff*)p;
+    const int newRowBytes = sz->fWidth * 4;
+    if ((size_t)sz->fHeight > SIZE_MAX / (size_t)newRowBytes)
+        return;
+
+    // Allocate before releasing the old bitmap. A failed resize must leave the
+    // existing framebuffer usable instead of turning it into a null pointer.
+    unsigned char* newBitmap = (unsigned char*)malloc((size_t)newRowBytes * (size_t)sz->fHeight);
+    if (!newBitmap)
+        return;
+    memset(newBitmap, 0xFF, (size_t)newRowBytes * (size_t)sz->fHeight);
+
+    if (o->owned)
+        free(o->bmp);
+    o->bmp = newBitmap;
+    o->owned = true;
+    o->w = sz->fWidth;
+    o->h = sz->fHeight;
+    o->rb = newRowBytes;
 }
 void wkcOffscreenGetSizePeer(void* p,WKCSize* sz){
     if(p&&sz){sz->fWidth=((WKCOff*)p)->w;sz->fHeight=((WKCOff*)p)->h;}
@@ -759,9 +796,15 @@ bool webkit_engine_init(int w, int h)
     if (s_webview || s_webkit_initialized || s_pixels)
         webkit_engine_shutdown();
 
-    s_pixels=(unsigned char*)malloc((size_t)w*(size_t)h*4);
-    if(!s_pixels) return false;
-    memset(s_pixels,0xFF,w*h*4);
+    // Validate all size arithmetic before allocating or clearing the page
+    // framebuffer; signed w*h*4 can overflow even when each dimension is > 0.
+    if ((size_t)w > SIZE_MAX / 4 / (size_t)h)
+        return false;
+    const size_t pixelBytes = (size_t)w * (size_t)h * 4;
+    s_pixels = (unsigned char*)malloc(pixelBytes);
+    if (!s_pixels)
+        return false;
+    memset(s_pixels, 0xFF, pixelBytes);
 
     wkcTimerInitializePeer(nullptr);
     wkcThreadInitializePeer();
