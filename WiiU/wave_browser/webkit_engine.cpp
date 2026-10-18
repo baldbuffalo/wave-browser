@@ -469,6 +469,7 @@ int wkcFileReadDirectoryPeer(void* handle, char* name, int maxLength)
     name[0] = '\\0';
     DIR* dir = (DIR*)handle;
     struct dirent* entry = nullptr;
+    errno = 0;
     while ((entry = readdir(dir)) != nullptr) {
         // Skip the current and parent-directory entries; WebCore callers
         // should see real children, not traversal pseudo-entries.
