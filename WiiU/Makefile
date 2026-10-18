@@ -20,12 +20,15 @@ CXX  := $(DEVKITPPC)/bin/powerpc-eabi-g++
 LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
-# WebKit-WiiU headers
-# The engine must be integrated from source; Wave Browser does not link a .a archive.
+# WebKit-WiiU full-engine release artifact
+# The build workflow downloads the archive produced by baldbuffalo/webkit-wiiu.
+# Keep the archive out of this repository; link the exact artifact staged by CI.
 #---------------------------------------------------------------------------------
-WEBKIT_INC  := vendor/webkit-wiiu/include
+WEBKIT_ROOT  := $(BUILD)/webkit-wiiu-artifact
+WEBKIT_INC   := $(WEBKIT_ROOT)/include
+WEBKIT_LIB   := $(WEBKIT_ROOT)/lib/libWebKitWKC.a
 WEBKIT_FLAGS := -I$(WEBKIT_INC)
-WEBKIT_LIBS  :=
+WEBKIT_LIBS  := $(WEBKIT_LIB)
 
 #---------------------------------------------------------------------------------
 # Source files
@@ -107,8 +110,12 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p "$(dir $@)"
 	$(CXX) $(CXXFLAGS) -c "$<" -o "$@"
 
-$(TARGET).elf: $(OFILES)
+$(TARGET).elf: $(OFILES) $(WEBKIT_LIB)
 	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
+
+# Fail early with a clear message if the matching engine release was not staged.
+$(WEBKIT_LIB):
+	@test -s "$@" || { echo "Missing WebKit-WiiU engine archive: $@ (workflow must download the matching release asset)" >&2; exit 1; }
 
 $(TARGET).rpx: $(TARGET).elf
 	elf2rpl $< $@
