@@ -54,7 +54,7 @@ public:
     void notifyMemoryAllocationError(unsigned int, AllocationReason) override {}
     void notifyCrash(const char* file, int line, const char* function, const char* assertion) override
     {
-        fprintf(stderr, "WebKit-WiiU crash: %s:%d %s (%s)\\n",
+        fprintf(stderr, "WebKit-WiiU crash: %s:%d %s (%s)\n",
                 file ? file : "?", line, function ? function : "?",
                 assertion ? assertion : "?");
     }
@@ -682,7 +682,12 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
 bool webkit_engine_init(int w, int h)
 {
     s_w=w; s_h=h;
-    s_pixels=(unsigned char*)malloc(w*h*4);
+    if (w <= 0 || h <= 0)
+        return false;
+    if (s_webview || s_webkit_initialized || s_pixels)
+        webkit_engine_shutdown();
+
+    s_pixels=(unsigned char*)malloc((size_t)w*(size_t)h*4);
     if(!s_pixels) return false;
     memset(s_pixels,0xFF,w*h*4);
 
@@ -699,15 +704,35 @@ bool webkit_engine_init(int w, int h)
     // archive, then create a WebView backed by the WKC platform peers above.
     if (!WKC::WKCWebKitInitialize(nullptr, 0, nullptr, 0,
                                   s_memory_handler, s_timer_handler)) {
-        fprintf(stderr, "WebKit-WiiU initialization failed\\n");
+        fprintf(stderr, "WebKit-WiiU initialization failed\n");
+        wkcSSLFinalizePeer();
+        wkcFontEngineFinalizePeer();
+        wkcSystemFinalizePeer();
+        wkcDebugPrintFinalizePeer();
+        wkcFileFinalizePeer();
+        wkcMemoryFinalizePeer();
+        wkcThreadFinalizePeer();
+        wkcTimerFinalizePeer();
+        free(s_pixels);
+        s_pixels = nullptr;
         return false;
     }
     s_webkit_initialized = true;
     s_webview = WKC::WKCWebView::create(s_client_builders);
     if (!s_webview) {
-        fprintf(stderr, "WebKit-WiiU could not create WKCWebView\\n");
+        fprintf(stderr, "WebKit-WiiU could not create WKCWebView\n");
         WKC::WKCWebKitFinalize();
         s_webkit_initialized = false;
+        wkcSSLFinalizePeer();
+        wkcFontEngineFinalizePeer();
+        wkcSystemFinalizePeer();
+        wkcDebugPrintFinalizePeer();
+        wkcFileFinalizePeer();
+        wkcMemoryFinalizePeer();
+        wkcThreadFinalizePeer();
+        wkcTimerFinalizePeer();
+        free(s_pixels);
+        s_pixels = nullptr;
         return false;
     }
 
@@ -716,11 +741,21 @@ bool webkit_engine_init(int w, int h)
     offscreen.fHeight = h;
     if (!s_webview->setOffscreen(WKC::EOffscreenFormatARGB8888, s_pixels, w * 4,
                                  offscreen, offscreen, true, &offscreen, true)) {
-        fprintf(stderr, "WebKit-WiiU could not attach the page framebuffer\\n");
+        fprintf(stderr, "WebKit-WiiU could not attach the page framebuffer\n");
         WKC::WKCWebView::deleteWKCWebView(s_webview);
         s_webview = nullptr;
         WKC::WKCWebKitFinalize();
         s_webkit_initialized = false;
+        wkcSSLFinalizePeer();
+        wkcFontEngineFinalizePeer();
+        wkcSystemFinalizePeer();
+        wkcDebugPrintFinalizePeer();
+        wkcFileFinalizePeer();
+        wkcMemoryFinalizePeer();
+        wkcThreadFinalizePeer();
+        wkcTimerFinalizePeer();
+        free(s_pixels);
+        s_pixels = nullptr;
         return false;
     }
     s_available = true;
@@ -730,7 +765,7 @@ bool webkit_engine_init(int w, int h)
     // the early Google request would only paint the fallback surface.
     if (s_url[0] != '\0') {
         if (!s_webview->loadURLOrSearch(s_url)) {
-            fprintf(stderr, "WebKit-WiiU rejected pending startup URL: %s\\n", s_url);
+            fprintf(stderr, "WebKit-WiiU rejected pending startup URL: %s\n", s_url);
         } else {
             s_dirty = true;
         }
@@ -755,7 +790,7 @@ void webkit_engine_navigate(const char* url)
             s_dirty = true;
             return;
         }
-        fprintf(stderr, "WebKit-WiiU rejected navigation URL: %s\\n", url);
+        fprintf(stderr, "WebKit-WiiU rejected navigation URL: %s\n", url);
     }
     // Keep a visible failure surface rather than pretending the placeholder is
     // a loaded page; navigation is retried when the engine becomes available.
