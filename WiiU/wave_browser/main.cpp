@@ -556,31 +556,134 @@ static void remove_old_install()
 
 // ─── ZIP extraction ───────────────────────────────────────────────────────────
 
+static bool safe_zip_relative_path(const char* path)
+{
+    if (!path || !path[0] || path[0] == '/' || path[0] == '\\')
+        return false;
+    if (strchr(path, '\\'))
+        return false;
+
+    const char* component = path;
+    for (const char* p = path; ; ++p) {
+        if (*p == '/' || *p == '\0') {
+            const size_t length = (size_t)(p - component);
+            if (length == 0 || (length == 1 && component[0] == '.') ||
+                (length == 2 && component[0] == '.' && component[1] == '.'))
+                return false;
+            if (*p == '\0')
+                break;
+            component = p + 1;
+        }
+    }
+    return true;
+}
+
 static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
 {
-    unzFile zf = unzOpen(zip_path); if(!zf) return 1;
+    if (!zip_path || !out_dir || !zip_path[0] || !out_dir[0])
+        return 1;
+
+    unzFile zf = unzOpen(zip_path);
+    if (!zf)
+        return 1;
+
     mkdir_p(out_dir);
     const size_t pfx_len = strlen(ZIP_FOLDER_PFX);
     int result = 0;
-    if (unzGoToFirstFile(zf) == UNZ_OK) {
+    int zipStatus = unzGoToFirstFile(zf);
+    if (zipStatus == UNZ_OK) {
         do {
-            char fname[256]={0}; unz_file_info fi;
-            unzGetCurrentFileInfo(zf,&fi,fname,sizeof(fname)-1,nullptr,0,nullptr,0);
-            size_t nlen=strlen(fname);
-            if (nlen>0&&fname[nlen-1]=='/') continue;
-            const char* rel = (strncmp(fname,ZIP_FOLDER_PFX,pfx_len)==0) ? fname+pfx_len : fname;
-            if (rel[0]=='\0') continue;
-            char out_path[512]; snprintf(out_path,sizeof(out_path),"%s/%s",out_dir,rel);
-            if (unzOpenCurrentFile(zf)!=UNZ_OK){result=1;break;}
-            FILE* out=fopen(out_path,"wb"); if(!out){unzCloseCurrentFile(zf);result=1;break;}
-            uint8_t buf[8192]; int br; bool ok=true;
-            while((br=unzReadCurrentFile(zf,buf,sizeof(buf)))>0)
-                if(fwrite(buf,1,(size_t)br,out)!=(size_t)br){ok=false;break;}
-            fclose(out); unzCloseCurrentFile(zf);
-            if(!ok||br<0){result=1;break;}
-        } while(unzGoToNextFile(zf)==UNZ_OK);
+            char fname[256] = {0};
+            unz_file_info fi;
+            if (unzGetCurrentFileInfo(zf, &fi, fname, sizeof(fname)-1,
+                                      nullptr, 0, nullptr, 0) != UNZ_OK) {
+                result = 1;
+                break;
+            }
+            fname[sizeof(fname)-1] = '\0';
+            size_t nlen = strlen(fname);
+            if (nlen == 0)
+                continue;
+
+            if (fname[nlen-1] == '/') {
+                fname[nlen-1] = '\0';
+                const char* dirRel = (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
+                    ? fname + pfx_len : fname;
+                if (dirRel[0] && safe_zip_relative_path(dirRel)) {
+                    char dirPath[512];
+                    int written = snprintf(dirPath, sizeof(dirPath), "%s/%s", out_dir, dirRel);
+                    if (written < 0 || (size_t)written >= sizeof(dirPath)) {
+                        result = 1;
+                        break;
+                    }
+                    mkdir_p(dirPath);
+                }
+                continue;
+            }
+
+            const char* rel = (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
+                ? fname + pfx_len : fname;
+            if (!safe_zip_relative_path(rel)) {
+                fprintf(stderr, "Rejected unsafe update ZIP path: %s\n", fname);
+                result = 1;
+                break;
+            }
+
+            char out_path[512];
+            int written = snprintf(out_path, sizeof(out_path), "%s/%s", out_dir, rel);
+            if (written < 0 || (size_t)written >= sizeof(out_path)) {
+                result = 1;
+                break;
+            }
+
+            char parent[512];
+            memcpy(parent, out_path, (size_t)written + 1);
+            char* slash = strrchr(parent, '/');
+            if (!slash) {
+                result = 1;
+                break;
+            }
+            *slash = '\0';
+            mkdir_p(parent);
+
+            if (unzOpenCurrentFile(zf) != UNZ_OK) {
+                result = 1;
+                break;
+            }
+            FILE* out = fopen(out_path, "wb");
+            if (!out) {
+                unzCloseCurrentFile(zf);
+                result = 1;
+                break;
+            }
+
+            uint8_t buf[8192];
+            int br = 0;
+            bool ok = true;
+            while ((br = unzReadCurrentFile(zf, buf, sizeof(buf))) > 0) {
+                if (fwrite(buf, 1, (size_t)br, out) != (size_t)br) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (fclose(out) != 0)
+                ok = false;
+            if (unzCloseCurrentFile(zf) != UNZ_OK)
+                ok = false;
+            if (!ok || br < 0) {
+                remove(out_path);
+                result = 1;
+                break;
+            }
+        } while ((zipStatus = unzGoToNextFile(zf)) == UNZ_OK);
+        if (zipStatus != UNZ_END_OF_LIST_OF_FILE)
+            result = 1;
+    } else if (zipStatus != UNZ_END_OF_LIST_OF_FILE) {
+        result = 1;
     }
-    unzClose(zf); return result;
+
+    unzClose(zf);
+    return result;
 }
 
 // ─── Update splash ────────────────────────────────────────────────────────────
