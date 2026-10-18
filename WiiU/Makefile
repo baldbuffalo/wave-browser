@@ -24,11 +24,12 @@ LD   := $(CXX)
 # The build workflow downloads the archive produced by baldbuffalo/webkit-wiiu.
 # Keep the archive out of this repository; link the exact artifact staged by CI.
 #---------------------------------------------------------------------------------
-WEBKIT_ROOT  := $(BUILD)/webkit-wiiu-artifact
+WEBKIT_ROOT  ?= ../build/webkit-wiiu-artifact
 WEBKIT_INC   := $(WEBKIT_ROOT)/include
 WEBKIT_LIB   := $(WEBKIT_ROOT)/lib/libWebKitWKC.a
-WEBKIT_FLAGS := -I$(WEBKIT_INC)
-WEBKIT_LIBS  := $(WEBKIT_LIB)
+WEBKIT_FLAGS := -I$(WEBKIT_INC) -DWKC_AVAILABLE
+WEBKIT_DEPS  := $(filter-out $(WEBKIT_LIB),$(wildcard $(WEBKIT_ROOT)/lib/*.a))
+WEBKIT_LIBS  := -Wl,--start-group $(WEBKIT_LIB) $(WEBKIT_DEPS) -Wl,--end-group
 
 #---------------------------------------------------------------------------------
 # Source files
@@ -113,9 +114,9 @@ $(BUILD)/%.o: %.cpp
 $(TARGET).elf: $(OFILES) $(WEBKIT_LIB)
 	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
-# Fail early with a clear message if the matching engine release was not staged.
+# Fail early if the matching full-engine release was not staged.
 $(WEBKIT_LIB):
-	@test -s "$@" || { echo "Missing WebKit-WiiU engine archive: $@ (workflow must download the matching release asset)" >&2; exit 1; }
+	@test -s "$@" || { echo "Missing WebKit-WiiU engine archive: $@ (stage the matching release asset first)" >&2; exit 1; }
 
 $(TARGET).rpx: $(TARGET).elf
 	elf2rpl $< $@
