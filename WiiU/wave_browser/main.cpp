@@ -60,7 +60,10 @@
 #define RUN_ID_PATH     "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-run-id.txt"
 #define SESSION_PATH    "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-session.cfg"
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
-#define ZIP_FOLDER_PFX  "WaveBrowser/"
+#define UPDATE_STAGE_DIR "fs:/vol/external01/WaveBrowser-update-stage"
+#define STAGE_WUHB       UPDATE_STAGE_DIR "/WaveBrowser.wuhb"
+#define STAGE_META       UPDATE_STAGE_DIR "/meta.xml"
+#define ZIP_FOLDER_PFX   "WaveBrowser/"
 
 #define MAX_UPDATE_ATTEMPTS 3
 
@@ -688,6 +691,10 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
 
 // ─── Update splash ────────────────────────────────────────────────────────────
 
+// Update flow adapted from the GPL-3.0 NUSspli updater architecture:
+// download and unpack into a temporary location first, validate the package,
+// and only then replace the installed app files. NUSspli is by V10lator and
+// contributors; see https://github.com/V10lator/NUSspli and its GPL-3.0 license.
 static void run_splash_and_update()
 {
     draw_splash("Loading...", -1.0);
@@ -695,48 +702,135 @@ static void run_splash_and_update()
     draw_splash("Checking for updates...", -1.0);
 
     char* json = fetch_string(ACTIONS_API_URL);
-    if (!json) { draw_splash("No network. Starting...", -1.0); usleep(16000*90); return; }
+    if (!json) {
+        draw_splash("No network. Starting...", -1.0);
+        usleep(16000*90);
+        return;
+    }
 
     long long latest_run_id = 0;
-    const char* id_ptr = strstr(json, "\"id\":");
-    if (id_ptr) { id_ptr+=5; while(*id_ptr==' ')id_ptr++; latest_run_id=atoll(id_ptr); }
+    const char* id_ptr = strstr(json, "\\"id\\":");
+    if (id_ptr) {
+        id_ptr += 5;
+        while (*id_ptr == ' ') id_ptr++;
+        latest_run_id = atoll(id_ptr);
+    }
     free(json);
 
-    if (latest_run_id == 0) { draw_splash("Couldn't read run ID. Starting...", -1.0); usleep(16000*90); return; }
-    if (latest_run_id == read_stored_run_id()) { draw_splash("You're up to date!", -1.0); usleep(16000*60); return; }
+    if (latest_run_id <= 0) {
+        draw_splash("Couldn't read run ID. Starting...", -1.0);
+        usleep(16000*90);
+        return;
+    }
+    if (latest_run_id == read_stored_run_id()) {
+        draw_splash("You're up to date!", -1.0);
+        usleep(16000*60);
+        return;
+    }
 
-    char msg[80]; snprintf(msg,sizeof(msg),"New build #%lld found. Downloading...",latest_run_id);
-    draw_splash(msg, 0.0); usleep(800000);
+    char msg[80];
+    snprintf(msg, sizeof(msg), "New build #%lld found. Downloading...", latest_run_id);
+    draw_splash(msg, 0.0);
+    usleep(800000);
 
-    size_t session_len=0; char* session_buf=file_backup(SESSION_PATH,&session_len);
+    size_t session_len = 0;
+    char* session_buf = file_backup(SESSION_PATH, &session_len);
     remove(ZIP_TMP_PATH);
+    remove(STAGE_WUHB);
+    remove(STAGE_META);
+    rmdir(UPDATE_STAGE_DIR);
+
     if (fetch_file(ARTIFACT_ZIP_URL, ZIP_TMP_PATH) != 0) {
-        draw_splash("Download failed. Starting anyway...", -1.0); usleep(16000*120);
-        free(session_buf); return;
+        draw_splash("Download failed. Starting anyway...", -1.0);
+        usleep(16000*120);
+        free(session_buf);
+        return;
     }
 
     bool success = false;
-    for (int attempt=1; attempt<=MAX_UPDATE_ATTEMPTS&&!success; attempt++) {
-        if (attempt>1) {
-            char rm[72]; snprintf(rm,sizeof(rm),"Retrying extraction... (%d/%d)",attempt,MAX_UPDATE_ATTEMPTS);
-            draw_splash(rm, 100.0); usleep(2000000);
+    for (int attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS && !success; ++attempt) {
+        if (attempt > 1) {
+            char retry[72];
+            snprintf(retry, sizeof(retry), "Retrying extraction... (%d/%d)",
+                     attempt, MAX_UPDATE_ATTEMPTS);
+            draw_splash(retry, 100.0);
+            usleep(2000000);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
         }
-        draw_splash("Removing old version...", 100.0); remove_old_install();
-        draw_splash("Installing update...",    100.0);
-        if (extract_zip_to_dir(ZIP_TMP_PATH, INSTALL_DIR) != 0) {
-            draw_splash("Extraction failed.", -1.0); usleep(16000*60); continue;
+
+        draw_splash("Preparing update...", 35.0);
+        if (extract_zip_to_dir(ZIP_TMP_PATH, UPDATE_STAGE_DIR) != 0) {
+            draw_splash("Update archive is invalid. Starting anyway...", -1.0);
+            usleep(16000*60);
+            continue;
         }
+
+        // Reject incomplete artifacts before touching the working installation.
+        struct stat staged_bundle;
+        struct stat staged_meta;
+        if (stat(STAGE_WUHB, &staged_bundle) != 0 ||
+            stat(STAGE_META, &staged_meta) != 0 ||
+            staged_bundle.st_size <= 0 || staged_meta.st_size <= 0) {
+            draw_splash("Update package is incomplete. Starting anyway...", -1.0);
+            usleep(16000*60);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
+
+        draw_splash("Installing update...", 75.0);
+        mkdir_p(INSTALL_DIR);
+
+        // Replace only after both required files have been extracted. Keep the
+        // prior files as rollback copies until the new pair is in place.
+        const char* old_bundle_backup = INSTALL_DIR "/WaveBrowser.wuhb.old";
+        const char* old_meta_backup = INSTALL_DIR "/meta.xml.old";
+        remove(old_bundle_backup);
+        remove(old_meta_backup);
+
+        bool had_bundle = (rename(INSTALL_WUHB, old_bundle_backup) == 0);
+        bool had_meta = (rename(INSTALL_META, old_meta_backup) == 0);
+        bool bundle_ok = rename(STAGE_WUHB, INSTALL_WUHB) == 0;
+        bool meta_ok = bundle_ok && rename(STAGE_META, INSTALL_META) == 0;
+
+        if (!bundle_ok || !meta_ok) {
+            remove(INSTALL_WUHB);
+            remove(INSTALL_META);
+            if (had_bundle) rename(old_bundle_backup, INSTALL_WUHB);
+            if (had_meta) rename(old_meta_backup, INSTALL_META);
+            draw_splash("Install failed; previous files restored.", -1.0);
+            usleep(16000*90);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
+
+        remove(old_bundle_backup);
+        remove(old_meta_backup);
         write_run_id(latest_run_id);
         file_restore(SESSION_PATH, session_buf, session_len);
         success = true;
     }
-    remove(ZIP_TMP_PATH); free(session_buf);
 
-    if (!success) { draw_splash("Update failed. Starting anyway...", -1.0); usleep(16000*180); return; }
-    draw_splash("Update installed! Please restart Wave Browser.", 100.0); usleep(16000*300);
+    remove(ZIP_TMP_PATH);
+    remove(STAGE_WUHB);
+    remove(STAGE_META);
+    rmdir(UPDATE_STAGE_DIR);
+    free(session_buf);
+
+    if (!success) {
+        draw_splash("Update failed. Starting anyway...", -1.0);
+        usleep(16000*180);
+        return;
+    }
+
+    draw_splash("Update installed! Please restart Wave Browser.", 100.0);
+    usleep(16000*300);
 }
-
-// ─── Touch hit test ───────────────────────────────────────────────────────────
 
 static bool touch_hit(int tx,int ty,int x,int y,int w,int h)
 { return tx>=x&&tx<x+w&&ty>=y&&ty<y+h; }
