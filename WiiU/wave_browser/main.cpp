@@ -45,6 +45,7 @@
 #include "unzip.h"
 
 #include <sys/stat.h>
+#include <errno.h>
 #include <malloc.h>
 #include <string.h>
 #include <stdlib.h>
@@ -549,12 +550,46 @@ static void file_restore(const char* path, const char* buf, size_t len)
 
 // ─── Install directory helpers ────────────────────────────────────────────────
 
-static void mkdir_p(const char* path)
+static bool mkdir_p(const char* path)
 {
-    char tmp[512]; strncpy(tmp,path,sizeof(tmp)-1); tmp[sizeof(tmp)-1]='\0';
-    for (char* p=tmp+1;*p;p++){if(*p=='/'){*p='\0';mkdir(tmp,0777);*p='/';}} mkdir(tmp,0777);
-}
+    if (!path || !path[0])
+        return false;
 
+    char tmp[512];
+    size_t len = strlen(path);
+    if (len >= sizeof(tmp))
+        return false;
+    memcpy(tmp, path, len + 1);
+
+    // Skip the Wii U mounted-SD prefix; it is not a directory to create.
+    char* scan = tmp;
+    if (strncmp(tmp, "fs:/vol/external01/", 19) == 0)
+        scan = tmp + 19;
+    else if (strncmp(tmp, "fs:/vol/external01", 18) == 0)
+        scan = tmp + 18;
+    else if (tmp[0] == '/')
+        scan = tmp + 1;
+
+    for (char* p = scan; ; ++p) {
+        if (*p != '/' && *p != '\0')
+            continue;
+        char saved = *p;
+        *p = '\0';
+        if (tmp[0] && mkdir(tmp, 0777) != 0 && errno != EEXIST) {
+            *p = saved;
+            return false;
+        }
+        struct stat st;
+        if (tmp[0] && (stat(tmp, &st) != 0 || !S_ISDIR(st.st_mode))) {
+            *p = saved;
+            return false;
+        }
+        *p = saved;
+        if (saved == '\0')
+            break;
+    }
+    return true;
+}
 // ─── ZIP extraction ───────────────────────────────────────────────────────────
 
 static bool safe_zip_relative_path(const char* path)
@@ -588,7 +623,11 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
     if (!zf)
         return 1;
 
-    mkdir_p(out_dir);
+    if (!mkdir_p(out_dir)) {
+        unzClose(zf);
+        return 1;
+    }
+
     const size_t pfx_len = strlen(ZIP_FOLDER_PFX);
     int result = 0;
     int zipStatus = unzGoToFirstFile(zf);
@@ -603,24 +642,14 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
             }
             fname[sizeof(fname)-1] = '\0';
             size_t nlen = strlen(fname);
-            if (nlen == 0)
-                continue;
-
-            if (fname[nlen-1] == '/') {
-                fname[nlen-1] = '\0';
-                const char* dirRel = (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
-                    ? fname + pfx_len : fname;
-                if (dirRel[0] && safe_zip_relative_path(dirRel)) {
-                    char dirPath[512];
-                    int written = snprintf(dirPath, sizeof(dirPath), "%s/%s", out_dir, dirRel);
-                    if (written < 0 || (size_t)written >= sizeof(dirPath)) {
-                        result = 1;
-                        break;
-                    }
-                    mkdir_p(dirPath);
-                }
-                continue;
+            if (nlen == 0) {
+                result = 1;
+                break;
             }
+
+            const bool is_dir = fname[nlen-1] == '/';
+            if (is_dir)
+                fname[nlen-1] = '\0';
 
             const char* rel = (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
                 ? fname + pfx_len : fname;
@@ -637,46 +666,61 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
                 break;
             }
 
-            char parent[512];
-            memcpy(parent, out_path, (size_t)written + 1);
-            char* slash = strrchr(parent, '/');
-            if (!slash) {
-                result = 1;
-                break;
-            }
-            *slash = '\0';
-            mkdir_p(parent);
+            if (is_dir) {
+                if (!mkdir_p(out_path)) {
+                    result = 1;
+                    break;
+                }
+            } else {
+                char parent[512];
+                memcpy(parent, out_path, (size_t)written + 1);
+                char* slash = strrchr(parent, '/');
+                if (!slash) {
+                    result = 1;
+                    break;
+                }
+                *slash = '\0';
+                if (!mkdir_p(parent)) {
+                    result = 1;
+                    break;
+                }
 
-            if (unzOpenCurrentFile(zf) != UNZ_OK) {
-                result = 1;
-                break;
-            }
-            FILE* out = fopen(out_path, "wb");
-            if (!out) {
-                unzCloseCurrentFile(zf);
-                result = 1;
-                break;
-            }
+                if (unzOpenCurrentFile(zf) != UNZ_OK) {
+                    result = 1;
+                    break;
+                }
+                FILE* out = fopen(out_path, "wb");
+                if (!out) {
+                    unzCloseCurrentFile(zf);
+                    result = 1;
+                    break;
+                }
 
-            uint8_t buf[8192];
-            int br = 0;
-            bool ok = true;
-            while ((br = unzReadCurrentFile(zf, buf, sizeof(buf))) > 0) {
-                if (fwrite(buf, 1, (size_t)br, out) != (size_t)br) {
+                uint8_t buf[8192];
+                int br = 0;
+                bool ok = true;
+                while ((br = unzReadCurrentFile(zf, buf, sizeof(buf))) > 0) {
+                    if (fwrite(buf, 1, (size_t)br, out) != (size_t)br) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (br < 0)
                     ok = false;
+                if (fclose(out) != 0)
+                    ok = false;
+                // minizip reports CRC/data errors here; do not accept an entry
+                // merely because some bytes were written successfully.
+                if (unzCloseCurrentFile(zf) != UNZ_OK)
+                    ok = false;
+                if (!ok) {
+                    remove(out_path);
+                    result = 1;
                     break;
                 }
             }
-            if (fclose(out) != 0)
-                ok = false;
-            if (unzCloseCurrentFile(zf) != UNZ_OK)
-                ok = false;
-            if (!ok || br < 0) {
-                remove(out_path);
-                result = 1;
-                break;
-            }
         } while ((zipStatus = unzGoToNextFile(zf)) == UNZ_OK);
+
         if (zipStatus != UNZ_END_OF_LIST_OF_FILE)
             result = 1;
     } else if (zipStatus != UNZ_END_OF_LIST_OF_FILE) {
