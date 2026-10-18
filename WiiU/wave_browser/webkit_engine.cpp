@@ -835,7 +835,7 @@ FILE* wkcOsslCertfOpenPeer(const char* path, const char* /*mode*/)
             break;
         }
         written += item->length;
-        if (fwrite("\\n", 1, 1, stream) != 1) { written = 0; break; }
+        if (fwrite("\n", 1, 1, stream) != 1) { written = 0; break; }
         ++written;
     }
     OSUnlockMutex(&s_ssl_mtx);
