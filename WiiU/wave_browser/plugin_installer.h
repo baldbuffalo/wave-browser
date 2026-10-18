@@ -87,8 +87,8 @@ static inline int plugin_install(PluginProgressCb cb = nullptr)
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,    _plugin_file_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA,        f);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION,   1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,   0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,   0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER,   1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST,   2L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT,        "wave-browser/1.0");
     curl_easy_setopt(curl, CURLOPT_TIMEOUT,          60L);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS,       0L);
