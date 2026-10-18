@@ -227,7 +227,12 @@ bool wkcTimerStartPeriodicPeer(void* p, unsigned int ms, wkcTimeoutProc cb, void
     OSUnlockMutex(&s_timer_mtx);
     return true;
 }
-void wkcTimerCancelPeer(void* p)       { if (p) ((WKCTimer*)p)->active=false; }
+void wkcTimerCancelPeer(void* p) {
+    if (!p || !s_timer_init) return;
+    OSLockMutex(&s_timer_mtx);
+    ((WKCTimer*)p)->active = false;
+    OSUnlockMutex(&s_timer_mtx);
+}
 void wkcTimerWakeUpPeer(void*)         {}
 unsigned int wkcGetTickCountPeer(void) { return now_ms(); }
 
@@ -827,19 +832,58 @@ void webkit_engine_tick(void)
         WKC::WKCWebKitWakeUp(nullptr);
         s_webview->notifyServiceScriptedAnimations();
     }
-    if(!s_timer_init) return;
-    unsigned int now=now_ms();
+    if (!s_timer_init) return;
+
+    struct TimerCall {
+        wkcTimeoutProc proc;
+        void* data;
+    };
+
+    const unsigned int now = now_ms();
     OSLockMutex(&s_timer_mtx);
-    for(WKCTimer*t=s_timers;t;t=t->next){
-        if(!t->active||now<t->fire_at) continue;
-        t->active=false;
-        auto cb=t->proc; auto data=t->data; auto iv=t->interval;
-        if(iv){t->fire_at=now+iv;t->active=true;}
+
+    // Count due callbacks first so the snapshot can be allocated before any
+    // one-shot timer is deactivated. Never retain timer-list pointers while
+    // callbacks run: a callback is allowed to delete itself or another timer.
+    size_t dueCount = 0;
+    for (WKCTimer* t = s_timers; t; t = t->next) {
+        if (t->active && now >= t->fire_at && t->proc)
+            ++dueCount;
+    }
+
+    TimerCall* calls = dueCount
+        ? static_cast<TimerCall*>(malloc(dueCount * sizeof(TimerCall)))
+        : nullptr;
+    if (dueCount && !calls) {
         OSUnlockMutex(&s_timer_mtx);
-        if(cb) cb(data);
-        OSLockMutex(&s_timer_mtx);
+        return;
+    }
+
+    size_t callCount = 0;
+    for (WKCTimer* t = s_timers; t; t = t->next) {
+        if (!t->active || now < t->fire_at)
+            continue;
+
+        if (t->proc) {
+            calls[callCount].proc = t->proc;
+            calls[callCount].data = t->data;
+            ++callCount;
+        }
+
+        if (t->interval) {
+            t->fire_at = now + t->interval;
+            t->active = true;
+        } else {
+            t->active = false;
+        }
     }
     OSUnlockMutex(&s_timer_mtx);
+
+    // The snapshot contains only callback/data values, so callbacks can
+    // safely start, cancel, or delete timers without invalidating iteration.
+    for (size_t i = 0; i < callCount; ++i)
+        calls[i].proc(calls[i].data);
+    free(calls);
 }
 
 void webkit_engine_draw(int cx,int cy,int cw,int ch)
