@@ -126,6 +126,7 @@ static int s_wii_stick_held = 0;  // Nunchuk stick repeat
 static bool s_tp_touching = false;  // finger is currently down
 static bool s_tp_pressed  = false;  // finger JUST went down this frame (use for UI hits)
 static bool s_tp_released = false;  // finger JUST lifted this frame
+static bool s_tp_page_touch = false; // current touch belongs to page content
 static int  s_tp_x = 0, s_tp_y = 0;          // position when pressed (TV coords)
 static int  s_tp_cur_x = 0, s_tp_cur_y = 0;  // live position while held
 
@@ -744,6 +745,17 @@ static void handle_input(VPADStatus* vpad)
 {
     uint32_t btn = vpad->trigger;
 
+    // Complete page clicks on touch-up. Coordinates are transformed back from
+    // the displayed content rectangle to the WebKit viewport dimensions.
+    if (s_tp_released && s_tp_page_touch) {
+        const int pageX = s_tp_cur_x;
+        int pageY = (s_tp_cur_y - CONTENT_Y) * TV_H / CONTENT_H;
+        if (pageY < 0) pageY = 0;
+        if (pageY >= TV_H) pageY = TV_H - 1;
+        webkit_engine_touch_up(pageX, pageY);
+        s_tp_page_touch = false;
+    }
+
     if (btn&VPAD_BUTTON_UP)    { if(s_focus_row==1){s_focus_row=0;s_focus_col=3;} }
     if (btn&VPAD_BUTTON_DOWN)  { if(s_focus_row==0){s_focus_row=1;s_focus_col=s_active_tab;} }
     if (btn&VPAD_BUTTON_LEFT)  { s_focus_col--; focus_clamp(); if(s_focus_row==1&&s_focus_col<s_tab_count) s_active_tab=s_focus_col; }
@@ -819,6 +831,17 @@ static void handle_input(VPADStatus* vpad)
             memset(&s_tabs[s_tab_count],0,sizeof(Tab));
             strcpy(s_tabs[s_tab_count].title,"New Tab");
             s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=s_active_tab;
+            return;
+        }
+
+        // Only touches inside the page viewport are sent to WebKit. Toolbar and
+        // tab-strip taps above remain exclusively owned by browser chrome.
+        if (ty >= CONTENT_Y && ty < TV_H) {
+            int pageY = (ty - CONTENT_Y) * TV_H / CONTENT_H;
+            if (pageY < 0) pageY = 0;
+            if (pageY >= TV_H) pageY = TV_H - 1;
+            webkit_engine_touch_down(tx, pageY);
+            s_tp_page_touch = true;
         }
     }
 }
