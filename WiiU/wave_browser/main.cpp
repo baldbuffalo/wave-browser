@@ -297,7 +297,6 @@ static void handle_switcher_input(VPADStatus* vpad)
         }
     }
 }
-
 // ─── Browser UI ───────────────────────────────────────────────────────────────
 
 static void draw_tab(int idx, bool active)
@@ -530,23 +529,100 @@ static int fetch_file(const char* url, const char* path)
 // ─── Run-ID helpers ───────────────────────────────────────────────────────────
 
 static long long read_stored_run_id()
-{ FILE* f=fopen(RUN_ID_PATH,"r"); if(!f) return 0; long long id=0; fscanf(f,"%lld",&id); fclose(f); return id; }
+{
+    FILE* f = fopen(RUN_ID_PATH, "r");
+    if (!f)
+        return 0;
 
-static void write_run_id(long long id)
-{ FILE* f=fopen(RUN_ID_PATH,"w"); if(!f) return; fprintf(f,"%lld",id); fclose(f); }
+    long long id = 0;
+    const bool parsed = fscanf(f, "%lld", &id) == 1 && id > 0;
+    const bool closed = fclose(f) == 0;
+    return parsed && closed ? id : 0;
+}
+
+static bool write_run_id(long long id)
+{
+    FILE* f = fopen(RUN_ID_PATH, "w");
+    if (!f)
+        return false;
+
+    const bool wrote = fprintf(f, "%lld\n", id) > 0;
+    const bool closed = fclose(f) == 0;
+    if (!wrote || !closed) {
+        remove(RUN_ID_PATH);
+        return false;
+    }
+    return true;
+}
 
 // ─── File backup / restore ────────────────────────────────────────────────────
+// out_len == SIZE_MAX signals a read/backup failure. A missing optional file
+// is represented by nullptr and length zero; an existing empty file is valid.
 
 static char* file_backup(const char* path, size_t* out_len)
 {
-    *out_len=0; FILE* f=fopen(path,"rb"); if(!f) return nullptr;
-    fseek(f,0,SEEK_END); size_t len=(size_t)ftell(f); fseek(f,0,SEEK_SET);
-    char* buf=(char*)malloc(len+1); if(!buf){fclose(f);return nullptr;}
-    fread(buf,1,len,f); buf[len]='\0'; fclose(f); *out_len=len; return buf;
+    if (!out_len)
+        return nullptr;
+    *out_len = 0;
+
+    FILE* f = fopen(path, "rb");
+    if (!f)
+        return nullptr;
+
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        *out_len = SIZE_MAX;
+        return nullptr;
+    }
+    long end = ftell(f);
+    if (end < 0 || (uint64_t)end >= (uint64_t)SIZE_MAX) {
+        fclose(f);
+        *out_len = SIZE_MAX;
+        return nullptr;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        *out_len = SIZE_MAX;
+        return nullptr;
+    }
+
+    size_t len = (size_t)end;
+    char* buf = (char*)malloc(len + 1);
+    if (!buf) {
+        fclose(f);
+        *out_len = SIZE_MAX;
+        return nullptr;
+    }
+
+    const bool read_ok = fread(buf, 1, len, f) == len;
+    const bool close_ok = fclose(f) == 0;
+    if (!read_ok || !close_ok) {
+        free(buf);
+        *out_len = SIZE_MAX;
+        return nullptr;
+    }
+
+    buf[len] = '\0';
+    *out_len = len;
+    return buf;
 }
 
-static void file_restore(const char* path, const char* buf, size_t len)
-{ if(!buf||len==0) return; FILE* f=fopen(path,"wb"); if(!f) return; fwrite(buf,1,len,f); fclose(f); }
+static bool file_restore(const char* path, const char* buf, size_t len)
+{
+    if (!path || (!buf && len != 0))
+        return false;
+    FILE* f = fopen(path, "wb");
+    if (!f)
+        return false;
+
+    const bool wrote = len == 0 || fwrite(buf, 1, len, f) == len;
+    const bool closed = fclose(f) == 0;
+    if (!wrote || !closed) {
+        remove(path);
+        return false;
+    }
+    return true;
+}
 
 // ─── Install directory helpers ────────────────────────────────────────────────
 
@@ -596,8 +672,7 @@ static bool safe_zip_relative_path(const char* path)
 {
     if (!path || !path[0] || path[0] == '/' || path[0] == '\\')
         return false;
-    if (strchr(path, '\\'))
-        return false;
+    if (strchr(path, '\\'))        return false;
 
     const char* component = path;
     for (const char* p = path; ; ++p) {
@@ -788,6 +863,11 @@ static void run_splash_and_update()
 
     size_t session_len = 0;
     char* session_buf = file_backup(SESSION_PATH, &session_len);
+    if (session_len == SIZE_MAX) {
+        draw_splash("Could not preserve browser session. Update cancelled.", -1.0);
+        usleep(16000*120);
+        return;
+    }
     remove(ZIP_TMP_PATH);
     remove(STAGE_WUHB);
     remove(STAGE_META);
@@ -850,10 +930,18 @@ static void run_splash_and_update()
         RPXLoaderStatus loader_status = RPXLoader_InitLibrary();
         char running_relative[512] = {0};
         char running_bundle[512] = {0};
-        if (loader_status != RPX_LOADER_RESULT_SUCCESS ||
-            RPXLoader_GetPathOfRunningExecutable(running_relative, sizeof(running_relative)) != RPX_LOADER_RESULT_SUCCESS ||
-            running_relative[0] == '\0') {
+        if (loader_status != RPX_LOADER_RESULT_SUCCESS) {
             draw_splash("Update needs Aroma RPXLoader. Starting current version...", -1.0);
+            usleep(16000*120);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
+        if (RPXLoader_GetPathOfRunningExecutable(running_relative, sizeof(running_relative)) != RPX_LOADER_RESULT_SUCCESS ||
+            running_relative[0] == '\0') {
+            RPXLoader_DeInitLibrary();
+            draw_splash("Could not resolve the running app path. Update cancelled.", -1.0);
             usleep(16000*120);
             remove(STAGE_WUHB);
             remove(STAGE_META);
@@ -877,19 +965,44 @@ static void run_splash_and_update()
             continue;
         }
 
-        const char* old_bundle_backup = INSTALL_DIR "/WaveBrowser.wuhb.old";
-        const char* old_meta_backup = INSTALL_DIR "/meta.xml.old";
+        // Keep backups beside the actual running WUHB, just as NUSspli does.
+        // This prevents replacing a different path if launched from another folder.
+        char old_bundle_backup[544] = {0};
+        char running_meta[512] = {0};
+        char old_meta_backup[544] = {0};
+        int backup_len = snprintf(old_bundle_backup, sizeof(old_bundle_backup),
+                                  "%s.old", running_bundle);
+        const char* slash = strrchr(running_bundle, '/');
+        int meta_len = slash
+            ? snprintf(running_meta, sizeof(running_meta), "%.*s/meta.xml",
+                       (int)(slash - running_bundle), running_bundle)
+            : -1;
+        int meta_backup_len = snprintf(old_meta_backup, sizeof(old_meta_backup),
+                                       "%s.old", running_meta);
+        if (backup_len < 0 || (size_t)backup_len >= sizeof(old_bundle_backup) ||
+            meta_len < 0 || (size_t)meta_len >= sizeof(running_meta) ||
+            meta_backup_len < 0 || (size_t)meta_backup_len >= sizeof(old_meta_backup)) {
+            RPXLoader_DeInitLibrary();
+            draw_splash("Install paths are too long. Update cancelled.", -1.0);
+            usleep(16000*120);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
+
         remove(old_bundle_backup);
         remove(old_meta_backup);
 
-        // Back up metadata first; the bundle itself is moved only after the
-        // running bundle has been unmounted successfully.
+        // Preserve metadata before unmounting, then replace the actual running
+        // bundle path. The new WUHB is never copied over the mounted executable.
         struct stat old_meta_stat;
-        bool had_meta = stat(INSTALL_META, &old_meta_stat) == 0;
-        bool meta_backed_up = !had_meta || rename(INSTALL_META, old_meta_backup) == 0;
+        bool had_meta = stat(running_meta, &old_meta_stat) == 0;
+        bool meta_backed_up = !had_meta || rename(running_meta, old_meta_backup) == 0;
         if (!meta_backed_up ||
             RPXLoader_UnmountCurrentRunningBundle() != RPX_LOADER_RESULT_SUCCESS) {
-            if (had_meta && meta_backed_up) rename(old_meta_backup, INSTALL_META);
+            if (had_meta && meta_backed_up && rename(old_meta_backup, running_meta) != 0)
+                draw_splash("Warning: metadata restore failed.", -1.0);
             RPXLoader_DeInitLibrary();
             draw_splash("Could not unmount Wave Browser. Update cancelled.", -1.0);
             usleep(16000*120);
@@ -899,18 +1012,20 @@ static void run_splash_and_update()
             continue;
         }
 
-        // The current WUHB is now unmounted and can be replaced. Keep a rollback
-        // copy until both the new bundle and metadata are in place.
         bool bundle_backed_up = rename(running_bundle, old_bundle_backup) == 0;
-        bool bundle_ok = bundle_backed_up && rename(STAGE_WUHB, INSTALL_WUHB) == 0;
-        bool meta_ok = bundle_ok && rename(STAGE_META, INSTALL_META) == 0;
+        bool bundle_ok = bundle_backed_up && rename(STAGE_WUHB, running_bundle) == 0;
+        bool meta_ok = bundle_ok && rename(STAGE_META, running_meta) == 0;
         if (!bundle_ok || !meta_ok) {
-            if (bundle_ok) remove(INSTALL_WUHB);
-            if (meta_ok) remove(INSTALL_META);
-            if (bundle_backed_up) rename(old_bundle_backup, running_bundle);
-            if (had_meta && meta_backed_up) rename(old_meta_backup, INSTALL_META);
+            if (bundle_ok) remove(running_bundle);
+            if (meta_ok) remove(running_meta);
+            const bool bundle_restored = !bundle_backed_up ||
+                rename(old_bundle_backup, running_bundle) == 0;
+            const bool meta_restored = !had_meta || !meta_backed_up ||
+                rename(old_meta_backup, running_meta) == 0;
             RPXLoader_DeInitLibrary();
-            draw_splash("Install failed; previous files restored.", -1.0);
+            draw_splash(bundle_restored && meta_restored
+                ? "Install failed; previous files restored."
+                : "Install failed; recovery needs attention.", -1.0);
             usleep(16000*120);
             remove(STAGE_WUHB);
             remove(STAGE_META);
@@ -918,8 +1033,28 @@ static void run_splash_and_update()
             continue;
         }
 
-        write_run_id(latest_run_id);
-        file_restore(SESSION_PATH, session_buf, session_len);
+        // The update marker is part of the transaction. If it cannot be saved,
+        // roll back instead of reinstalling the same build on every launch.
+        if (!write_run_id(latest_run_id)) {
+            remove(running_bundle);
+            remove(running_meta);
+            const bool bundle_restored = rename(old_bundle_backup, running_bundle) == 0;
+            const bool meta_restored = !had_meta ||
+                rename(old_meta_backup, running_meta) == 0;
+            RPXLoader_DeInitLibrary();
+            draw_splash(bundle_restored && meta_restored
+                ? "Could not save update state; previous version restored."
+                : "Update state failed; recovery needs attention.", -1.0);
+            usleep(16000*150);
+            remove(STAGE_WUHB);
+            remove(STAGE_META);
+            rmdir(UPDATE_STAGE_DIR);
+            continue;
+        }
+
+        const bool session_restored = session_buf
+            ? file_restore(SESSION_PATH, session_buf, session_len)
+            : (session_len == 0);
         remove(old_bundle_backup);
         remove(old_meta_backup);
         remove(ZIP_TMP_PATH);
@@ -929,11 +1064,11 @@ static void run_splash_and_update()
         free(session_buf);
         session_buf = nullptr;
 
-        draw_splash("Update installed! Restarting Wave Browser...", 100.0);
+        draw_splash(session_restored
+            ? "Update installed! Restarting Wave Browser..."
+            : "Update installed; session could not be restored. Restarting...", 100.0);
         usleep(16000*90);
-        // This launches the newly installed WUHB through RPXLoader. On success
-        // the title handoff replaces the running instance rather than returning
-        // to the Home Menu.
+        // RPXLoader performs the in-place title handoff; no Home Menu detour.
         RPXLoaderStatus launch_status = RPXLoader_LaunchHomebrew(relative_path);
         if (launch_status != RPX_LOADER_RESULT_SUCCESS) {
             draw_splash("Update installed. Please reopen Wave Browser.", -1.0);
@@ -1196,8 +1331,7 @@ static void handle_input(VPADStatus* vpad)
                 s_tab_count--;
                 if(s_active_tab>=s_tab_count) s_active_tab=s_tab_count-1;
                 s_focus_row=1; s_focus_col=s_active_tab; return;
-            }
-            if (touch_hit(tx,ty, i*TAB_W, TOOLBAR_H, TAB_W-20, TAB_H)) {
+            }            if (touch_hit(tx,ty, i*TAB_W, TOOLBAR_H, TAB_W-20, TAB_H)) {
                 s_active_tab=i; s_focus_row=1; s_focus_col=i; return;
             }
         }
