@@ -422,9 +422,21 @@ typedef struct { char* data; size_t size; } Buffer;
 
 static size_t write_cb(void* c, size_t sz, size_t nm, void* up)
 {
-    size_t total = sz*nm; Buffer* b=(Buffer*)up;
-    char* p=(char*)realloc(b->data, b->size+total+1); if(!p) return 0;
-    b->data=p; memcpy(b->data+b->size,c,total); b->size+=total; b->data[b->size]='\0'; return total;
+    if (!up || (!c && sz && nm) || (nm && sz > SIZE_MAX / nm))
+        return 0;
+    const size_t total = sz * nm;
+    Buffer* b = (Buffer*)up;
+    if (b->size == SIZE_MAX || total > SIZE_MAX - b->size - 1)
+        return 0;
+    char* p = (char*)realloc(b->data, b->size + total + 1);
+    if (!p)
+        return 0;
+    b->data = p;
+    if (total)
+        memcpy(b->data + b->size, c, total);
+    b->size += total;
+    b->data[b->size] = '\0';
+    return total;
 }
 
 static size_t file_write_cb(void* c, size_t sz, size_t nm, void* up)
@@ -444,7 +456,9 @@ static void curl_common(CURL* curl)
 static char* fetch_string(const char* url)
 {
     CURL* curl = curl_easy_init(); if(!curl) return nullptr;
-    Buffer buf = {(char*)malloc(1), 0}; buf.data[0]='\0';
+    Buffer buf = {(char*)malloc(1), 0};
+    if (!buf.data) { curl_easy_cleanup(curl); return nullptr; }
+    buf.data[0] = '\0';
     curl_easy_setopt(curl, CURLOPT_URL,           url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA,     &buf);
