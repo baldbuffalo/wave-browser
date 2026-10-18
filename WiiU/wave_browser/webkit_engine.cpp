@@ -692,14 +692,40 @@ void wkcOffscreenGetSizePeer(void* p,WKCSize* sz){
     if(p&&sz){sz->fWidth=((WKCOff*)p)->w;sz->fHeight=((WKCOff*)p)->h;}
 }
 void wkcOffscreenScrollPeer(void* p,const WKCRect* r,const WKCSize* d){
-    // WKCRect uses fPoint.fX/fY and fSize.fWidth/fHeight
+    // Scroll only the requested rectangle and clip both source and destination
+    // to the bitmap. A single large memmove is incorrect for row-strided
+    // rectangles and can read/write outside the offscreen allocation.
     if(!p||!r||!d) return;
-    auto*o=(WKCOff*)p;
-    int rx=r->fPoint.fX, ry=r->fPoint.fY, rh=r->fSize.fHeight;
-    int dx=d->fWidth,    dy=d->fHeight;
-    memmove(o->bmp+(ry+dy)*o->rb+(rx+dx)*4,
-            o->bmp+ry*o->rb+rx*4,
-            (size_t)(rh-abs(dy))*o->rb);
+    auto* o=(WKCOff*)p;
+    if(!o->bmp||o->w<=0||o->h<=0||o->rb<o->w*4) return;
+
+    const int rx=r->fPoint.fX, ry=r->fPoint.fY;
+    const int rw=r->fSize.fWidth, rh=r->fSize.fHeight;
+    const int dx=d->fWidth, dy=d->fHeight;
+    if(rw<=0||rh<=0||(dx==0&&dy==0)) return;
+
+    // Source coordinates must keep both (x,y) and (x+dx,y+dy) in bounds.
+    int sx0=rx, sy0=ry, sx1=rx+rw, sy1=ry+rh;
+    if(sx0<0) sx0=0;
+    if(sy0<0) sy0=0;
+    if(sx0 < -dx) sx0=-dx;
+    if(sy0 < -dy) sy0=-dy;
+    if(sx1>o->w) sx1=o->w;
+    if(sy1>o->h) sy1=o->h;
+    if(sx1>o->w-dx) sx1=o->w-dx;
+    if(sy1>o->h-dy) sy1=o->h-dy;
+    if(sx0>=sx1||sy0>=sy1) return;
+
+    const size_t rowBytes=(size_t)(sx1-sx0)*4;
+    if(dy>0){
+        for(int y=sy1-1;y>=sy0;--y)
+            memmove(o->bmp+(y+dy)*o->rb+(sx0+dx)*4,
+                    o->bmp+y*o->rb+sx0*4,rowBytes);
+    } else {
+        for(int y=sy0;y<sy1;++y)
+            memmove(o->bmp+(y+dy)*o->rb+(sx0+dx)*4,
+                    o->bmp+y*o->rb+sx0*4,rowBytes);
+    }
 }
 void wkcOffscreenSetOpticalZoomPeer(void*,float,const WKCFloatPoint*){}
 void wkcOffscreenSetUseInterpolationForImagePeer(void*,bool){}
