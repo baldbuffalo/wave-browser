@@ -128,14 +128,19 @@ struct WKCThread {
     void*   (*fn)(void*);
     void*     arg;
     void*     result;
+    const char* argv[1];
 };
 
-// Use OSThreadSpecificID slot 0 to store WKCThread pointer
+// Store the thread context in the new thread's argv. Thread-specific storage
+// belongs to the running thread, so setting it in the creator is incorrect.
 #define WKC_THREAD_SLOT ((OSThreadSpecificID)0)
 
-static int thread_trampoline(int, const char**) {
-    WKCThread* t = (WKCThread*)OSGetThreadSpecific(WKC_THREAD_SLOT);
-    if (t) t->result = t->fn(t->arg);
+static int thread_trampoline(int argc, const char** argv) {
+    if (argc < 1 || !argv || !argv[0]) return -1;
+    WKCThread* t = (WKCThread*)(uintptr_t)strtoull(argv[0], nullptr, 16);
+    if (!t) return -1;
+    OSSetThreadSpecific(WKC_THREAD_SLOT, t);
+    if (t->fn) t->result = t->fn(t->arg);
     return 0;
 }
 
@@ -243,9 +248,20 @@ void* wkcThreadCreatePeer(void*(*fn)(void*), void* arg) {
     t->fn=fn; t->arg=arg;
     t->stack=(uint8_t*)malloc(64*1024);
     if (!t->stack) { free(t); return nullptr; }
-    OSCreateThread(&t->ost, thread_trampoline, 0, nullptr,
-                   t->stack+64*1024, 64*1024, 16, OS_THREAD_ATTRIB_AFFINITY_ANY);
-    OSSetThreadSpecific(WKC_THREAD_SLOT, t);
+    // Pass the context as a hexadecimal string to avoid relying on the
+    // creator's thread-specific storage being inherited by the worker.
+    char context[2 * sizeof(uintptr_t) + 1];
+    snprintf(context, sizeof(context), "%llx",
+             (unsigned long long)(uintptr_t)t);
+    t->argv[0] = strdup(context);
+    if (!t->argv[0]) { free(t->stack); free(t); return nullptr; }
+    if (!OSCreateThread(&t->ost, thread_trampoline, 1, t->argv,
+                        t->stack+64*1024, 64*1024, 16, OS_THREAD_ATTRIB_AFFINITY_ANY)) {
+        free((void*)t->argv[0]);
+        free(t->stack);
+        free(t);
+        return nullptr;
+    }
     OSResumeThread(&t->ost);
     return t;
 }
@@ -256,6 +272,7 @@ int wkcThreadJoinPeer(void* p, void** res) {
     auto* t=(WKCThread*)p;
     OSJoinThread(&t->ost, nullptr);
     if (res) *res=t->result;
+    free((void*)t->argv[0]);
     free(t->stack); free(t);
     return 0;
 }
