@@ -732,10 +732,12 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
             // ZIP tools commonly include the top-level "WaveBrowser/"
             // directory as an explicit entry. It maps to the staging root,
             // so accept and skip that entry rather than treating it as unsafe.
-            if (is_dir && strlen(fname) == pfx_len - 1 &&
-                strncmp(fname, ZIP_FOLDER_PFX, pfx_len - 1) == 0)
-                continue;
-
+            const bool is_root_folder = is_dir &&
+                strlen(fname) == pfx_len - 1 &&
+                strncmp(fname, ZIP_FOLDER_PFX, pfx_len - 1) == 0;
+            // Do not use continue here: the ZIP cursor must advance through
+            // the loop condition, otherwise an explicit root entry loops forever.
+            if (!is_root_folder) {
             const char* rel = (strncmp(fname, ZIP_FOLDER_PFX, pfx_len) == 0)
                 ? fname + pfx_len : fname;
             if (!safe_zip_relative_path(rel)) {
@@ -804,6 +806,7 @@ static int extract_zip_to_dir(const char* zip_path, const char* out_dir)
                     break;
                 }
             }
+            } // !is_root_folder; always advance the ZIP cursor below.
         } while ((zipStatus = unzGoToNextFile(zf)) == UNZ_OK);
 
         if (zipStatus != UNZ_END_OF_LIST_OF_FILE)
