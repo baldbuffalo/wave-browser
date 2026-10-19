@@ -32,6 +32,12 @@ extern "C" {
 #include <unistd.h>
 #include <math.h>
 
+// WebCore's WKC event-loop bridge is part of the linked full WebKit engine.
+// CurlRequest dispatches response/body callbacks through WTF's main RunLoop.
+namespace WebCore {
+void wkcRunLoopCycle();
+}
+
 // ─── State ───────────────────────────────────────────────────────────────────
 
 static bool           s_available = false;
@@ -1266,6 +1272,12 @@ void webkit_engine_navigate(const char* url)
 
 void webkit_engine_tick(void)
 {
+    // Drain main-thread tasks queued by the cURL worker before returning to the
+    // browser UI loop. Without this, navigation can fetch bytes on the worker
+    // but WebCore never receives the response/body callbacks to commit a page.
+    if (s_webkit_initialized)
+        WebCore::wkcRunLoopCycle();
+
     if (s_available && s_webview) {
         WKC::WKCWebKitWakeUp(nullptr);
         s_webview->notifyServiceScriptedAnimations();
