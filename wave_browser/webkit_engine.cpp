@@ -145,6 +145,9 @@ public:
 
 
 /* Default embedder clients required to create and navigate a WKC page. */
+// The legacy helper interfaces define several parameter/return types inside
+// WKC without qualifying each occurrence in the interface declarations.
+using namespace WKC;
 static WKC::ResourceError makeWaveDefaultResourceError()
 {
     WKC::String empty;
