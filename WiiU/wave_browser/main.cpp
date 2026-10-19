@@ -566,8 +566,13 @@ static char* file_backup(const char* path, size_t* out_len)
     *out_len = 0;
 
     FILE* f = fopen(path, "rb");
-    if (!f)
+    if (!f) {
+        // A missing session is optional; permission, device, and other I/O
+        // errors are not. Do not proceed if an existing session could not be read.
+        if (errno != ENOENT)
+            *out_len = SIZE_MAX;
         return nullptr;
+    }
 
     if (fseek(f, 0, SEEK_END) != 0) {
         fclose(f);
