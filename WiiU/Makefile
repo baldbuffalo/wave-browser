@@ -36,8 +36,9 @@ WEBKIT_LIBS  := -Wl,--start-group $(WEBKIT_LIB) $(WEBKIT_DEPS) -Wl,--end-group
 #---------------------------------------------------------------------------------
 
 # Core wave_browser sources (exclude plugin/ subdir)
-WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp \
-               wave_browser/webkit_engine.cpp wave_browser/gamepad_keyboard.cpp
+WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp \\
+               wave_browser/webkit_engine.cpp wave_browser/gamepad_keyboard.cpp \\
+               wave_browser/gx2_gl_driver.cpp
 
 # Vendored minizip
 MINIZIP_CFILES := vendor/minizip/ioapi.c vendor/minizip/unzip.c
