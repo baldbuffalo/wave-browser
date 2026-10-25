@@ -131,7 +131,7 @@ jobs:
           cp WaveBrowser.wuhb WaveBrowser/
           cp meta.xml WaveBrowser/
 
-      - name: Create and verify iOS-compatible release archive
+      - name: Create and verify portable release ZIP
         if: github.event_name != 'pull_request'
         run: |
           python3 - <<'PY'
@@ -143,7 +143,7 @@ jobs:
               if not path.is_file() or path.stat().st_size == 0:
                   raise SystemExit(f"Missing or empty release file: {path}")
 
-          # Write a conventional ZIP archive with simple root-level filenames.
+          # Write a standard ZIP archive with simple root-level filenames for broad extractor compatibility.
           with ZipFile("WaveBrowser.zip", "w", compression=ZIP_DEFLATED, compresslevel=6, allowZip64=False) as archive:
               for path in files:
                   archive.write(path, arcname=path.name)
