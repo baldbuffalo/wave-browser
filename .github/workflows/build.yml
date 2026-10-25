@@ -131,10 +131,34 @@ jobs:
           cp WaveBrowser.wuhb WaveBrowser/
           cp meta.xml WaveBrowser/
 
-      - name: Create release archive
+      - name: Create and verify iOS-compatible release archive
         if: github.event_name != 'pull_request'
         run: |
-          zip -j WaveBrowser.zip WaveBrowser/WaveBrowser.wuhb WaveBrowser/meta.xml
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          files = (Path("WaveBrowser/WaveBrowser.wuhb"), Path("WaveBrowser/meta.xml"))
+          for path in files:
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"Missing or empty release file: {path}")
+
+          # Write a conventional ZIP archive with simple root-level filenames.
+          with ZipFile("WaveBrowser.zip", "w", compression=ZIP_DEFLATED, compresslevel=6, allowZip64=False) as archive:
+              for path in files:
+                  archive.write(path, arcname=path.name)
+
+          # Verify the central directory and every member before publishing.
+          with ZipFile("WaveBrowser.zip", "r") as archive:
+              bad_member = archive.testzip()
+              if bad_member:
+                  raise SystemExit(f"ZIP integrity check failed for: {bad_member}")
+              expected = {"WaveBrowser.wuhb", "meta.xml"}
+              actual = set(archive.namelist())
+              if actual != expected:
+                  raise SystemExit(f"Unexpected ZIP contents: {sorted(actual)}")
+          print("Release ZIP integrity verified; entries:", ", ".join(sorted(actual)))
+          PY
 
       - name: Publish latest release
         if: github.event_name != 'pull_request'
