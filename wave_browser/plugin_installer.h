@@ -14,9 +14,9 @@
 #define PLUGIN_ZIP_TMP \
     "fs:/vol/external01/wiiu/apps/WaveBrowser/WaveBrowserRemote-download.zip"
 
-// The latest release ZIP includes WaveBrowserRemote.wps alongside the app.
+// nightly.link serves the latest CI artifact as a zip — no auth needed
 #define PLUGIN_DOWNLOAD_URL \
-    "https://github.com/baldbuffalo/wave-browser/releases/download/latest/WaveBrowser.zip"
+    "https://nightly.link/baldbuffalo/wave-browser/workflows/build.yml/main/plugin-wps.zip"
 
 // ─── Download progress callback type ─────────────────────────────────────────
 typedef void (*PluginProgressCb)(const char* msg, double pct);
