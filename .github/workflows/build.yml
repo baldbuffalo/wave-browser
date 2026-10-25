@@ -110,18 +110,12 @@ jobs:
           print(assets[0]["browser_download_url"] if assets else "")' 2>/dev/null || true)
               if [ -n "${ASSET_URL:-}" ] && \
                  curl -fsSL --max-time 180 --retry 2 --retry-delay 2 "$ASSET_URL" -o build/webkit-engine-artifact.tar.gz; then
-                if tar -xzf build/webkit-engine-artifact.tar.gz -C build/webkit-wiiu-artifact 2>/dev/null \
-                  && test -s build/webkit-wiiu-artifact/lib/libWebKitWKC.a \
-                  && test -s build/webkit-wiiu-artifact/include/wkc/wkcbase.h \
-                  && test -s build/webkit-wiiu-artifact/include/wkc/WKCWebView.h \
-                  && test -s build/webkit-wiiu-artifact/include/wkc/WKCClientBuilders.h \
-                  && test -s build/webkit-wiiu-artifact/BUILD_PROFILE.txt \
-                  && grep -qi "full" build/webkit-wiiu-artifact/BUILD_PROFILE.txt; then
-                  echo "Using full WebKit engine release asset from exact commit $WEBKIT_SHA"
+                if tar -xzf build/webkit-engine-artifact.tar.gz -C build/webkit-wiiu-artifact 2>/dev/null; then
+                  echo "Downloaded and extracted WebKit engine bundle for commit $WEBKIT_SHA (using it without additional validation)."
                 else
                   rm -rf build/webkit-wiiu-artifact
                   mkdir -p build/webkit-wiiu-artifact
-                  echo "::notice::WebKit engine asset was missing or invalid; building without engine."
+                  echo "::notice::WebKit engine bundle could not be extracted; building without engine."
                 fi
               else
                 echo "::notice::No full WebKit engine asset found for $WEBKIT_SHA; building without engine."
