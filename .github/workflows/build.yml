@@ -169,10 +169,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest \
             WaveBrowser.zip \
-            "WaveBrowser-${GITHUB_SHA:0:7}.zip" \
+            "WaveBrowser-${SHORT_SHA}.zip" \
             WaveBrowser/WaveBrowser.wuhb \
             --target "${GITHUB_SHA}" \
             --title "Wave Browser Latest" \
