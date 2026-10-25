@@ -43,29 +43,9 @@ jobs:
                 /etc/apt/sources.list.d/devkitpro*.sources
           apt-get update && apt-get install -y zip libxml2-utils python3 wget fonts-roboto gh
 
-      - name: Cache devkitPro WiiU portlibs
-        id: dkp-cache
-        uses: actions/cache@v6.1.0
-        with:
-          path: |
-            /opt/devkitpro/portlibs/wiiu
-            /opt/devkitpro/portlibs/ppc
-            /opt/devkitpro/wut
-          key: dkp-wiiu-dev-${{ runner.os }}-v3
-
-      - name: Install devkitPro WiiU libraries
-        if: steps.dkp-cache.outputs.cache-hit != 'true'
-        run: |
-          CONF=/etc/pacman.conf
-          if ! grep -q '^XferCommand' "$CONF" 2>/dev/null; then
-            sed -i '/^\[options\]/a XferCommand = /usr/bin/curl --retry 5 --retry-delay 10 --max-time 600 -L -C - -f -o %o %u' "$CONF" || true
-          fi
-          for attempt in 1 2 3; do
-            echo "-> dkp-pacman attempt $attempt / 3"
-            dkp-pacman -Sy --noconfirm wiiu-dev && break
-            echo "  failed - sleeping 30s..."
-            sleep 30
-          done
+      # The devkitpro/devkitppc image already includes the Wii U toolchain,
+      # WUT and Wii U/PowerPC portlibs. Do not reinstall them from dkp-pacman:
+      # GitHub-hosted runner IPs can receive HTTP 403 from pkg.devkitpro.org.
 
       - name: Add devkitPro tools to PATH
         run: |
