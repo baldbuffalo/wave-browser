@@ -104,7 +104,7 @@ jobs:
                 echo "::notice::No full WebKit engine asset found for $WEBKIT_SHA; WKC_AVAILABLE is temporarily disabled for this CI build."
               fi
             else
-              echo "::notice::No matching WebKit engine release found for $WEBKIT_SHA; WKC_AVAILABLE is temporarily disabled for this CI build."
+              echo "::warning::No matching WebKit engine release found for $WEBKIT_SHA; WKC_AVAILABLE is temporarily disabled for this CI build."
             fi
           else
             echo "::notice::Could not resolve WebKit-WiiU engine revision; WKC_AVAILABLE is temporarily disabled for this CI build."
