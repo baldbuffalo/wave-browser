@@ -120,11 +120,6 @@ jobs:
       - name: Build Wave Browser
         run: make -j$(nproc) WKC_AVAILABLE=${{ steps.webkit.outputs.wkc_available }}
 
-      - name: Build Aroma remote plugin
-        run: |
-          make -C wave_browser/plugin clean all
-          test -s wave_browser/plugin/WaveBrowserRemote.wps
-
       - name: Validate meta.xml
         run: |
           if [ ! -f meta.xml ]; then echo "meta.xml missing!" && exit 1; fi
@@ -135,7 +130,6 @@ jobs:
           mkdir -p WaveBrowser
           cp WaveBrowser.wuhb WaveBrowser/
           cp meta.xml WaveBrowser/
-          cp wave_browser/plugin/WaveBrowserRemote.wps WaveBrowser/
 
       - name: Create release ZIP
         run: |
