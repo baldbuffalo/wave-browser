@@ -59,6 +59,7 @@
 #define INSTALL_WUHB    "fs:/vol/external01/wiiu/apps/WaveBrowser/WaveBrowser.wuhb"
 #define INSTALL_META    "fs:/vol/external01/wiiu/apps/WaveBrowser/meta.xml"
 #define SESSION_PATH    "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-session.cfg"
+#define RELEASE_SHA_PATH "fs:/vol/external01/wiiu/apps/WaveBrowser/wave-browser-release-sha256.txt"
 #define ZIP_TMP_PATH    "fs:/vol/external01/wave-browser-update.zip"
 #define ZIP_FOLDER_PFX  "WaveBrowser/"
 
@@ -586,7 +587,9 @@ static void run_splash_and_update()
     bool have_wuhb_sha = extract_json_digest(json, "WaveBrowser.wuhb", remote_wuhb_sha, sizeof(remote_wuhb_sha));
     bool have_zip_sha  = extract_json_digest(json, "WaveBrowser.zip",  remote_zip_sha,  sizeof(remote_zip_sha));
 
-    if (!have_wuhb_sha) {
+    // Releases now publish WaveBrowser.zip only. Its GitHub asset digest is
+    // the update identity; WaveBrowser.wuhb is contained inside that archive.
+    if (!have_zip_sha && !have_wuhb_sha) {
         free(json);
         draw_splash("Couldn't read release SHA. Starting...", -1.0);
         usleep(16000*90);
@@ -594,12 +597,29 @@ static void run_splash_and_update()
     }
 
     char local_wuhb_sha[65] = {};
-    if (sha256_file(INSTALL_WUHB, local_wuhb_sha, sizeof(local_wuhb_sha)) &&
+    if (have_wuhb_sha &&
+        sha256_file(INSTALL_WUHB, local_wuhb_sha, sizeof(local_wuhb_sha)) &&
         strcmp(remote_wuhb_sha, local_wuhb_sha) == 0) {
         free(json);
         draw_splash("You're up to date!", -1.0);
         usleep(16000*60);
         return;
+    }
+
+    if (have_zip_sha) {
+        FILE* marker = fopen(RELEASE_SHA_PATH, "rb");
+        char installed_release_sha[80] = {};
+        if (marker) {
+            if (fgets(installed_release_sha, sizeof(installed_release_sha), marker))
+                installed_release_sha[strcspn(installed_release_sha, "\r\n")] = '\0';
+            fclose(marker);
+        }
+        if (strcmp(installed_release_sha, remote_zip_sha) == 0) {
+            free(json);
+            draw_splash("You're up to date!", -1.0);
+            usleep(16000*60);
+            return;
+        }
     }
 
     draw_splash("New release found. Downloading...", 0.0);
@@ -639,10 +659,21 @@ static void run_splash_and_update()
 
         char installed_sha[65] = {};
         if (!sha256_file(INSTALL_WUHB, installed_sha, sizeof(installed_sha)) ||
-            strcmp(installed_sha, remote_wuhb_sha) != 0) {
+            (have_wuhb_sha && strcmp(installed_sha, remote_wuhb_sha) != 0)) {
             draw_splash("Installed file verification failed.", -1.0);
             usleep(16000*60);
             continue;
+        }
+
+        // Remember the verified ZIP digest so a ZIP-only release is not
+        // reinstalled on every startup.
+        if (have_zip_sha) {
+            FILE* marker = fopen(RELEASE_SHA_PATH, "wb");
+            if (marker) {
+                fwrite(remote_zip_sha, 1, strlen(remote_zip_sha), marker);
+                fwrite("\n", 1, 1, marker);
+                fclose(marker);
+            }
         }
 
         file_restore(SESSION_PATH, session_buf, session_len);
