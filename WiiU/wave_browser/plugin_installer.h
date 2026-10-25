@@ -14,9 +14,9 @@
 #define PLUGIN_ZIP_TMP \
     "fs:/vol/external01/wiiu/apps/WaveBrowser/WaveBrowserRemote-download.zip"
 
-// nightly.link serves the latest CI artifact as a zip — no auth needed
+// Download the artifact produced by the dedicated plugin-build workflow.
 #define PLUGIN_DOWNLOAD_URL \
-    "https://nightly.link/baldbuffalo/wave-browser/workflows/build.yml/main/plugin-wps.zip"
+    "https://nightly.link/baldbuffalo/wave-browser/workflows/plugin-build.yml/main/plugin-wps.zip"
 
 // ─── Download progress callback type ─────────────────────────────────────────
 typedef void (*PluginProgressCb)(const char* msg, double pct);
