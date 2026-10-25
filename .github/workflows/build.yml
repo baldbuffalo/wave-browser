@@ -149,14 +149,14 @@ jobs:
           for archive_name in archive_names:
               with ZipFile(archive_name, "w", compression=ZIP_STORED, allowZip64=False) as archive:
                   for path in files:
-                      archive.write(path, arcname=path.name)
+                      archive.write(path, arcname=f"WaveBrowser/{path.name}")
 
               # Verify the central directory and every member before publishing.
               with ZipFile(archive_name, "r") as archive:
                   bad_member = archive.testzip()
                   if bad_member:
                       raise SystemExit(f"ZIP integrity check failed in {archive_name}: {bad_member}")
-                  expected = {"WaveBrowser.wuhb", "meta.xml"}
+                  expected = {"WaveBrowser/WaveBrowser.wuhb", "WaveBrowser/meta.xml"}
                   actual = set(archive.namelist())
                   if actual != expected:
                       raise SystemExit(f"Unexpected ZIP contents in {archive_name}: {sorted(actual)}")
