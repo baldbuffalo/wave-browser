@@ -27,12 +27,22 @@ LD   := $(CXX)
 WEBKIT_ARTIFACT_DIR ?= $(BUILD)/webkit-wiiu-artifact
 WEBKIT_INC  := $(WEBKIT_ARTIFACT_DIR)/include
 WEBKIT_LIB  := $(WEBKIT_ARTIFACT_DIR)/lib/libWebKitWKC.a
+
+# Use the real engine only when its archive is present. If the workflow cannot
+# obtain the engine release, compile the existing no-engine/stub path instead.
+ifneq ($(wildcard $(WEBKIT_LIB)),)
 WEBKIT_FLAGS := -I$(WEBKIT_INC) -DWKC_AVAILABLE
 # The full-engine bundle may include separate static dependencies (for
 # example the WebRTC backend). Link WebKit first and group the archives so
 # cross-archive references resolve without relying on incidental ordering.
 WEBKIT_DEPS := $(filter-out $(WEBKIT_LIB),$(wildcard $(WEBKIT_ARTIFACT_DIR)/lib/*.a))
 WEBKIT_LIBS := -Wl,--start-group $(WEBKIT_LIB) $(WEBKIT_DEPS) -Wl,--end-group
+WEBKIT_CHECK_TARGET := check-webkit-engine
+else
+WEBKIT_FLAGS :=
+WEBKIT_LIBS :=
+WEBKIT_CHECK_TARGET :=
+endif
 
 #---------------------------------------------------------------------------------
 # Source files
@@ -117,7 +127,7 @@ check-webkit-engine:
 	@test -s "$(WEBKIT_ARTIFACT_DIR)/BUILD_PROFILE.txt" || { echo "ERROR: BUILD_PROFILE.txt missing; refusing an unverified engine bundle."; exit 1; }
 	@grep -q "full" "$(WEBKIT_ARTIFACT_DIR)/BUILD_PROFILE.txt" || { echo "ERROR: Engine profile does not identify itself as a full build."; exit 1; }
 
-all: check-webkit-engine $(TARGET).wuhb
+all: $(WEBKIT_CHECK_TARGET) $(TARGET).wuhb
 
 $(BUILD)/%.o: %.c
 	@mkdir -p "$(dir $@)"
@@ -127,7 +137,7 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p "$(dir $@)"
 	$(CXX) $(CXXFLAGS) -c "$<" -o "$@"
 
-$(TARGET).elf: check-webkit-engine $(OFILES)
+$(TARGET).elf: $(WEBKIT_CHECK_TARGET) $(OFILES)
 	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
 $(TARGET).rpx: $(TARGET).elf
