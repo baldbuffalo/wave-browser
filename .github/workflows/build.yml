@@ -136,28 +136,31 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          from zipfile import ZIP_DEFLATED, ZipFile
+          from zipfile import ZIP_STORED, ZipFile
+          import os
 
           files = (Path("WaveBrowser/WaveBrowser.wuhb"), Path("WaveBrowser/meta.xml"))
           for path in files:
               if not path.is_file() or path.stat().st_size == 0:
                   raise SystemExit(f"Missing or empty release file: {path}")
 
-          # Write a standard ZIP archive with simple root-level filenames for broad extractor compatibility.
-          with ZipFile("WaveBrowser.zip", "w", compression=ZIP_DEFLATED, compresslevel=6, allowZip64=False) as archive:
-              for path in files:
-                  archive.write(path, arcname=path.name)
+          # Store entries without compression for maximum compatibility with built-in extractors.
+          archive_names = ("WaveBrowser.zip", f"WaveBrowser-{os.environ['GITHUB_SHA'][:7]}.zip")
+          for archive_name in archive_names:
+              with ZipFile(archive_name, "w", compression=ZIP_STORED, allowZip64=False) as archive:
+                  for path in files:
+                      archive.write(path, arcname=path.name)
 
-          # Verify the central directory and every member before publishing.
-          with ZipFile("WaveBrowser.zip", "r") as archive:
-              bad_member = archive.testzip()
-              if bad_member:
-                  raise SystemExit(f"ZIP integrity check failed for: {bad_member}")
-              expected = {"WaveBrowser.wuhb", "meta.xml"}
-              actual = set(archive.namelist())
-              if actual != expected:
-                  raise SystemExit(f"Unexpected ZIP contents: {sorted(actual)}")
-          print("Release ZIP integrity verified; entries:", ", ".join(sorted(actual)))
+              # Verify the central directory and every member before publishing.
+              with ZipFile(archive_name, "r") as archive:
+                  bad_member = archive.testzip()
+                  if bad_member:
+                      raise SystemExit(f"ZIP integrity check failed in {archive_name}: {bad_member}")
+                  expected = {"WaveBrowser.wuhb", "meta.xml"}
+                  actual = set(archive.namelist())
+                  if actual != expected:
+                      raise SystemExit(f"Unexpected ZIP contents in {archive_name}: {sorted(actual)}")
+          print("Uncompressed ZIP integrity verified; entries:", ", ".join(sorted(actual)))
           PY
 
       - name: Publish latest release
@@ -169,6 +172,7 @@ jobs:
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest \
             WaveBrowser.zip \
+            "WaveBrowser-${GITHUB_SHA:0:7}.zip" \
             WaveBrowser/WaveBrowser.wuhb \
             --target "${GITHUB_SHA}" \
             --title "Wave Browser Latest" \
