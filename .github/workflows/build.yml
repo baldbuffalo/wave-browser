@@ -147,7 +147,6 @@ jobs:
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest \
             WaveBrowser.zip \
-            WaveBrowser/WaveBrowser.wuhb \
             --target "${GITHUB_SHA}" \
             --title "Wave Browser Latest" \
             --notes "Latest automated Wave Browser release." \
