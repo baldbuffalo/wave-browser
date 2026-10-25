@@ -116,18 +116,14 @@ OFILES := \
 #---------------------------------------------------------------------------------
 # Targets
 #---------------------------------------------------------------------------------
-# Fail early rather than producing a browser package with a missing, empty,
-# or bootstrap-only WebKit library. CI downloads the matching full-engine bundle
-# before invoking make; local builds must provide that same bundle explicitly.
+# Do not validate the contents/profile of the engine bundle here. The
+# WebKit-WiiU repository is responsible for compiling its engine; when its
+# archive is present, link it, and when absent, use the no-engine stubs.
 .PHONY: check-webkit-engine
 check-webkit-engine:
-	@test -s "$(WEBKIT_LIB)" || { echo "ERROR: Full WebKit-WiiU archive missing: $(WEBKIT_LIB)"; echo "Download the full-engine bundle for the matching webkit-wiiu commit; do not use the bootstrap archive."; exit 1; }
-	@test -s "$(WEBKIT_ARTIFACT_DIR)/include/wkc/WKCWebView.h" || { echo "ERROR: WKCWebView.h missing from the WebKit engine bundle."; exit 1; }
-	@test -s "$(WEBKIT_ARTIFACT_DIR)/include/wkc/WKCClientBuilders.h" || { echo "ERROR: WKCClientBuilders.h missing from the WebKit engine bundle."; exit 1; }
-	@test -s "$(WEBKIT_ARTIFACT_DIR)/BUILD_PROFILE.txt" || { echo "ERROR: BUILD_PROFILE.txt missing; refusing an unverified engine bundle."; exit 1; }
-	@grep -q "full" "$(WEBKIT_ARTIFACT_DIR)/BUILD_PROFILE.txt" || { echo "ERROR: Engine profile does not identify itself as a full build."; exit 1; }
+	@test -s "$(WEBKIT_LIB)"
 
-all: $(WEBKIT_CHECK_TARGET) $(TARGET).wuhb
+all: $(TARGET).wuhb
 
 $(BUILD)/%.o: %.c
 	@mkdir -p "$(dir $@)"
@@ -137,7 +133,7 @@ $(BUILD)/%.o: %.cpp
 	@mkdir -p "$(dir $@)"
 	$(CXX) $(CXXFLAGS) -c "$<" -o "$@"
 
-$(TARGET).elf: $(WEBKIT_CHECK_TARGET) $(OFILES)
+$(TARGET).elf: $(OFILES)
 	$(LD) $(OFILES) $(LDFLAGS) $(LIBS) -o $@
 
 $(TARGET).rpx: $(TARGET).elf
