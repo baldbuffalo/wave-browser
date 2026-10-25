@@ -131,38 +131,6 @@ jobs:
           cp WaveBrowser.wuhb WaveBrowser/
           cp meta.xml WaveBrowser/
 
-      - name: Create and verify portable release ZIP
-        if: github.event_name != 'pull_request'
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          from zipfile import ZIP_STORED, ZipFile
-          import os
-
-          files = (Path("WaveBrowser/WaveBrowser.wuhb"), Path("WaveBrowser/meta.xml"))
-          for path in files:
-              if not path.is_file() or path.stat().st_size == 0:
-                  raise SystemExit(f"Missing or empty release file: {path}")
-
-          # Store entries without compression for maximum compatibility with built-in extractors.
-          archive_names = ("WaveBrowser.zip", f"WaveBrowser-{os.environ['GITHUB_SHA'][:7]}.zip")
-          for archive_name in archive_names:
-              with ZipFile(archive_name, "w", compression=ZIP_STORED, allowZip64=False) as archive:
-                  for path in files:
-                      archive.write(path, arcname=f"WaveBrowser/{path.name}")
-
-              # Verify the central directory and every member before publishing.
-              with ZipFile(archive_name, "r") as archive:
-                  bad_member = archive.testzip()
-                  if bad_member:
-                      raise SystemExit(f"ZIP integrity check failed in {archive_name}: {bad_member}")
-                  expected = {"WaveBrowser/WaveBrowser.wuhb", "WaveBrowser/meta.xml"}
-                  actual = set(archive.namelist())
-                  if actual != expected:
-                      raise SystemExit(f"Unexpected ZIP contents in {archive_name}: {sorted(actual)}")
-          print("Uncompressed ZIP integrity verified; entries:", ", ".join(sorted(actual)))
-          PY
-
       - name: Publish latest release
         if: github.event_name != 'pull_request'
         env:
@@ -172,8 +140,6 @@ jobs:
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           gh release delete latest --yes --cleanup-tag 2>/dev/null || true
           gh release create latest \
-            WaveBrowser.zip \
-            "WaveBrowser-${SHORT_SHA}.zip" \
             WaveBrowser/WaveBrowser.wuhb \
             --target "${GITHUB_SHA}" \
             --title "Wave Browser Latest" \
