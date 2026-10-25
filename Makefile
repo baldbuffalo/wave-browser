@@ -21,27 +21,26 @@ LD   := $(CXX)
 
 #---------------------------------------------------------------------------------
 # WebKit-WiiU integration
-# WKC_AVAILABLE stays enabled in this Makefile. CI downloads the archive artifact
-# from baldbuffalo/webkit-wiiu into this temporary build directory (not vendor/).
+# WKC_AVAILABLE defaults to enabled in the repository. CI may override it to 0
+# for one build only when no engine bundle could be obtained.
 #---------------------------------------------------------------------------------
+WKC_AVAILABLE ?= 1
 WEBKIT_ARTIFACT_DIR ?= $(BUILD)/webkit-wiiu-artifact
 WEBKIT_INC  := $(WEBKIT_ARTIFACT_DIR)/include
 WEBKIT_LIB  := $(WEBKIT_ARTIFACT_DIR)/lib/libWebKitWKC.a
 
-# Use the real engine only when its archive is present. If the workflow cannot
-# obtain the engine release, compile the existing no-engine/stub path instead.
-ifneq ($(wildcard $(WEBKIT_LIB)),)
+ifeq ($(WKC_AVAILABLE),1)
 WEBKIT_FLAGS := -I$(WEBKIT_INC) -DWKC_AVAILABLE
-# The full-engine bundle may include separate static dependencies (for
-# example the WebRTC backend). Link WebKit first and group the archives so
-# cross-archive references resolve without relying on incidental ordering.
+ifneq ($(wildcard $(WEBKIT_LIB)),)
+# Group engine and its bundled static dependencies to resolve cross-archive refs.
 WEBKIT_DEPS := $(filter-out $(WEBKIT_LIB),$(wildcard $(WEBKIT_ARTIFACT_DIR)/lib/*.a))
 WEBKIT_LIBS := -Wl,--start-group $(WEBKIT_LIB) $(WEBKIT_DEPS) -Wl,--end-group
-WEBKIT_CHECK_TARGET := check-webkit-engine
+else
+WEBKIT_LIBS :=
+endif
 else
 WEBKIT_FLAGS :=
 WEBKIT_LIBS :=
-WEBKIT_CHECK_TARGET :=
 endif
 
 #---------------------------------------------------------------------------------
@@ -116,13 +115,6 @@ OFILES := \
 #---------------------------------------------------------------------------------
 # Targets
 #---------------------------------------------------------------------------------
-# Do not validate the contents/profile of the engine bundle here. The
-# WebKit-WiiU repository is responsible for compiling its engine; when its
-# archive is present, link it, and when absent, use the no-engine stubs.
-.PHONY: check-webkit-engine
-check-webkit-engine:
-	@test -s "$(WEBKIT_LIB)"
-
 all: $(TARGET).wuhb
 
 $(BUILD)/%.o: %.c
