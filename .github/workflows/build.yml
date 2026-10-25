@@ -86,11 +86,13 @@ jobs:
           test -s wave_browser/font.ttf
           python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\\nstatic const unsigned int font_data_len='+str(len(data))+';\\n')"
 
-      - name: Use WebKit engine if available (otherwise build without engine)
+      - name: Use WebKit engine if available
+        id: webkit
         shell: bash
         timeout-minutes: 5
         run: |
           set -uo pipefail
+          echo "wkc_available=0" >> "$GITHUB_OUTPUT"
           mkdir -p build build/webkit-wiiu-artifact
           WEBKIT_SHA=""
           if WEBKIT_SHA=$(curl -fsSL --max-time 20 \
@@ -111,20 +113,21 @@ jobs:
               if [ -n "${ASSET_URL:-}" ] && \
                  curl -fsSL --max-time 180 --retry 2 --retry-delay 2 "$ASSET_URL" -o build/webkit-engine-artifact.tar.gz; then
                 if tar -xzf build/webkit-engine-artifact.tar.gz -C build/webkit-wiiu-artifact 2>/dev/null; then
+                  echo "wkc_available=1" >> "$GITHUB_OUTPUT"
                   echo "Downloaded and extracted WebKit engine bundle for commit $WEBKIT_SHA (using it without additional validation)."
                 else
                   rm -rf build/webkit-wiiu-artifact
                   mkdir -p build/webkit-wiiu-artifact
-                  echo "::notice::WebKit engine bundle could not be extracted; building without engine."
+                  echo "::notice::WebKit engine bundle could not be extracted; WKC_AVAILABLE is temporarily disabled for this CI build."
                 fi
               else
-                echo "::notice::No full WebKit engine asset found for $WEBKIT_SHA; building without engine."
+                echo "::notice::No full WebKit engine asset found for $WEBKIT_SHA; WKC_AVAILABLE is temporarily disabled for this CI build."
               fi
             else
-              echo "::notice::No matching WebKit engine release found for $WEBKIT_SHA; building without engine."
+              echo "::notice::No matching WebKit engine release found for $WEBKIT_SHA; WKC_AVAILABLE is temporarily disabled for this CI build."
             fi
           else
-            echo "::notice::Could not resolve WebKit-WiiU engine revision; building without engine."
+            echo "::notice::Could not resolve WebKit-WiiU engine revision; WKC_AVAILABLE is temporarily disabled for this CI build."
           fi
 
       - name: Build and install RPXLoader library
@@ -135,7 +138,7 @@ jobs:
           test -s /opt/devkitpro/wums/lib/librpxloader.a
 
       - name: Build Wave Browser
-        run: make -j$(nproc)
+        run: make -j$(nproc) WKC_AVAILABLE=${{ steps.webkit.outputs.wkc_available }}
 
       - name: Validate meta.xml
         run: |
