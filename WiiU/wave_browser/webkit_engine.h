@@ -36,6 +36,7 @@ void webkit_engine_scroll(int dx, int dy);
 // Touch/click at screen coordinates.
 void webkit_engine_touch_down(int x, int y);
 void webkit_engine_touch_up(int x, int y);
+void webkit_engine_mouse_move(int x, int y);
 
 // Synthetic key events (keyCode = standard browser keyCode value)
 void webkit_engine_key_down(int keycode);
