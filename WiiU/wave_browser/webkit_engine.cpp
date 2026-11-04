@@ -1366,6 +1366,10 @@ void webkit_engine_touch_up(int x,int y)
 {
     if (s_available && s_webview) s_webview->notifyMouseUp(WKCPoint{x, y}, WKC::EMouseButtonLeft, WKC::EModifierNone);
 }
+void webkit_engine_mouse_move(int x,int y)
+{
+    if (s_available && s_webview) s_webview->notifyMouseMove(WKCPoint{x, y}, WKC::EModifierNone);
+}
 bool webkit_engine_available(void){ return s_available; }
 
 void webkit_engine_shutdown(void)
