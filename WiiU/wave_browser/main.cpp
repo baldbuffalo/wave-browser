@@ -135,6 +135,14 @@ static bool s_tp_page_touch = false; // current touch belongs to page content
 static int  s_tp_x = 0, s_tp_y = 0;          // position when pressed (TV coords)
 static int  s_tp_cur_x = 0, s_tp_cur_y = 0;  // live position while held
 
+// Wii U Pro Controller has no pointer sensor, so its right stick drives a
+// software Wii U-style hand pointer on the TV screen.
+static bool s_pro_controller_connected = false;
+static bool s_pro_pointer_visible = false;
+static bool s_pro_pointer_click = false;
+static float s_pro_pointer_x = TV_W * 0.5f;
+static float s_pro_pointer_y = TV_H * 0.5f;
+
 static void poll_touch(VPADStatus* vpad)
 {
     VPADTouchData tp;
@@ -313,6 +321,34 @@ static void draw_tab(int idx, bool active)
     if (active) sdl_rect(tx, ty+TAB_H, TAB_W-2, 2, COL_TAB_ACTIVE);
 }
 
+static void draw_pro_hand_pointer()
+{
+    if (!s_pro_pointer_visible) return;
+
+    // Small pixel-style pointing hand, drawn above the page and browser chrome.
+    static const char* rows[] = {
+        "....##......", "....##......", "....##......", "....##......",
+        "....##......", "....##......", "....##......", "....##......",
+        "....##......", "....##......", "....########", "...#########",
+        "..##########", "..##########", "...#########", "....#######.",
+        ".....#####..", "......###..."
+    };
+    const int scale = 2;
+    const int px = (int)s_pro_pointer_x;
+    const int py = (int)s_pro_pointer_y;
+    for (int y = 0; y < 18; ++y) {
+        for (int x = 0; x < 12; ++x) {
+            if (rows[y][x] != '#') continue;
+            SDL_Rect outline = { px + x*scale - 1, py + y*scale - 1, scale + 2, scale + 2 };
+            SDL_SetRenderDrawColor(s_renderer, 12, 18, 28, 255);
+            SDL_RenderFillRect(s_renderer, &outline);
+            SDL_Rect pixel = { px + x*scale, py + y*scale, scale, scale };
+            SDL_SetRenderDrawColor(s_renderer, 255, 255, 255, 255);
+            SDL_RenderFillRect(s_renderer, &pixel);
+        }
+    }
+}
+
 static void draw_browser_ui()
 {
     sdl_rect(0, 0, TV_W, TV_H,      COL_CONTENT_BG);
@@ -373,6 +409,7 @@ static void draw_browser_ui()
         : "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  Y: close tab";
     sdl_text(s_font_sm, hint, TV_W/2, TV_H-8, COL_GRAY, 1);
 
+    draw_pro_hand_pointer();
     SDL_RenderPresent(s_renderer);
 }
 
@@ -1434,6 +1471,7 @@ int main(int, char**)
             VPADRead(VPAD_CHAN_0, &vpad, 1, &error);
 
             {
+                s_pro_controller_connected = false;
                 KPADStatus kpad;
                 for (int ch = 0; ch < 4; ch++) {
                     int32_t nread = KPADRead((WPADChan)ch, &kpad, 1);
@@ -1462,6 +1500,7 @@ int main(int, char**)
                     // Sticks: kpad.classic.leftStick / rightStick (range -1..1).
                     if (kpad.extensionType == WPAD_EXT_PRO_CONTROLLER)
                     {
+                        s_pro_controller_connected = true;
                         uint32_t c = kpad.classic.trigger;
                         // Face buttons → GamePad face buttons
                         if (c & WPAD_CLASSIC_BUTTON_A)     vpad.trigger |= VPAD_BUTTON_A;
@@ -1502,6 +1541,31 @@ int main(int, char**)
             }
             poll_touch(&vpad);
 
+            // The Pro Controller's right stick acts as the Wii U hand pointer.
+            // A presses the page/UI at the pointer location; it does not move
+            // the keyboard-navigation focus while pointer mode is active.
+            s_pro_pointer_visible = s_pro_controller_connected;
+            s_pro_pointer_click = false;
+            if (s_pro_controller_connected) {
+                const float rx = vpad.rightStick.x;
+                const float ry = vpad.rightStick.y;
+                const float dead = 0.16f;
+                if (fabsf(rx) > dead) s_pro_pointer_x += rx * 13.0f;
+                if (fabsf(ry) > dead) s_pro_pointer_y -= ry * 13.0f;
+                if (s_pro_pointer_x < 0) s_pro_pointer_x = 0;
+                if (s_pro_pointer_y < 0) s_pro_pointer_y = 0;
+                if (s_pro_pointer_x > TV_W - 25) s_pro_pointer_x = TV_W - 25;
+                if (s_pro_pointer_y > TV_H - 37) s_pro_pointer_y = TV_H - 37;
+                if (vpad.trigger & VPAD_BUTTON_A) {
+                    s_pro_pointer_click = true;
+                    s_tp_pressed = true;
+                    s_tp_x = (int)s_pro_pointer_x;
+                    s_tp_y = (int)s_pro_pointer_y;
+                    vpad.trigger &= ~VPAD_BUTTON_A;
+                }
+            }
+            webkit_engine_mouse_move((int)s_pro_pointer_x, (int)s_pro_pointer_y);
+
             // WebKit engine tick (timers, layout, JS)
             webkit_engine_tick();
 
@@ -1524,6 +1588,13 @@ int main(int, char**)
 
             } else {
                 handle_input(&vpad);
+                if (s_pro_pointer_click && s_tp_page_touch) {
+                    int pageY = ((int)s_pro_pointer_y - CONTENT_Y) * TV_H / CONTENT_H;
+                    if (pageY < 0) pageY = 0;
+                    if (pageY >= TV_H) pageY = TV_H - 1;
+                    webkit_engine_touch_up((int)s_pro_pointer_x, pageY);
+                    s_tp_page_touch = false;
+                }
                 draw_browser_ui();
             }
         }
