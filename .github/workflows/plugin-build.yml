@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'wave_browser/plugin/**'
+      - 'wave_browser/mirror_plugin/**'
       - '.github/workflows/plugin-build.yml'
   pull_request:
     paths:
@@ -32,3 +33,22 @@ jobs:
         with:
           name: plugin-wps
           path: wave_browser/plugin/WaveBrowserRemote.wps
+
+  build-mirror-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Build Mirror Screen plugin via Docker
+        run: |
+          docker build -t wavebrowser-mirror-builder wave_browser/mirror_plugin/
+          docker run --rm \
+            -v "$PWD/wave_browser/mirror_plugin:/mirror_plugin" \
+            wavebrowser-mirror-builder \
+            sh -c "cd /mirror_plugin && make -j$(nproc) && ls -lh MirrorScreen.wps"
+
+      - name: Upload Mirror Screen plugin artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: mirror-plugin-wps
+          path: wave_browser/mirror_plugin/MirrorScreen.wps
