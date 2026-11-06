@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "plugin_installer.h"
+#include "mirror_installer.h"
 #include "ui_common.h"
 #include "tv_remotes/tv_remote.h"
 #include "tv_remotes/model_registry.h"
@@ -81,6 +82,9 @@ enum SettingsPage {
     PAGE_MODEL,
     PAGE_DETECTING,
     PAGE_DETECT_RESULT,
+    PAGE_MIRROR_INFO,
+    PAGE_MIRROR_INSTALLING,
+    PAGE_MIRROR_DONE,
     // TV Remote setup wizard (runs after model is confirmed)
     PAGE_SETUP_INTRO,      // Step 1: Welcome + what we're about to do
     PAGE_SETUP_POINT,      // Step 2: Point GamePad at TV
@@ -127,6 +131,45 @@ static int  s_setup_no_count     = 0;   // how many times user said "no"
 static double s_install_pct      = 0.0;
 static char   s_install_msg[64]  = {};
 
+static char s_mirror_status[64] = "Not installed";
+static void refresh_mirror_status()
+{
+    mirror_installer_poll();
+    if(mirror_installer_is_running()) {
+        snprintf(s_mirror_status,sizeof(s_mirror_status),"Downloading %d%%",mirror_installer_progress());
+        return;
+    }
+    if(!mirror_plugin_is_installed()) {
+        snprintf(s_mirror_status,sizeof(s_mirror_status),"Not installed");
+        return;
+    }
+    bool loaded=false,active=false; char device[40]={};
+    FILE* f=fopen(MIRROR_STATUS_PATH,"r");
+    if(f) {
+        char line[96];
+        while(fgets(line,sizeof(line),f)) {
+            int value=0;
+            if(sscanf(line,"loaded=%d",&value)==1)loaded=value!=0;
+            else if(sscanf(line,"active=%d",&value)==1)active=value!=0;
+            else if(strncmp(line,"device=",7)==0) {
+                size_t n=strlen(line+7);
+                while(n&&(line[7+n-1]=='\n'||line[7+n-1]=='\r'))line[7+--n]='\0';
+                snprintf(device,sizeof(device),"%s",line+7);
+            }
+        }
+        fclose(f);
+    }
+    if(loaded&&active&&device[0])snprintf(s_mirror_status,sizeof(s_mirror_status),"TV to %.34s",device);
+    else if(loaded)snprintf(s_mirror_status,sizeof(s_mirror_status),"Installed - waiting");
+    else snprintf(s_mirror_status,sizeof(s_mirror_status),"Installed - reboot");
+}
+static void activate_mirror_row()
+{
+    if(mirror_plugin_is_installed()){s_page=PAGE_MIRROR_INFO;s_sel=0;return;}
+    if(mirror_installer_start())s_page=PAGE_MIRROR_INSTALLING;
+    else s_page=PAGE_MIRROR_DONE;
+}
+
 static void plugin_progress_cb(const char* msg, double pct)
 {
     if (msg) strncpy(s_install_msg, msg, sizeof(s_install_msg)-1);
@@ -147,9 +190,10 @@ static int   s_model_indices[64];
 static int   s_model_count     = 0;
 
 // Main page rows
-#define ROW_MULTITASK  0
-#define ROW_TV_SETUP   1
-#define ROW_MAIN_COUNT 2
+#define ROW_MULTITASK     0
+#define ROW_TV_SETUP      1
+#define ROW_MIRROR_SCREEN 2
+#define ROW_MAIN_COUNT    3
 
 // ─── List builders ───────────────────────────────────────────────────────────
 
@@ -264,6 +308,7 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
         const char* title;
         const char* description;
     };
+    refresh_mirror_status();
     const RowInfo rows[ROW_MAIN_COUNT] = {
         {
             "Improved Multitasking",
@@ -272,6 +317,10 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
         {
             "TV Remote Setup",
             "Configure your TV model so the GamePad TV button controls your TV via HDMI-CEC"
+        },
+        {
+            "Mirror Screen",
+            "Stream the Wii U TV picture to a phone, tablet or computer over Wi-Fi"
         },
     };
 
@@ -296,14 +345,20 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
         int text_x = SETTINGS_ROW_X + 24;
         SDL_Color title_c = focused ? COL_BLUE : COL_ADDR_TEXT;
 
-        // Title
-        ui_text(ren, fmd, rows[i].title, text_x, ry + 36, title_c, 0);
-
-        // Description
-        ui_text(ren, fsm, rows[i].description, text_x, ry + 68, COL_GRAY, 0);
+        if (i == ROW_MIRROR_SCREEN) {
+            ui_text(ren,fmd,rows[i].title,TV_W/2,ry+36,title_c,1);
+            ui_text(ren,fsm,rows[i].description,TV_W/2,ry+68,COL_GRAY,1);
+            ui_text(ren,fsm,s_mirror_status,SETTINGS_ROW_X+SETTINGS_ROW_W-18,ry+54,
+                    mirror_plugin_is_installed()?SDL_Color{0x00,0x88,0x00,0xFF}:SDL_Color{0x88,0x88,0x88,0xFF},2);
+        } else {
+            ui_text(ren,fmd,rows[i].title,text_x,ry+36,title_c,0);
+            ui_text(ren,fsm,rows[i].description,text_x,ry+68,COL_GRAY,0);
+        }
 
         // Right-side value / arrow
-        if (i == ROW_MULTITASK) {
+        if (i == ROW_MIRROR_SCREEN) {
+            // Status is displayed on the right side of the centered plugin button.
+        } else if (i == ROW_MULTITASK) {
             bool on = g_settings.improved_multitasking;
             // Toggle pill
             SDL_Color pill_bg = on
@@ -630,10 +685,54 @@ static void draw_setup_done(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF
         msg, sub, "", "A: Done", "A  Done", nullptr);
 }
 
+// ─── Mirror Screen pages ─────────────────────────────────────────────────────
+
+static void draw_mirror_info(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd,TTF_Font* flg)
+{
+    draw_panel(ren,flg,"Mirror Screen");
+    ui_text(ren,fmd,"Mirror the Wii U TV picture over your local Wi-Fi",PANEL_X+PANEL_W/2,LIST_TOP+58,COL_ADDR_TEXT,1);
+    ui_text(ren,fsm,"Keep the Wii U and receiving device on the same network.",PANEL_X+PANEL_W/2,LIST_TOP+112,COL_GRAY,1);
+    ui_text(ren,fmd,"Open this address in any compatible browser:",PANEL_X+PANEL_W/2,LIST_TOP+178,COL_ADDR_TEXT,1);
+    ui_text(ren,fmd,"http://<WII-U-IP>:8088/",PANEL_X+PANEL_W/2,LIST_TOP+220,COL_BLUE,1);
+    ui_text(ren,fsm,"Find the Wii U IPv4 address in Internet connection details.",PANEL_X+PANEL_W/2,LIST_TOP+274,COL_GRAY,1);
+    ui_text(ren,fsm,"TV video only in this first version; GamePad and audio are not streamed.",PANEL_X+PANEL_W/2,LIST_TOP+322,COL_GRAY,1);
+    draw_hint(ren,fsm,"B: Back"); SDL_RenderPresent(ren);
+}
+static void draw_mirror_installing(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd,TTF_Font* flg)
+{
+    draw_panel(ren,flg,"Installing Mirror Screen");
+    int pct=mirror_installer_progress(); char label[80];
+    if(mirror_installer_state()==mirror_installer::EXTRACTING)snprintf(label,sizeof(label),"Installing plugin files...");
+    else snprintf(label,sizeof(label),"Downloading %d%%",pct);
+    ui_text(ren,fmd,label,PANEL_X+PANEL_W/2,PANEL_Y+HEADER_H+150,COL_ADDR_TEXT,1);
+    int x=PANEL_X+140,y=PANEL_Y+HEADER_H+210,w=PANEL_W-280;
+    ui_rect(ren,x,y,w,24,{0xDD,0xE2,0xEA,0xFF});
+    int fill=w*pct/100; if(fill>0)ui_rect(ren,x,y,fill,24,COL_BLUE);
+    ui_outline(ren,x,y,w,24,{0xA0,0xA8,0xB5,0xFF},1);
+    ui_text(ren,fsm,"The download runs on the Wii U and installs into Aroma.",PANEL_X+PANEL_W/2,y+66,COL_GRAY,1);
+    SDL_RenderPresent(ren);
+}
+static void draw_mirror_done(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd,TTF_Font* flg)
+{
+    draw_panel(ren,flg,"Mirror Screen");
+    if(mirror_installer_state()==mirror_installer::INSTALLED&&mirror_plugin_is_installed()) {
+        ui_text(ren,fmd,"Mirror Screen installed successfully.",PANEL_X+PANEL_W/2,LIST_TOP+90,{0x00,0x88,0x00,0xFF},1);
+        ui_text(ren,fsm,"Reboot the Wii U so Aroma can load the new plugin.",PANEL_X+PANEL_W/2,LIST_TOP+150,COL_GRAY,1);
+        ui_text(ren,fsm,"Then connect a device to the same Wi-Fi network.",PANEL_X+PANEL_W/2,LIST_TOP+194,COL_GRAY,1);
+    } else {
+        ui_text(ren,fmd,"Mirror Screen could not be installed.",PANEL_X+PANEL_W/2,LIST_TOP+90,{0xCC,0x00,0x00,0xFF},1);
+        ui_text(ren,fsm,"Check the internet connection and confirm Aroma is installed.",PANEL_X+PANEL_W/2,LIST_TOP+150,COL_GRAY,1);
+    }
+    draw_hint(ren,fsm,mirror_installer_state()==mirror_installer::FAILED?"A: Back   B: Retry":"A: Done");
+    SDL_RenderPresent(ren);
+}
+
 // ─── Public draw ─────────────────────────────────────────────────────────────
 
 void settings_draw(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
+    mirror_installer_poll();
+    if(s_page==PAGE_MIRROR_INSTALLING&&!mirror_installer_is_running())s_page=PAGE_MIRROR_DONE;
     switch (s_page) {
         case PAGE_MAIN:          draw_main(ren, fsm, fmd, flg); break;
         case PAGE_BRAND:         draw_brand(ren, fsm, fmd, flg); break;
@@ -641,6 +740,9 @@ void settings_draw(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* fl
         case PAGE_MODEL:         draw_model(ren, fsm, fmd, flg); break;
         case PAGE_DETECTING:     draw_detecting(ren, fsm, fmd, flg); break;
         case PAGE_DETECT_RESULT: draw_detect_result(ren, fsm, fmd, flg); break;
+        case PAGE_MIRROR_INFO: draw_mirror_info(ren,fsm,fmd,flg); break;
+        case PAGE_MIRROR_INSTALLING: draw_mirror_installing(ren,fsm,fmd,flg); break;
+        case PAGE_MIRROR_DONE: draw_mirror_done(ren,fsm,fmd,flg); break;
         case PAGE_SETUP_INTRO:      draw_setup_intro(ren, fsm, fmd, flg);     break;
         case PAGE_SETUP_POINT:      draw_setup_point(ren, fsm, fmd, flg);     break;
         case PAGE_SETUP_TEST:       draw_setup_test(ren, fsm, fmd, flg);      break;
@@ -674,6 +776,8 @@ static void list_nav(int count, uint32_t btn)
 
 bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y)
 {
+    mirror_installer_poll();
+    if(s_page==PAGE_MIRROR_INSTALLING&&!mirror_installer_is_running())s_page=PAGE_MIRROR_DONE;
     uint32_t btn = vpad->trigger;
 
     switch (s_page) {
@@ -696,6 +800,8 @@ bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y
             build_brands();
             s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
         }
+        if (s_sel == ROW_MIRROR_SCREEN && (btn & VPAD_BUTTON_A))
+            activate_mirror_row();
 
         // SELECT on TV Setup row → auto-detect via CEC
         if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_MINUS)) {
@@ -720,6 +826,8 @@ bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y
                         // Always open brand picker on tap
                         build_brands();
                         s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+                    } else if (i == ROW_MIRROR_SCREEN) {
+                        activate_mirror_row();
                     }
                     s_sel = i;
                     break;
@@ -785,6 +893,19 @@ bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y
         break;
 
     // ── Detect result ─────────────────────────────────────────────────────────
+    case PAGE_MIRROR_INFO:
+        if(btn & VPAD_BUTTON_B) { s_page=PAGE_MAIN; s_sel=ROW_MIRROR_SCREEN; }
+        break;
+    case PAGE_MIRROR_INSTALLING:
+        // Download runs asynchronously while the progress screen is refreshed.
+        break;
+    case PAGE_MIRROR_DONE:
+        if(btn & VPAD_BUTTON_A) { s_page=PAGE_MAIN; s_sel=ROW_MIRROR_SCREEN; }
+        else if((btn & VPAD_BUTTON_B)&&mirror_installer_state()==mirror_installer::FAILED) {
+            if(mirror_installer_start())s_page=PAGE_MIRROR_INSTALLING;
+        }
+        break;
+
     case PAGE_DETECT_RESULT:
         if (btn & VPAD_BUTTON_A) {
             settings_save();
