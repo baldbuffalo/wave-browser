@@ -1,7 +1,7 @@
 # Mirror Screen (Aroma plugin)
 
 Mirror Screen is a standalone WUPS/Aroma plugin for Wave Browser. It captures
-the Wii U **TV output** and serves a browser-based MJPEG receiver over the
+the Wii U **TV output** and serves a browser-based HTTP/JPEG frame receiver over the
 local network. Phones, tablets, laptops and desktops can connect through a
 compatible browser; no PC helper app, capture card, USB connection or
 particular receiver model is required.
@@ -20,7 +20,7 @@ particular receiver model is required.
 - TV picture only. GamePad-screen capture is not implemented.
 - Video only; audio streaming is not implemented yet.
 - One receiver at a time.
-- 428×240 MJPEG at a conservative capture rate; encoding uses Wii U CPU.
+- 428×240 JPEG frames at a conservative capture rate; encoding uses Wii U CPU.
 - GX2 capture timing and compatibility require real-console validation.
 - Intended for a trusted local network. Do not expose port 8088 publicly.
 
