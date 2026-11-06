@@ -47,7 +47,7 @@ size_t compressJpeg(){
  if(output!=gJpeg){size_t copied=outputSize<=gJpegCapacity?outputSize:0;if(copied)std::memcpy(gJpeg,output,copied);std::free(output);return copied;}
  return outputSize;
 }
-int encoderEntry(int,const char**){
+int encoderEntry(int,void*){
  gRgb=new(std::nothrow) uint8_t[static_cast<size_t>(kWidth)*kHeight*3];
  gJpegCapacity=static_cast<unsigned long>(kJpegCapacity);gJpeg=static_cast<unsigned char*>(std::malloc(gJpegCapacity));
  if(!gRgb||!gJpeg){MIRROR_LOG("encoder buffer allocation failed");delete[] gRgb;gRgb=nullptr;std::free(gJpeg);gJpeg=nullptr;return -1;}
