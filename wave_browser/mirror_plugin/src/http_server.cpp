@@ -126,7 +126,7 @@ void handleRequest(int sock){
  }
  const char* body="Not found";sendResponse(sock,404,"Not Found","text/plain",body,std::strlen(body));
 }
-int serverEntry(int,const char**){
+int serverEntry(int,void*){
  while(gRunning.load()){
   if(gActive.load()&&static_cast<uint32_t>(mirrorNowMs()-gLastClientRequestMs.load())>3500u){
    gActive.store(false);writeStatus(true,false,"");
