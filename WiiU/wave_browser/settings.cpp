@@ -136,7 +136,10 @@ static void refresh_mirror_status()
 {
     mirror_installer_poll();
     if(mirror_installer_is_running()) {
-        snprintf(s_mirror_status,sizeof(s_mirror_status),"Downloading %d%%",mirror_installer_progress());
+        if(mirror_installer_state()==mirror_installer::EXTRACTING)
+            snprintf(s_mirror_status,sizeof(s_mirror_status),"Installing...");
+        else
+            snprintf(s_mirror_status,sizeof(s_mirror_status),"Downloading %d%%",mirror_installer_progress());
         return;
     }
     if(!mirror_plugin_is_installed()) {
@@ -168,6 +171,7 @@ static void refresh_mirror_status()
 }
 static void activate_mirror_row()
 {
+    if(mirror_installer_is_running())return;
     if(mirror_plugin_is_installed()){s_page=PAGE_MIRROR_INFO;s_sel=0;return;}
     // Keep Settings visible so the right-hand status updates in place.
     if(!mirror_installer_start())s_page=PAGE_MIRROR_DONE;
