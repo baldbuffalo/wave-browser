@@ -140,7 +140,10 @@ static void refresh_mirror_status()
         return;
     }
     if(!mirror_plugin_is_installed()) {
-        snprintf(s_mirror_status,sizeof(s_mirror_status),"Not installed");
+        if(mirror_installer_state()==mirror_installer::FAILED)
+            snprintf(s_mirror_status,sizeof(s_mirror_status),"Download failed");
+        else
+            snprintf(s_mirror_status,sizeof(s_mirror_status),"Not installed");
         return;
     }
     bool loaded=false,active=false; char device[40]={};
@@ -166,8 +169,8 @@ static void refresh_mirror_status()
 static void activate_mirror_row()
 {
     if(mirror_plugin_is_installed()){s_page=PAGE_MIRROR_INFO;s_sel=0;return;}
-    if(mirror_installer_start())s_page=PAGE_MIRROR_INSTALLING;
-    else s_page=PAGE_MIRROR_DONE;
+    // Keep Settings visible so the right-hand status updates in place.
+    if(!mirror_installer_start())s_page=PAGE_MIRROR_DONE;
 }
 
 static void plugin_progress_cb(const char* msg, double pct)
