@@ -144,7 +144,8 @@ struct WKCThread {
 // belongs to the running thread, so setting it in the creator is incorrect.
 #define WKC_THREAD_SLOT ((OSThreadSpecificID)0)
 
-static int thread_trampoline(int argc, const char** argv) {
+static int thread_trampoline(int argc, void* argvRaw) {
+    const char** argv = static_cast<const char**>(argvRaw);
     if (argc < 1 || !argv || !argv[0]) return -1;
     WKCThread* t = (WKCThread*)(uintptr_t)strtoull(argv[0], nullptr, 16);
     if (!t) return -1;
