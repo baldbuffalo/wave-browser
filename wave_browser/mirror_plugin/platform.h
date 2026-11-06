@@ -18,7 +18,7 @@ inline uint32_t mirrorNowMs(){return static_cast<uint32_t>(OSTicksToMilliseconds
 inline void mirrorSleepMs(uint32_t ms){OSSleepTicks(OSMillisecondsToTicks(ms));}
 class MirrorThread {
 public:
- using Entry=int(*)(int,void*);
+ using Entry=int(*)(int,const char**);
  bool start(Entry entry,uint32_t stackSize,int32_t priority,OSThreadAttributes affinity,const char* name){
   if(running_)return true;
   stack_=new(std::nothrow) uint8_t[stackSize]; if(!stack_)return false;
