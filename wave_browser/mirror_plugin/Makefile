@@ -10,7 +10,7 @@ TARGET := MirrorScreen
 BUILD := build_plugin
 SOURCES := src
 DATA :=
-INCLUDES := src
+INCLUDES := src .
 
 CFLAGS := -O2 -Wall -ffunction-sections $(MACHDEP)
 CFLAGS += $(INCLUDE) -D__WIIU__ -D__WUT__ -D__WUPS__
