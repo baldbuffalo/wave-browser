@@ -46,7 +46,7 @@ static int cec_recv(uint8_t* buf, int maxlen, uint32_t timeout_ms)
 #endif
 }
 
-static int detect_thread(int, const char**)
+static int detect_thread(int, void*)
 {
     TVDetectResult res = {};
     uint8_t buf[32]; int n;
