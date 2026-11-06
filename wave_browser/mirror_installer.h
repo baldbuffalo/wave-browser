@@ -107,7 +107,7 @@ static bool performInstall() {
     remove(backup); remove(MIRROR_STATUS_PATH);
     return true;
 }
-static int workerEntry(int,const char**) {
+static int workerEntry(int,void*) {
     s_state.store(DOWNLOADING); s_progress.store(0);
     bool ok=performInstall();
     s_state.store(ok?INSTALLED:FAILED); s_done.store(true);
