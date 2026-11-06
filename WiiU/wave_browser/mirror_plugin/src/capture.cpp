@@ -44,7 +44,7 @@ void onTvScanout(const GX2ColorBuffer* cb){
    gCaptured[i].pixels=static_cast<const uint8_t*>(slot.image);
    gCaptured[i].width=slot.surface.width;gCaptured[i].height=slot.surface.height;
    gCaptured[i].pitch=slot.surface.pitch;gCaptured[i].format=slot.surface.format;
-   gCaptured[i].timestampMs=slot.issuedAtMs;slot.state=SLOT_ENCODING;encoderSubmit(i);
+   gCaptured[i].timestampMs=slot.issuedAtMs;if(encoderSubmit(i))slot.state=SLOT_ENCODING;else slot.state=SLOT_FREE;
   }
  }
  // Conservative capture rate: gameplay performance takes priority.
