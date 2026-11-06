@@ -62,7 +62,7 @@ int encoderEntry(int,const char**){
  delete[] gRgb;gRgb=nullptr;std::free(gJpeg);gJpeg=nullptr;gJpegCapacity=0;return 0;
 }
 }
-void encoderSubmit(int i){OSMessage msg{};msg.args[0]=static_cast<uint32_t>(i);if(!OSSendMessage(&gQueue,&msg,OS_MESSAGE_FLAGS_NONE))captureRelease(i);}
+bool encoderSubmit(int i){OSMessage msg{};msg.args[0]=static_cast<uint32_t>(i);return OSSendMessage(&gQueue,&msg,OS_MESSAGE_FLAGS_NONE);}
 bool encoderStart(){
  if(gRunning.load())return true;OSInitMessageQueue(&gQueue,gQueueBuffer,kQueueSize);gRunning.store(true);
  if(!gThread.start(encoderEntry,kStackSize,kPriority,OS_THREAD_ATTRIB_AFFINITY_CPU2,"MirrorScreen encoder")){gRunning.store(false);MIRROR_LOG("could not start JPEG encoder");return false;}
