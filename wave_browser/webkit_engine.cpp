@@ -496,7 +496,7 @@ struct WKCThread {
 // Use OSThreadSpecificID slot 0 to store WKCThread pointer
 #define WKC_THREAD_SLOT ((OSThreadSpecificID)0)
 
-static int thread_trampoline(int, const char**) {
+static int thread_trampoline(int, void*) {
     WKCThread* t = (WKCThread*)OSGetThreadSpecific(WKC_THREAD_SLOT);
     if (t) t->result = t->fn(t->arg);
     return 0;
