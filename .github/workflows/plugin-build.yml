@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - 'wave_browser/plugin/**'
+      - 'wave_browser/mirror_plugin/**'
       - '.github/workflows/plugin-build.yml'
   workflow_dispatch:
 
