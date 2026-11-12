@@ -76,8 +76,9 @@ public:
     bool requestWakeUp(unsigned int, void*) override { return true; }
 };
 
-// The modern WKCWebView constructs its WebCore clients internally. These
-// legacy WKC API callbacks are not used by the current port's page pipeline.
+// The modern WKCWebView owns the WebCore frame-loader pipeline. Wave does
+// not provide the optional legacy FrameLoaderClientIf; the WKC adapter supplies
+// safe native defaults for navigation, MIME handling and lifecycle callbacks.
 class WaveClientBuilders final : public WKC::WKCClientBuilders {
 public:
     WKC::ChromeClientIf* createChromeClient(WKC::WKCWebView*) override { return nullptr; }
