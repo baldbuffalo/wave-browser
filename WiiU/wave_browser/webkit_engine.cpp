@@ -76,9 +76,8 @@ public:
     bool requestWakeUp(unsigned int, void*) override { return true; }
 };
 
-// The modern WKCWebView owns the WebCore frame-loader pipeline. Wave does
-// not provide the optional legacy FrameLoaderClientIf; the WKC adapter supplies
-// safe native defaults for navigation, MIME handling and lifecycle callbacks.
+// WebCore creates and owns the native LocalFrameLoaderClient for each frame.
+// Frame loading is deliberately not part of WKCClientBuilders.
 class WaveClientBuilders final : public WKC::WKCClientBuilders {
 public:
     WKC::ChromeClientIf* createChromeClient(WKC::WKCWebView*) override { return nullptr; }
@@ -89,8 +88,6 @@ public:
     void deleteDragClient(WKC::DragClientIf*) override {}
     WKC::EditorClientIf* createEditorClient(WKC::WKCWebView*) override { return nullptr; }
     void deleteEditorClient(WKC::EditorClientIf*) override {}
-    WKC::FrameLoaderClientIf* createFrameLoaderClient(WKC::WKCWebFrame*) override { return nullptr; }
-    void deleteFrameLoaderClient(WKC::FrameLoaderClientIf*) override {}
     WKC::InspectorClientIf* createInspectorClient(WKC::WKCWebView*) override { return nullptr; }
     void deleteInspectorClient(WKC::InspectorClientIf*) override {}
     WKC::DropDownListClientIf* createDropDownListClient(WKC::WKCWebView*) override { return nullptr; }
