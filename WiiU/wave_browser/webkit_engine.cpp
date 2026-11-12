@@ -19,6 +19,12 @@ extern "C" {
 #include <wkc/wkcmpeer.h>
 #include <wkc/WKCWebView.h>
 #include <wkc/WKCClientBuilders.h>
+#include <wkc/helpers/ChromeClientIf.h>
+#include <wkc/helpers/EditorClientIf.h>
+#include <wkc/helpers/ContextMenuClientIf.h>
+#include <wkc/helpers/DragClientIf.h>
+#include <wkc/helpers/DropDownListClientIf.h>
+#include <wkc/helpers/WKCString.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -78,20 +84,199 @@ public:
 
 // WebCore creates and owns the native LocalFrameLoaderClient for each frame.
 // Frame loading is deliberately not part of WKCClientBuilders.
+// Native WKC peer clients. These are the platform-facing view, editor,
+// context-menu, drag and popup clients. The LocalFrameLoaderClient remains
+// entirely inside WebCore and is not a WKCClientBuilders extension.
+using namespace WKC;
+
+class WaveChromeClient final : public WKC::ChromeClientIf {
+public:
+    void chromeDestroyed() override { }
+    void setWindowRect(const WKCFloatRect&) override { }
+    WKCFloatRect windowRect() override { WKCFloatRect rect{}; WKCFloatRect_SetXYWH(&rect, 0, 0, static_cast<float>(s_w), static_cast<float>(s_h)); return rect; }
+    WKCFloatRect pageRect() override { WKCFloatRect rect{}; WKCFloatRect_SetXYWH(&rect, 0, 0, static_cast<float>(s_w), static_cast<float>(s_h)); return rect; }
+    void focus() override { }
+    void unfocus() override { }
+    bool canTakeFocus(WKC::WKCFocusDirection) override { return false; }
+    void takeFocus(WKC::WKCFocusDirection) override { }
+    void focusedNodeChanged(WKC::Node*) override { }
+    WKC::Page* createWindow(WKC::Frame*, const WKC::FrameLoadRequest&, const WKC::WindowFeatures&) override { return {}; }
+    void show() override { }
+    bool canRunModal() override { return false; }
+    void runModal() override { }
+    void setToolbarsVisible(bool) override { }
+    bool toolbarsVisible() override { return {}; }
+    void setStatusbarVisible(bool) override { }
+    bool statusbarVisible() override { return {}; }
+    void setScrollbarsVisible(bool) override { }
+    bool scrollbarsVisible() override { return {}; }
+    void setMenubarVisible(bool) override { }
+    bool menubarVisible() override { return {}; }
+    void setResizable(bool) override { }
+    void addMessageToConsole(WKC::MessageSource, WKC::MessageType, WKC::MessageLevel, const WKC::String&, unsigned int, const WKC::String&) override { }
+    bool canRunBeforeUnloadConfirmPanel() override { return false; }
+    bool runBeforeUnloadConfirmPanel(const WKC::String&, WKC::Frame*) override { return false; }
+    void closeWindowSoon() override { }
+    void runJavaScriptAlert(WKC::Frame*, const WKC::String&) override { }
+    bool runJavaScriptConfirm(WKC::Frame*, const WKC::String&) override { return false; }
+    bool runJavaScriptPrompt(WKC::Frame*, const WKC::String&, const WKC::String&, WKC::String&) override { return false; }
+    void setStatusbarText(const WKC::String&) override { }
+    bool shouldInterruptJavaScript() override { return false; }
+    void registerProtocolHandler(const WKC::String&, const WKC::String&, const WKC::String&, const WKC::String&) override { }
+    WKCRect windowResizerRect() const override { return {}; }
+    void repaint(const WKCRect&, bool, bool, bool) override { s_dirty = true; }
+    void invalidateContentsForSlowScroll(const WKCRect&, bool) override { s_dirty = true; }
+    void scroll(const WKCSize&, const WKCRect&, const WKCRect&) override { s_dirty = true; }
+    WKCPoint screenToWindow(const WKCPoint&) const override { return {}; }
+    WKCRect windowToScreen(const WKCRect&) const override { return {}; }
+    PlatformPageClient platformPageClient() const override { return {}; }
+    void contentsSizeChanged(WKC::Frame*, const WKCSize&) const override { s_dirty = true; }
+    void scheduleAnimation() override { s_dirty = true; }
+    void scrollbarsModeDidChange() const override { }
+    void mouseDidMoveOverElement(const WKC::HitTestResult&, unsigned) override { }
+    void setToolTip(const WKC::String&, WKC::TextDirection) override { }
+    void print(WKC::Frame*) override { }
+    void exceededDatabaseQuota(WKC::Frame*, const WKC::String&) override { }
+    void reachedMaxAppCacheSize(int64_t) override { }
+    void reachedApplicationCacheOriginQuota(WKC::SecurityOrigin*, int64_t) override { }
+    void runOpenPanel(WKC::Frame*, WKC::FileChooser*) override { }
+    void enumerateChosenDirectory(WKC::FileChooser*) override { }
+    void formStateDidChange(const WKC::Node*) override { }
+    void elementDidFocus(const WKC::Node*) override { }
+    void elementDidBlur(const WKC::Node*) override { }
+    WKC::HTMLParserQuirks* createHTMLParserQuirks() override { return {}; }
+    void setCursor(WKC::PlatformCursorHandle) override { }
+    void dispatchViewportDataDidChange(const WKC::ViewportArguments&) override { }
+    bool shouldUnavailablePluginMessageBeButton(int) const override { return false; }
+    void unavailablePluginButtonClicked(WKC::Element*, int) const override { }
+    void scrollRectIntoView(const WKCRect&) const override { }
+    void focusedFrameChanged(WKC::Frame*) override { }
+    WKC::KeyboardUIMode keyboardUIMode() override { return {}; }
+    bool shouldRubberBandInDirection(WKC::ScrollDirection) const override { return false; }
+    bool selectItemWritingDirectionIsNatural() override { return false; }
+    bool selectItemAlignmentFollowsMenuWritingDirection() override { return false; }
+    void numWheelEventHandlersChanged(unsigned) override { }
+    void numTouchEventHandlersChanged(unsigned) override { }
+    bool hasOpenedPopup() override { return false; }
+    void populateVisitedLinks() override { }
+    WKCFloatRect customHighlightRect(WKC::Node*, const WKC::String&, const WKCFloatRect&) override { return {}; }
+    void paintCustomHighlight(WKC::Node*, const WKC::String&, const WKCFloatRect&, const WKCFloatRect&, bool, bool) override { }
+    bool shouldReplaceWithGeneratedFileForUpload(const WKC::String&, WKC::String&) override { return false; }
+    WKC::String generateReplacementFile(const WKC::String&) override { return WKC::String(); }
+    void attachRootGraphicsLayer(WKC::Frame*, WKC::GraphicsLayer*) override { }
+    void setNeedsOneShotDrawingSynchronization() override { s_dirty = true; }
+    void scheduleCompositingLayerSync() override { s_dirty = true; }
+    bool allowsAcceleratedCompositing() const override { return false; }
+    CompositingTriggerFlags allowedCompositingTriggers() const override { return {}; }
+    bool supportsFullscreenForNode(const WKC::Node*) override { return false; }
+    void enterFullscreenForNode(WKC::Node*) override { }
+    void exitFullscreenForNode(WKC::Node*) override { }
+    bool requiresFullscreenForVideoPlayback() override { return false; }
+    bool supportsFullScreenForElement(const WKC::Element*, bool) override { return false; }
+    void enterFullScreenForElement(WKC::Element*) override { }
+    void exitFullScreenForElement(WKC::Element*) override { }
+    void notifyScrollerThumbIsVisibleInRect(const WKCRect&) override { }
+    void recommendedScrollbarStyleDidChange(int) override { }
+    void needTouchEvents(bool) override { }
+};
+
+
+class WaveEditorClient final : public WKC::EditorClientIf {
+public:
+    void pageDestroyed() override { }
+    bool shouldDeleteRange(WKC::Range*) override { return true; }
+    bool shouldShowDeleteInterface(WKC::HTMLElement*) override { return true; }
+    bool smartInsertDeleteEnabled() override { return {}; }
+    bool isSelectTrailingWhitespaceEnabled() override { return {}; }
+    bool isContinuousSpellCheckingEnabled() override { return {}; }
+    void toggleContinuousSpellChecking() override { }
+    bool isGrammarCheckingEnabled() override { return {}; }
+    void toggleGrammarChecking() override { }
+    int spellCheckerDocumentTag() override { return {}; }
+    bool shouldBeginEditing(WKC::Range*) override { return true; }
+    bool shouldEndEditing(WKC::Range*) override { return true; }
+    bool shouldInsertNode(WKC::Node*, WKC::Range*, WKC::EditorInsertAction) override { return true; }
+    bool shouldInsertText(const WKC::String&, WKC::Range*, WKC::EditorInsertAction) override { return true; }
+    bool shouldChangeSelectedRange(WKC::Range*, WKC::Range*, WKC::EAffinity, bool) override { return true; }
+    bool shouldApplyStyle(WKC::CSSStyleDeclaration*, WKC::Range*) override { return true; }
+    bool shouldMoveRangeAfterDelete(WKC::Range*, WKC::Range*) override { return true; }
+    void didBeginEditing() override { }
+    void respondToChangedContents() override { }
+    void respondToChangedSelection(WKC::Frame*) override { }
+    void didEndEditing() override { }
+    void didWriteSelectionToPasteboard() override { }
+    void didSetSelectionTypesForPasteboard() override { }
+    void registerUndoStep(WKC::EditCommand*) override { }
+    void registerRedoStep(WKC::EditCommand*) override { }
+    void clearUndoRedoOperations() override { }
+    bool canCopyCut(Frame*, bool) override { return false; }
+    bool canPaste(Frame*, bool) override { return false; }
+    bool canUndo() const override { return {}; }
+    bool canRedo() const override { return {}; }
+    void undo() override { }
+    void redo() override { }
+    void handleKeyboardEvent(WKC::KeyboardEvent*) override { }
+    void handleInputMethodKeydown(WKC::KeyboardEvent*) override { }
+    void textFieldDidBeginEditing(WKC::Element*) override { }
+    void textFieldDidEndEditing(WKC::Element*) override { }
+    void textDidChangeInTextField(WKC::Element*) override { }
+    bool doTextFieldCommandFromEvent(WKC::Element*, WKC::KeyboardEvent*) override { return {}; }
+    void textWillBeDeletedInTextField(WKC::Element*) override { }
+    void textDidChangeInTextArea(WKC::Element*) override { }
+    void updateSpellingUIWithGrammarString(const WKC::String&, const WKC::GrammarDetail&) override { }
+    void updateSpellingUIWithMisspelledWord(const WKC::String&) override { }
+    void showSpellingUI(bool) override { }
+    bool spellingUIIsShowing() override { return {}; }
+    void willSetInputMethodState() override { }
+    void setInputMethodState(bool) override { }
+};
+
+
+class WaveContextMenuClient final : public WKC::ContextMenuClientIf {
+public:
+    void contextMenuDestroyed() override { }
+    WKC::PlatformMenuDescription getCustomMenuFromDefaultItems(WKC::ContextMenu*) override { return nullptr; }
+    void contextMenuItemSelected(WKC::ContextMenuItem*, const WKC::ContextMenu*) override { }
+    void downloadURL(const WKC::URL&) override { }
+    void searchWithGoogle(const WKC::Frame*) override { }
+    void lookUpInDictionary(WKC::Frame*) override { }
+    void speak(const WKC::String&) override { }
+    void stopSpeaking() override { }
+    bool isSpeaking() override { return false; }
+};
+
+
+class WaveDragClient final : public WKC::DragClientIf {
+public:
+    void willPerformDragDestinationAction(WKC::DragDestinationAction, WKC::DragData*) override { }
+    void willPerformDragSourceAction(WKC::DragSourceAction, const WKCPoint&, WKC::DataTransfer*) override { }
+    WKC::DragSourceAction dragSourceActionMaskForPoint(const WKCPoint&) override { return {}; }
+    void startDrag(WKC::DragImageRef, const WKCPoint&, const WKCPoint&, WKC::DataTransfer*, WKC::Frame*, bool) override { }
+};
+
+
+class WaveDropDownListClient final : public WKC::DropDownListClientIf {
+public:
+    void show(const WKCRect&, WKC::FrameView*, int, WKC::PopupMenuClient *) override { }
+    void hide(WKC::PopupMenuClient *) override { }
+    void updateFromElement(WKC::PopupMenuClient *) override { }
+};
+
+
 class WaveClientBuilders final : public WKC::WKCClientBuilders {
 public:
-    WKC::ChromeClientIf* createChromeClient(WKC::WKCWebView*) override { return nullptr; }
-    void deleteChromeClient(WKC::ChromeClientIf*) override {}
-    WKC::ContextMenuClientIf* createContextMenuClient(WKC::WKCWebView*) override { return nullptr; }
-    void deleteContextMenuClient(WKC::ContextMenuClientIf*) override {}
-    WKC::DragClientIf* createDragClient(WKC::WKCWebView*) override { return nullptr; }
-    void deleteDragClient(WKC::DragClientIf*) override {}
-    WKC::EditorClientIf* createEditorClient(WKC::WKCWebView*) override { return nullptr; }
-    void deleteEditorClient(WKC::EditorClientIf*) override {}
+    WKC::ChromeClientIf* createChromeClient(WKC::WKCWebView*) override { return new WaveChromeClient(); }
+    void deleteChromeClient(WKC::ChromeClientIf* client) override { delete static_cast<WaveChromeClient*>(client); }
+    WKC::ContextMenuClientIf* createContextMenuClient(WKC::WKCWebView*) override { return new WaveContextMenuClient(); }
+    void deleteContextMenuClient(WKC::ContextMenuClientIf* client) override { delete static_cast<WaveContextMenuClient*>(client); }
+    WKC::DragClientIf* createDragClient(WKC::WKCWebView*) override { return new WaveDragClient(); }
+    void deleteDragClient(WKC::DragClientIf* client) override { delete static_cast<WaveDragClient*>(client); }
+    WKC::EditorClientIf* createEditorClient(WKC::WKCWebView*) override { return new WaveEditorClient(); }
+    void deleteEditorClient(WKC::EditorClientIf* client) override { delete static_cast<WaveEditorClient*>(client); }
     WKC::InspectorClientIf* createInspectorClient(WKC::WKCWebView*) override { return nullptr; }
     void deleteInspectorClient(WKC::InspectorClientIf*) override {}
-    WKC::DropDownListClientIf* createDropDownListClient(WKC::WKCWebView*) override { return nullptr; }
-    void deleteDropDownListClient(WKC::DropDownListClientIf*) override {}
+    WKC::DropDownListClientIf* createDropDownListClient(WKC::WKCWebView*) override { return new WaveDropDownListClient(); }
+    void deleteDropDownListClient(WKC::DropDownListClientIf* client) override { delete static_cast<WaveDropDownListClient*>(client); }
     WKC::GeolocationClientIf* createGeolocationClient(WKC::WKCWebView*) override { return nullptr; }
     void deleteGeolocationClient(WKC::GeolocationClientIf*) override {}
     WKC::DeviceMotionClientIf* createDeviceMotionClient(WKC::WKCWebView*) override { return nullptr; }
@@ -103,6 +288,8 @@ public:
     WKC::BatteryClientIf* createBatteryClient(WKC::WKCWebView*) override { return nullptr; }
     void deleteBatteryClient(WKC::BatteryClientIf*) override {}
 };
+
+
 static WaveMemoryHandler s_memory_handler;
 static WaveTimerHandler s_timer_handler;
 static WaveClientBuilders s_client_builders;
