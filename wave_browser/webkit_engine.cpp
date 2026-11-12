@@ -24,7 +24,6 @@ extern "C" {
 #include <wkc/WKCWebView.h>
 #include <wkc/WKCClientBuilders.h>
 #include <wkc/helpers/ChromeClientIf.h>
-#include <wkc/helpers/FrameLoaderClientIf.h>
 #include <wkc/helpers/EditorClientIf.h>
 #include <wkc/helpers/ContextMenuClientIf.h>
 #include <wkc/helpers/DragClientIf.h>
@@ -148,12 +147,6 @@ public:
 // The legacy helper interfaces define several parameter/return types inside
 // WKC without qualifying each occurrence in the interface declarations.
 using namespace WKC;
-static WKC::ResourceError makeWaveDefaultResourceError()
-{
-    WKC::String empty;
-    return WKC::ResourceError(empty, 0, empty, empty, nullptr);
-}
-
 class WaveChromeClient final : public WKC::ChromeClientIf {
 public:
     void chromeDestroyed() override { }
@@ -245,134 +238,6 @@ public:
     void needTouchEvents(bool) override { }
 };
 
-class WaveFrameLoaderClient final : public WKC::FrameLoaderClientIf {
-public:
-    void frameLoaderDestroyed() override { }
-    bool hasWebView() const override { return true; }
-    void makeRepresentation(WKC::DocumentLoader*) override { }
-    void forceLayout() override { }
-    void forceLayoutForNonHTML() override { }
-    void setCopiesOnScroll() override { }
-    void detachedFromParent2() override { }
-    void detachedFromParent3() override { }
-    void assignIdentifierToInitialRequest(unsigned long, WKC::DocumentLoader*, const WKC::ResourceRequest&) override { }
-    void dispatchWillSendRequest(WKC::DocumentLoader*, unsigned long, WKC::ResourceRequest&, const WKC::ResourceResponse&) override { }
-    bool shouldUseCredentialStorage(WKC::DocumentLoader*, unsigned long) override { return true; }
-    void dispatchDidReceiveAuthenticationChallenge(WKC::DocumentLoader*, unsigned long, const WKC::AuthenticationChallenge&) override { }
-    void dispatchDidCancelAuthenticationChallenge(WKC::DocumentLoader*, unsigned long, const WKC::AuthenticationChallenge&) override { }
-    void dispatchDidReceiveResponse(WKC::DocumentLoader*, unsigned long, const WKC::ResourceResponse&) override { s_dirty = true; }
-    void dispatchDidReceiveContentLength(WKC::DocumentLoader*, unsigned long, int) override { }
-    void dispatchDidFinishLoading(WKC::DocumentLoader*, unsigned long) override { }
-    void dispatchDidFailLoading(WKC::DocumentLoader*, unsigned long, const WKC::ResourceError&) override { }
-    bool dispatchDidLoadResourceFromMemoryCache(WKC::DocumentLoader*, const WKC::ResourceRequest&, const WKC::ResourceResponse&, int) override { return false; }
-    void dispatchDidHandleOnloadEvents() override { }
-    void dispatchDidReceiveServerRedirectForProvisionalLoad() override { }
-    void dispatchDidCancelClientRedirect() override { }
-    void dispatchWillPerformClientRedirect(const WKC::URL&, double, double) override { }
-    void dispatchDidChangeLocationWithinPage() override { s_dirty = true; }
-    void dispatchDidNavigateWithinPage() override { s_dirty = true; }
-    void dispatchDidPushStateWithinPage() override { s_dirty = true; }
-    void dispatchDidReplaceStateWithinPage() override { s_dirty = true; }
-    void dispatchDidPopStateWithinPage() override { s_dirty = true; }
-    void dispatchWillClose() override { }
-    void dispatchDidReceiveIcon() override { }
-    void dispatchDidStartProvisionalLoad() override { s_dirty = true; }
-    void dispatchDidReceiveTitle(const WKC::String&) override { s_dirty = true; }
-    void dispatchDidCommitLoad() override { s_dirty = true; }
-    void dispatchDidFailProvisionalLoad(const WKC::ResourceError&) override { s_dirty = true; }
-    void dispatchDidFailLoad(const WKC::ResourceError&) override { s_dirty = true; }
-    void dispatchDidFinishDocumentLoad() override { s_dirty = true; }
-    void dispatchDidFinishLoad() override { s_dirty = true; }
-    void dispatchDidFirstLayout() override { s_dirty = true; }
-    void dispatchDidFirstVisuallyNonEmptyLayout() override { s_dirty = true; }
-    void dispatchDidNewFirstVisuallyNonEmptyLayout() override { s_dirty = true; }
-    void dispatchDidLayout() override { s_dirty = true; }
-    WKC::Frame* dispatchCreatePage() override { return {}; }
-    void dispatchShow() override { }
-    void dispatchDecidePolicyForNewWindowAction(WKC::FramePolicyFunction& function, const WKC::NavigationAction&, const WKC::ResourceRequest&, WKC::FormState*, const WKC::String&) override { function.reply(WKC::PolicyUse); }
-    void dispatchDecidePolicyForNavigationAction(WKC::FramePolicyFunction& function, const WKC::NavigationAction&, const WKC::ResourceRequest&, WKC::FormState*) override { function.reply(WKC::PolicyUse); }
-    void dispatchDecidePolicyForResponse(WKC::FramePolicyFunction& function, const WKC::ResourceResponse&, const WKC::ResourceRequest&) override { function.reply(WKC::PolicyUse); }
-    void cancelPolicyCheck() override { }
-    void dispatchUnableToImplementPolicy(const WKC::ResourceError&) override { }
-    void dispatchWillSendSubmitEvent(WKC::FormState*) override { }
-    void dispatchWillSubmitForm(WKC::FramePolicyFunction& function, WKC::FormState*) override { function.reply(WKC::PolicyUse); }
-    void revertToProvisionalState(WKC::DocumentLoader*) override { }
-    void setMainDocumentError(WKC::DocumentLoader*, const WKC::ResourceError&) override { }
-    void willChangeEstimatedProgress() override { }
-    void didChangeEstimatedProgress() override { }
-    void postProgressStartedNotification() override { }
-    void postProgressEstimateChangedNotification() override { }
-    void postProgressFinishedNotification() override { }
-    void setMainFrameDocumentReady(bool) override { s_dirty = true; }
-    void startDownload(const WKC::ResourceRequest&, const WKC::String&) override { }
-    void willChangeTitle(WKC::DocumentLoader*) override { }
-    void didChangeTitle(WKC::DocumentLoader*) override { }
-    void committedLoad(WKC::DocumentLoader*, const char*, int) override { s_dirty = true; }
-    void finishedLoading(WKC::DocumentLoader*) override { s_dirty = true; }
-    void updateGlobalHistory() override { }
-    void updateGlobalHistoryRedirectLinks() override { }
-    bool shouldGoToHistoryItem(WKC::HistoryItem*) const override { return true; }
-    bool shouldStopLoadingForHistoryItem(WKC::HistoryItem*) const override { return false; }
-    void updateGlobalHistoryItemForPage() override { }
-    void didDisplayInsecureContent() override { }
-    void didRunInsecureContent(WKC::SecurityOrigin*, const WKC::URL&) override { }
-    void didDetectXSS(const WKC::URL&, bool) override { }
-    WKC::ResourceError cancelledError(const WKC::ResourceRequest&) override { return makeWaveDefaultResourceError(); }
-    WKC::ResourceError blockedError(const WKC::ResourceRequest&) override { return makeWaveDefaultResourceError(); }
-    WKC::ResourceError cannotShowURLError(const WKC::ResourceRequest&) override { return makeWaveDefaultResourceError(); }
-    WKC::ResourceError interruptForPolicyChangeError(const WKC::ResourceRequest&) override { return makeWaveDefaultResourceError(); }
-    WKC::ResourceError cannotShowMIMETypeError(const WKC::ResourceResponse&) override { return makeWaveDefaultResourceError(); }
-    WKC::ResourceError fileDoesNotExistError(const WKC::ResourceResponse&) override { return makeWaveDefaultResourceError(); }
-    bool shouldFallBack(const WKC::ResourceError&) override { return false; }
-    bool canHandleRequest(const WKC::ResourceRequest&) const override { return true; }
-    bool canShowMIMEType(const WKC::String&) const override { return true; }
-    bool canShowMIMETypeAsHTML(const WKC::String&) const override { return true; }
-    bool representationExistsForURLScheme(const WKC::String&) const override { return {}; }
-    WKC::String generatedMIMETypeForURLScheme(const WKC::String&) const override { return {}; }
-    void frameLoadCompleted() override { }
-    void saveViewStateToItem(WKC::HistoryItem*) override { }
-    void restoreViewState() override { }
-    void provisionalLoadStarted() override { }
-    void didFinishLoad() override { }
-    void prepareForDataSourceReplacement() override { }
-    void setTitle(const WKC::String&, const WKC::URL&) override { }
-    WKC::String userAgent(const WKC::URL&) override { return WKC::String("Mozilla/5.0 (Nintendo Wii U) AppleWebKit/605.1.15 (KHTML, like Gecko) Safari/605.1.15"); }
-    void savePlatformDataToCachedFrame(WKC::CachedFrame*) override { }
-    void transitionToCommittedFromCachedFrame(WKC::CachedFrame*) override { }
-    void transitionToCommittedForNewPage() override { }
-    void didSaveToPageCache() override { }
-    void didRestoreFromPageCache() override { }
-    void dispatchDidBecomeFrameset(bool) override { }
-    bool canCachePage() const override { return false; }
-    void download(WKC::ResourceHandle*, const WKC::ResourceRequest&, const WKC::ResourceResponse&) override { }
-    WKC::Widget* createPlugin(const WKCSize&, WKC::HTMLPlugInElement*, const WKC::URL&, const WKC::String**, const WKC::String**, const WKC::String&, bool) override { return {}; }
-    void redirectDataToPlugin(WKC::Widget*) override { }
-    WKC::Widget* createJavaAppletWidget(const WKCSize&, WKC::HTMLAppletElement*, const WKC::URL&, const WKC::String**, const WKC::String**) override { return {}; }
-    WKC::ObjectContentType objectContentType(const WKC::URL&, const WKC::String&, bool) override { return {}; }
-    void dispatchDidClearWindowObjectInWorld(WKC::DOMWrapperWorld*) override { }
-    void documentElementAvailable() override { }
-    void didPerformFirstNavigation() const override { }
-    void registerForIconNotification(bool) override { }
-    void didChangeScrollOffset() override { }
-    bool allowScript(bool enabledPerSettings) override { return enabledPerSettings; }
-    bool allowScriptFromSource(bool enabledPerSettings, const WKC::URL&) override { return enabledPerSettings; }
-    bool allowPlugins(bool) override { return false; }
-    bool allowImage(bool enabledPerSettings, const WKC::URL&) override { return enabledPerSettings; }
-    bool allowDisplayingInsecureContent(bool, WKC::SecurityOrigin*, const URL&) override { return false; }
-    bool allowRunningInsecureContent(bool, WKC::SecurityOrigin*, const URL&) override { return false; }
-    void didNotAllowScript() override { }
-    void didNotAllowPlugins() override { }
-    bool shouldForceUniversalAccessFromLocalURL(const URL&) override { return false; }
-    void dispatchGlobalObjectAvailable(WKC::DOMWrapperWorld*) override { }
-    bool dispatchWillAcceptCookie(bool, WKC::ResourceHandle*, const char*, const char*, const char*) override { return true; }
-    bool dispatchWillReceiveData(WKC::ResourceHandle*, int) override { return true; }
-    bool notifySSLHandshakeStatus(WKC::ResourceHandle*, SSLHandshakeStatus) override { return false; }
-    int dispatchWillPermitSendRequest(void*, const char*, WKC::ContentComposition, bool, const WKC::ResourceResponse&) override { return 1; }
-#ifdef WKC_ENABLE_CUSTOMJS
-    bool dispatchWillCallCustomJS(WKCCustomJSAPIList*, void**) override { return {}; }
-#endif
-};
-
 class WaveEditorClient final : public WKC::EditorClientIf {
 public:
     void pageDestroyed() override { }
@@ -461,8 +326,6 @@ public:
     void deleteDragClient(WKC::DragClientIf* client) override { delete static_cast<WaveDragClient*>(client); }
     WKC::EditorClientIf* createEditorClient(WKC::WKCWebView*) override { return new WaveEditorClient(); }
     void deleteEditorClient(WKC::EditorClientIf* client) override { delete static_cast<WaveEditorClient*>(client); }
-    WKC::FrameLoaderClientIf* createFrameLoaderClient(WKC::WKCWebFrame*) override { return new WaveFrameLoaderClient(); }
-    void deleteFrameLoaderClient(WKC::FrameLoaderClientIf* client) override { delete static_cast<WaveFrameLoaderClient*>(client); }
     WKC::InspectorClientIf* createInspectorClient(WKC::WKCWebView*) override { return nullptr; }
     void deleteInspectorClient(WKC::InspectorClientIf*) override {}
     WKC::DropDownListClientIf* createDropDownListClient(WKC::WKCWebView*) override { return new WaveDropDownListClient(); }
