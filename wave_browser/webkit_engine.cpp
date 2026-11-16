@@ -1039,6 +1039,12 @@ void webkit_engine_navigate(const char* url)
 
 void webkit_engine_tick(void)
 {
+    // Drain WebCore's main RunLoop before servicing timers and painting. The
+    // WKC cURL backend completes transfers on its worker thread and posts the
+    // response callbacks to this loop; without this pump, HTTPS navigation can
+    // connect and receive bytes but never commit the document in the frame.
+    WKC::WKCWebKitProcessEvents();
+
     // A WebKit view must be serviced every frame, even before its first timer
     // request. Returning here when the timer queue is empty can prevent the
     // initial navigation, layout and paint pipeline from making progress.
