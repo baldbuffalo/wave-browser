@@ -939,7 +939,7 @@ static void handle_input(VPADStatus* vpad)
             touch_hit(tx,ty, s_tab_count*TAB_W, TOOLBAR_H, 40, TAB_BAR_H)) {
             memset(&s_tabs[s_tab_count],0,sizeof(Tab));
             strcpy(s_tabs[s_tab_count].title,"New Tab");
-            s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=s_active_tab;
+            s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=2*s_active_tab;
         }
     }
 }
