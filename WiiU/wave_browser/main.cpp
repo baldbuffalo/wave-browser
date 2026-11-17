@@ -1487,6 +1487,11 @@ static void handle_input(VPADStatus* vpad)
 
 int main(int, char**)
 {
+    // Keep WebKit site state on the browser's installed storage volume.
+    // These paths are read before the first page is created.
+    setenv("CURL_COOKIE_JAR_PATH", INSTALL_DIR "/cookie.jar.db", 1);
+    setenv("WKC_INDEXEDDB_PATH", INSTALL_DIR "/IndexedDB", 1);
+
     ProcUIInitEx(SaveCallback, nullptr);
     AXInit();
     SDL_Init(SDL_INIT_VIDEO);
