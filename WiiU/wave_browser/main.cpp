@@ -113,6 +113,90 @@ static Tab s_tabs[MAX_TABS];
 static int s_tab_count  = 1;
 static int s_active_tab = 0;
 
+// The New Tab document is the selected provider's real homepage. Keep its
+// browser-chrome URL empty so it remains a true New Tab rather than a fake
+// google.com address.
+static const char* search_engine_name()
+{
+    static const char* names[] = { "Google", "Bing", "DuckDuckGo", "Yahoo" };
+    int n = g_settings.search_engine;
+    return (n >= 0 && n <= 3) ? names[n] : names[0];
+}
+
+static const char* search_engine_home()
+{
+    static const char* homes[] = {
+        "https://www.google.com/",
+        "https://www.bing.com/",
+        "https://duckduckgo.com/",
+        "https://search.yahoo.com/"
+    };
+    int n = g_settings.search_engine;
+    return (n >= 0 && n <= 3) ? homes[n] : homes[0];
+}
+
+static void open_new_tab_page()
+{
+    webkit_engine_navigate(search_engine_home());
+}
+
+static void create_new_tab()
+{
+    if (s_tab_count >= MAX_TABS) return;
+    memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
+    strncpy(s_tabs[s_tab_count].title, "New Tab", sizeof(s_tabs[s_tab_count].title) - 1);
+    s_active_tab = s_tab_count++;
+    open_new_tab_page();
+}
+
+// Plain words are searched with the selected provider. Hostnames and explicit
+// URLs continue through WebKit's normal URL handling.
+static void navigate_address_input(const char* input)
+{
+    if (!input || !input[0]) return;
+
+    bool looks_like_url = strstr(input, "://") != nullptr ||
+                          strstr(input, ".") != nullptr ||
+                          strcmp(input, "localhost") == 0;
+    if (looks_like_url) {
+        strncpy(s_tabs[s_active_tab].url, input, MAX_URL - 1);
+        s_tabs[s_active_tab].url[MAX_URL - 1] = '\0';
+        strncpy(s_tabs[s_active_tab].title, input, sizeof(s_tabs[s_active_tab].title) - 1);
+        webkit_engine_navigate(input);
+        return;
+    }
+
+    const char* prefix = "https://www.google.com/search?q=";
+    switch (g_settings.search_engine) {
+        case 1: prefix = "https://www.bing.com/search?q="; break;
+        case 2: prefix = "https://duckduckgo.com/?q="; break;
+        case 3: prefix = "https://search.yahoo.com/search?p="; break;
+        default: break;
+    }
+
+    char search_url[MAX_URL] = {};
+    size_t used = (size_t)snprintf(search_url, sizeof(search_url), "%s", prefix);
+    static const char hex[] = "0123456789ABCDEF";
+    for (const unsigned char* p = (const unsigned char*)input;
+         *p && used + 4 < sizeof(search_url); ++p) {
+        unsigned char c = *p;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+            c == '.' || c == '~') {
+            search_url[used++] = (char)c;
+        } else {
+            search_url[used++] = '%';
+            search_url[used++] = hex[c >> 4];
+            search_url[used++] = hex[c & 15];
+        }
+    }
+    search_url[used] = '\0';
+    strncpy(s_tabs[s_active_tab].url, search_url, MAX_URL - 1);
+    s_tabs[s_active_tab].url[MAX_URL - 1] = '\0';
+    strncpy(s_tabs[s_active_tab].title, input, sizeof(s_tabs[s_active_tab].title) - 1);
+    webkit_engine_navigate(search_url);
+}
+
 // ─── UI state ─────────────────────────────────────────────────────────────────
 
 static bool s_in_settings       = false;
@@ -374,8 +458,10 @@ static void draw_browser_ui()
     sdl_rect(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BG);
     sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H,
                 f3 ? COL_FOCUS_RING : COL_ADDR_BORDER, f3 ? 2 : 1);
+    char address_hint[96];
+    snprintf(address_hint, sizeof(address_hint), "Search %s or type a URL", search_engine_name());
     const char* url = s_tabs[s_active_tab].url[0]
-        ? s_tabs[s_active_tab].url : "Select and press A to enter URL";
+        ? s_tabs[s_active_tab].url : address_hint;
     sdl_text(s_font_md, url, ADDR_BAR_X+10, ADDR_BAR_Y+ADDR_BAR_H-4,
              s_tabs[s_active_tab].url[0] ? COL_ADDR_TEXT : COL_GRAY, 0);
 
@@ -447,14 +533,8 @@ static void open_url_keyboard()
         usleep(16000);
     }
     nn::swkbd::DisappearInputForm(); nn::swkbd::Destroy(); MEMFreeToDefaultHeap(workMem);
-    if (result[0]) {
-        memcpy(s_tabs[s_active_tab].url,   result, MAX_URL-1);
-        memcpy(s_tabs[s_active_tab].title, result, 63);
-        s_tabs[s_active_tab].url[MAX_URL-1] = '\0';
-        s_tabs[s_active_tab].title[63] = '\0';
-        // Tell the WebKit engine to load this URL
-        webkit_engine_navigate(result);
-    }
+    if (result[0])
+        navigate_address_input(result);
 }
 
 // ─── Network helpers ──────────────────────────────────────────────────────────
@@ -1169,9 +1249,7 @@ static void focus_activate()
         if (s_focus_col < s_tab_count) {
             s_active_tab = s_focus_col;
         } else if (s_tab_count < MAX_TABS) {
-            memset(&s_tabs[s_tab_count],0,sizeof(Tab));
-            strcpy(s_tabs[s_tab_count].title,"New Tab");
-            s_active_tab = s_tab_count++;
+            create_new_tab();
             s_focus_col  = s_active_tab;
         }
     }
@@ -1213,9 +1291,7 @@ static void handle_wii_remote_input(KPADStatus* kp)
     }
 
     if ((btn & WPAD_BUTTON_PLUS) && s_tab_count < MAX_TABS) {
-        memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
-        strcpy(s_tabs[s_tab_count].title, "New Tab");
-        s_active_tab = s_tab_count++;
+        create_new_tab();
         s_focus_row = 1;
         s_focus_col = s_active_tab;
     }
@@ -1283,9 +1359,7 @@ static void handle_wii_remote_input(KPADStatus* kp)
 
         uint32_t nbtn = kp->nunchuk.trigger;
         if ((nbtn & WPAD_NUNCHUK_BUTTON_C) && s_tab_count < MAX_TABS) {
-            memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
-            strcpy(s_tabs[s_tab_count].title, "New Tab");
-            s_active_tab = s_tab_count++;
+            create_new_tab();
             s_focus_row = 1;
             s_focus_col = s_active_tab;
         }
@@ -1336,8 +1410,7 @@ static void handle_input(VPADStatus* vpad)
     if (btn&VPAD_BUTTON_A) focus_activate();
 
     if ((btn&VPAD_BUTTON_X)&&s_tab_count<MAX_TABS) {
-        memset(&s_tabs[s_tab_count],0,sizeof(Tab)); strcpy(s_tabs[s_tab_count].title,"New Tab");
-        s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=s_active_tab;
+        create_new_tab(); s_focus_row=1; s_focus_col=s_active_tab;
     }
     if ((btn&VPAD_BUTTON_Y)&&s_tab_count>1) {
         int ci=(s_focus_row==1&&s_focus_col<s_tab_count)?s_focus_col:s_active_tab;
@@ -1383,9 +1456,7 @@ static void handle_input(VPADStatus* vpad)
 
         if (s_tab_count<MAX_TABS &&
             touch_hit(tx,ty, s_tab_count*TAB_W, TOOLBAR_H, 40, TAB_BAR_H)) {
-            memset(&s_tabs[s_tab_count],0,sizeof(Tab));
-            strcpy(s_tabs[s_tab_count].title,"New Tab");
-            s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=s_active_tab;
+            create_new_tab(); s_focus_row=1; s_focus_col=s_active_tab;
             return;
         }
 
@@ -1433,26 +1504,23 @@ int main(int, char**)
     gamepad_keyboard_init();
 
     memset(s_tabs, 0, sizeof(s_tabs));
-    strncpy(s_tabs[0].title, "Google", 63);
-    strncpy(s_tabs[0].url, "https://www.google.com/", MAX_URL - 1);
-    s_tabs[0].url[MAX_URL - 1] = '\0';
+    strncpy(s_tabs[0].title, "New Tab", sizeof(s_tabs[0].title) - 1);
     s_tab_count = 1;
     s_active_tab = 0;
 
     settings_load();
     if (g_settings.improved_multitasking) {
         load_session();
-        // Google remains the first-run startup page, while an existing saved
-        // session is preserved when it contains usable tabs.
-        if (s_tab_count == 0 || s_tabs[0].url[0] == '\0') {
-            strncpy(s_tabs[0].title, "Google", 63);
-            strncpy(s_tabs[0].url, "https://www.google.com/", MAX_URL - 1);
-            s_tabs[0].url[MAX_URL - 1] = '\0';
+        if (s_tab_count == 0) {
             s_tab_count = 1;
             s_active_tab = 0;
+            strncpy(s_tabs[0].title, "New Tab", sizeof(s_tabs[0].title) - 1);
         }
     }
-    webkit_engine_navigate(s_tabs[s_active_tab].url);
+    if (s_tabs[s_active_tab].url[0])
+        webkit_engine_navigate(s_tabs[s_active_tab].url);
+    else
+        open_new_tab_page();
 
     run_splash_and_update();
 
