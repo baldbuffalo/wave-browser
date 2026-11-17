@@ -137,7 +137,9 @@ static void focus_open_address(void*);
 static void focus_open_settings(void*);
 static void focus_select_tab(void*);
 static void focus_close_tab(void*);
+static void focus_switcher_focus_tab(void*);
 static void focus_switcher_select_tab(void*);
+static void focus_add_tab(void*);
 
 // ─── Touch state ──────────────────────────────────────────────────────────────
 
@@ -301,7 +303,11 @@ static void draw_tab_switcher()
 static void handle_switcher_input(VPADStatus* vpad)
 {
     uint32_t btn = vpad->trigger;
-    if ((btn & VPAD_BUTTON_MINUS) || (btn & VPAD_BUTTON_B)) { s_show_tab_switcher = false; return; }
+    if ((btn & VPAD_BUTTON_MINUS) || (btn & VPAD_BUTTON_B)) {
+        s_show_tab_switcher = false;
+        ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
+        return;
+    }
     if (btn & VPAD_BUTTON_UP)    ui_focus_move(0, -1);
     if (btn & VPAD_BUTTON_DOWN)  ui_focus_move(0, 1);
     if (btn & VPAD_BUTTON_LEFT)  ui_focus_move(-1, 0);
@@ -816,6 +822,7 @@ static void focus_switcher_select_tab(void* user_data)
 {
     focus_switcher_focus_tab(user_data);
     s_show_tab_switcher = false;
+    ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
 }
 
 static void focus_add_tab(void*)
@@ -1126,7 +1133,8 @@ int main(int, char**)
 
             } else if (s_show_tab_switcher) {
                 handle_switcher_input(&vpad);
-                draw_tab_switcher();
+                if (s_show_tab_switcher) draw_tab_switcher();
+                else draw_browser_ui();
 
             } else {
                 handle_input(&vpad);
