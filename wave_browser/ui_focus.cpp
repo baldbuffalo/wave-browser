@@ -1,7 +1,7 @@
 #include "ui_focus.h"
 
 #include <stdint.h>
-#include <limits.h>
+#include <climits>
 
 namespace {
 constexpr int MAX_FOCUS_ITEMS = 256;

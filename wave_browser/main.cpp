@@ -127,7 +127,6 @@ enum BrowserFocusId {
 };
 
 static int s_stick_held = 0;
-static int s_wii_stick_held = 0;
 static int s_switcher_stick_held = 0;
 
 static void open_url_keyboard();
