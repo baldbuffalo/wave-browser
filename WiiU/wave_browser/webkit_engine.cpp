@@ -55,6 +55,29 @@ static bool           s_dirty    = false;
 static char           s_url[512] = {};
 static WKC::WKCWebView* s_webview = nullptr;
 static bool s_webkit_initialized = false;
+static WebKitEngineTitleCallback s_title_callback = nullptr;
+static char s_last_reported_title[256] = {};
+static void webkit_engine_report_page_title()
+{
+    if (!s_webview || !s_title_callback) return;
+    const unsigned short* title = s_webview->title();
+    char utf8[sizeof(s_last_reported_title)] = {};
+    size_t out = 0;
+    if (title) for (size_t i = 0; title[i] && out + 4 < sizeof(utf8); ++i) {
+        unsigned int cp = title[i];
+        if (cp >= 0xD800 && cp <= 0xDBFF && title[i + 1] >= 0xDC00 && title[i + 1] <= 0xDFFF)
+            cp = 0x10000 + ((cp - 0xD800) << 10) + (title[++i] - 0xDC00);
+        if (cp <= 0x7F) utf8[out++] = static_cast<char>(cp);
+        else if (cp <= 0x7FF) { utf8[out++] = static_cast<char>(0xC0 | (cp >> 6)); utf8[out++] = static_cast<char>(0x80 | (cp & 0x3F)); }
+        else if (cp <= 0xFFFF) { utf8[out++] = static_cast<char>(0xE0 | (cp >> 12)); utf8[out++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); utf8[out++] = static_cast<char>(0x80 | (cp & 0x3F)); }
+        else { utf8[out++] = static_cast<char>(0xF0 | (cp >> 18)); utf8[out++] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F)); utf8[out++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); utf8[out++] = static_cast<char>(0x80 | (cp & 0x3F)); }
+    }
+    utf8[out] = '\0';
+    if (!strcmp(utf8, s_last_reported_title)) return;
+    strncpy(s_last_reported_title, utf8, sizeof(s_last_reported_title) - 1);
+    s_last_reported_title[sizeof(s_last_reported_title) - 1] = '\0';
+    s_title_callback(s_last_reported_title);
+}
 
 namespace {
 class WaveMemoryHandler final : public WKC::WKCMemoryEventHandler {
@@ -1433,10 +1456,17 @@ void webkit_engine_set_renderer(SDL_Renderer* ren)
                                     SDL_TEXTUREACCESS_STREAMING,s_w,s_h);
 }
 
+void webkit_engine_set_title_callback(WebKitEngineTitleCallback callback)
+{
+    s_title_callback = callback;
+    s_last_reported_title[0] = '\0';
+}
+
 void webkit_engine_navigate(const char* url)
 {
     if(!url) return;
     strncpy(s_url,url,sizeof(s_url)-1);
+    s_last_reported_title[0] = '\0';
     if (s_available && s_webview) {
         if (s_webview->loadURLOrSearch(url)) {
             s_dirty = true;
@@ -1467,6 +1497,7 @@ void webkit_engine_tick(void)
     if (s_available && s_webview) {
         WKC::WKCWebKitWakeUp(nullptr);
         s_webview->notifyServiceScriptedAnimations();
+        webkit_engine_report_page_title();
     }
     if (!s_timer_init) return;
 
