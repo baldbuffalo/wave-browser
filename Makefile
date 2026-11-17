@@ -49,7 +49,7 @@ endif
 
 # Core wave_browser sources (exclude plugin/ subdir)
 WB_CXXFILES := wave_browser/main.cpp wave_browser/settings.cpp \
-               wave_browser/webkit_engine.cpp wave_browser/gamepad_keyboard.cpp
+               wave_browser/ui_focus.cpp wave_browser/webkit_engine.cpp wave_browser/gamepad_keyboard.cpp
 
 # Vendored minizip
 MINIZIP_CFILES := vendor/minizip/ioapi.c vendor/minizip/unzip.c

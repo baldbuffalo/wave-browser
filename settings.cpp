@@ -49,8 +49,6 @@ void settings_load()
         int n = 0;
         if      (sscanf(line, "improved_multitasking=%d", &n) == 1)
             g_settings.improved_multitasking = (n != 0);
-        else if (sscanf(line, "search_engine=%d", &n) == 1)
-            g_settings.search_engine = (n >= 0 && n <= 3) ? n : 0;
         else if (strncmp(line, "tv_model_key=", 13) == 0)
             snprintf(g_settings.tv_model_key, sizeof(g_settings.tv_model_key), "%.*s",
                      (int)(sizeof(g_settings.tv_model_key)-1), line+13);
@@ -64,7 +62,6 @@ void settings_save()
     FILE* f = fopen(SETTINGS_PATH, "w");
     if (!f) return;
     fprintf(f, "improved_multitasking=%d\n", g_settings.improved_multitasking ? 1 : 0);
-    fprintf(f, "search_engine=%d\n",          g_settings.search_engine);
     fprintf(f, "tv_model_key=%s\n",          g_settings.tv_model_key);
     fclose(f);
 }
@@ -203,8 +200,7 @@ static int   s_model_count     = 0;
 #define ROW_MULTITASK     0
 #define ROW_TV_SETUP      1
 #define ROW_MIRROR_SCREEN 2
-#define ROW_SEARCH_ENGINE 3
-#define ROW_MAIN_COUNT    4
+#define ROW_MAIN_COUNT    3
 
 // ─── List builders ───────────────────────────────────────────────────────────
 
@@ -333,10 +329,6 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
             "Mirror Screen",
             "Stream the Wii U TV picture to a phone, tablet or computer over Wi-Fi"
         },
-        {
-            "Search Engine",
-            "Choose the provider used by the New Tab search page"
-        },
     };
 
     for (int i = 0; i < ROW_MAIN_COUNT; i++) {
@@ -373,15 +365,6 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
         // Right-side value / arrow
         if (i == ROW_MIRROR_SCREEN) {
             // Status is displayed on the right side of the centered plugin button.
-        } else if (i == ROW_SEARCH_ENGINE) {
-            static const char* names[] = {"Google", "Bing", "DuckDuckGo", "Yahoo"};
-            int selected = (g_settings.search_engine >= 0 && g_settings.search_engine <= 3)
-                ? g_settings.search_engine : 0;
-            ui_text(ren, fmd, names[selected],
-                    SETTINGS_ROW_X + SETTINGS_ROW_W - 24, ry + 56,
-                    focused ? COL_BLUE : COL_ADDR_TEXT, 2);
-            ui_text(ren, fmd, "<  A / LEFT / RIGHT  >",
-                    SETTINGS_ROW_X + SETTINGS_ROW_W - 24, ry + 82, COL_GRAY, 2);
         } else if (i == ROW_MULTITASK) {
             bool on = g_settings.improved_multitasking;
             // Toggle pill
@@ -827,14 +810,6 @@ bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y
         if (s_sel == ROW_MIRROR_SCREEN && (btn & VPAD_BUTTON_A))
             activate_mirror_row();
 
-        // Search provider selection: A/right advances, left goes back.
-        if (s_sel == ROW_SEARCH_ENGINE) {
-            if (btn & (VPAD_BUTTON_A | VPAD_BUTTON_RIGHT))
-                g_settings.search_engine = (g_settings.search_engine + 1) % 4;
-            else if (btn & VPAD_BUTTON_LEFT)
-                g_settings.search_engine = (g_settings.search_engine + 3) % 4;
-        }
-
         // SELECT on TV Setup row → auto-detect via CEC
         if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_MINUS)) {
             tv_detect_start();
@@ -860,8 +835,6 @@ bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y
                         s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
                     } else if (i == ROW_MIRROR_SCREEN) {
                         activate_mirror_row();
-                    } else if (i == ROW_SEARCH_ENGINE) {
-                        g_settings.search_engine = (g_settings.search_engine + 1) % 4;
                     }
                     s_sel = i;
                     break;

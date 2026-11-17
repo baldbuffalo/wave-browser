@@ -2,6 +2,7 @@
 #include "plugin_installer.h"
 #include "mirror_installer.h"
 #include "ui_common.h"
+#include "ui_focus.h"
 #include "tv_remotes/tv_remote.h"
 #include "tv_remotes/model_registry.h"
 #include "tv_remotes/tv_detect.h"
@@ -10,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 // ─── Global settings instance ────────────────────────────────────────────────
 
@@ -111,12 +113,33 @@ enum SettingsPage {
 static SettingsPage s_page      = PAGE_MAIN;
 static int          s_sel       = 0;  // cursor within current list
 static int          s_scroll    = 0;  // scroll offset within current list
+static bool         s_install_started = false;
+
+static constexpr int SETTINGS_FOCUS_BASE = 10000;
+static int settings_focus_id(int index)
+{
+    return SETTINGS_FOCUS_BASE + (int)s_page * 256 + index;
+}
+static void settings_focus_changed(void* user_data);
+static void settings_activate_item(int index);
+static void settings_focus_activate(void* user_data)
+{
+    settings_activate_item((int)(intptr_t)user_data);
+}
+static void settings_register_item(int index, int x, int y, int w, int h)
+{
+    ui_focus_register(settings_focus_id(index), x, y, w, h,
+                      settings_focus_changed, settings_focus_activate,
+                      (void*)(intptr_t)index);
+}
 
 void settings_open()
 {
     s_page   = PAGE_MAIN;
     s_sel    = 0;
     s_scroll = 0;
+    s_install_started = false;
+    ui_focus_set_current(settings_focus_id(0));
 }
 
 
@@ -333,6 +356,7 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
 
     for (int i = 0; i < ROW_MAIN_COUNT; i++) {
         int ry = SETTINGS_ROW_START + i * (SETTINGS_ROW_H + SETTINGS_ROW_PAD);
+        settings_register_item(i, SETTINGS_ROW_X, ry, SETTINGS_ROW_W, SETTINGS_ROW_H);
         bool focused = (i == s_sel);
 
         // Row background
@@ -400,7 +424,6 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
             "\xe2\x96\xb2\xe2\x96\xbc: move  A: select / toggle  B: save & close",
             TV_W/2, TV_H - 12, COL_GRAY, 1);
 
-    SDL_RenderPresent(ren);
 }
 
 // ─── Brand page ──────────────────────────────────────────────────────────────
@@ -408,6 +431,10 @@ static void draw_main(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
 static void draw_brand(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
     draw_panel(ren, flg, "Select Brand");
+    for (int idx = 0; idx < s_brand_count; ++idx) {
+        int ry = LIST_TOP + (idx - s_scroll) * ROW_H;
+        settings_register_item(idx, PANEL_X + 4, ry, PANEL_W - 8, ROW_H - 4);
+    }
     for (int v = 0; v < ROWS_VISIBLE && (s_scroll+v) < s_brand_count; v++) {
         int idx = s_scroll + v;
         bool focused = (idx == s_sel);
@@ -417,7 +444,6 @@ static void draw_brand(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font
     char pg[32]; snprintf(pg, sizeof(pg), "%d/%d", s_sel+1, s_brand_count);
     ui_text(ren, fsm, pg, PANEL_X+PANEL_W-16, PANEL_Y+HEADER_H+4, COL_GRAY, 2);
     draw_hint(ren, fsm, "\xe2\x96\xb2\xe2\x96\xbc: scroll  A: select brand  B: back");
-    SDL_RenderPresent(ren);
 }
 
 // ─── Year page ───────────────────────────────────────────────────────────────
@@ -426,6 +452,10 @@ static void draw_year(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
 {
     char hdr[128]; snprintf(hdr, sizeof(hdr), "%s \xe2\x80\x93 Select Year", s_brand_sel);
     draw_panel(ren, flg, hdr);
+    for (int idx = 0; idx < s_year_count; ++idx) {
+        int ry = LIST_TOP + (idx - s_scroll) * ROW_H;
+        settings_register_item(idx, PANEL_X + 4, ry, PANEL_W - 8, ROW_H - 4);
+    }
     for (int v = 0; v < ROWS_VISIBLE && (s_scroll+v) < s_year_count; v++) {
         int idx = s_scroll + v;
         bool focused = (idx == s_sel);
@@ -434,7 +464,6 @@ static void draw_year(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font*
         draw_list_row(ren, fmd, v, buf, focused, checked);
     }
     draw_hint(ren, fsm, "\xe2\x96\xb2\xe2\x96\xbc: scroll  A: select year  B: back");
-    SDL_RenderPresent(ren);
 }
 
 // ─── Model page ──────────────────────────────────────────────────────────────
@@ -443,6 +472,10 @@ static void draw_model(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font
 {
     char hdr[128]; snprintf(hdr, sizeof(hdr), "%s %d \xe2\x80\x93 Select Model", s_brand_sel, s_year_sel);
     draw_panel(ren, flg, hdr);
+    for (int idx = 0; idx < s_model_count; ++idx) {
+        int ry = LIST_TOP + (idx - s_scroll) * ROW_H;
+        settings_register_item(idx, PANEL_X + 4, ry, PANEL_W - 8, ROW_H - 4);
+    }
     for (int v = 0; v < ROWS_VISIBLE && (s_scroll+v) < s_model_count; v++) {
         int idx = s_scroll + v;
         const TVRemoteModel* m = model_registry_get(s_model_indices[idx]);
@@ -453,7 +486,6 @@ static void draw_model(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font
         draw_list_row(ren, fmd, v, m->model, focused, checked);
     }
     draw_hint(ren, fsm, "\xe2\x96\xb2\xe2\x96\xbc: scroll  A: select model  B: back");
-    SDL_RenderPresent(ren);
 }
 
 // ─── Detecting page ──────────────────────────────────────────────────────────
@@ -487,8 +519,11 @@ static void draw_detecting(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_
             g_settings.detect_state = 3;
         }
     }
-    draw_hint(ren, fsm, "B: cancel");
-    SDL_RenderPresent(ren);
+    int bx = PANEL_X + PANEL_W/2 - 120, by = PANEL_Y + PANEL_H - 80;
+    settings_register_item(0, bx, by, 240, 44);
+    ui_rect(ren, bx, by, 240, 44, {0xEE,0xEE,0xEE,0xFF});
+    ui_text(ren, fmd, "Cancel", bx + 120, by + 28, COL_ADDR_TEXT, 1);
+    draw_hint(ren, fsm, "A: cancel  B: cancel");
 }
 
 // ─── Detect result page ──────────────────────────────────────────────────────
@@ -510,8 +545,14 @@ static void draw_detect_result(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, 
         ui_text(ren, fsm, "Check HDMI cable and TV CEC setting, or pick manually.",
                 PANEL_X+PANEL_W/2, LIST_TOP+120, COL_GRAY, 1);
     }
-    draw_hint(ren, fsm, "A: accept & close  B: pick manually");
-    SDL_RenderPresent(ren);
+    int by = PANEL_Y + PANEL_H - 80, bw = (PANEL_W - 160) / 2;
+    settings_register_item(0, PANEL_X + 60, by, bw, 44);
+    settings_register_item(1, PANEL_X + PANEL_W/2 + 20, by, bw, 44);
+    ui_rect(ren, PANEL_X + 60, by, bw, 44, {0x42,0x85,0xF4,0xFF});
+    ui_text(ren, fmd, "Accept", PANEL_X + 60 + bw/2, by + 28, COL_WHITE, 1);
+    ui_rect(ren, PANEL_X + PANEL_W/2 + 20, by, bw, 44, {0xEE,0xEE,0xEE,0xFF});
+    ui_text(ren, fmd, "Pick manually", PANEL_X + PANEL_W/2 + 20 + bw/2, by + 28, COL_ADDR_TEXT, 1);
+    draw_hint(ren, fsm, "Left/Right: choose  A: select  B: back");
 }
 
 
@@ -557,6 +598,8 @@ static void draw_setup_step(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd,
 
     // Action buttons at bottom
     if (btn_a && btn_a[0]) {
+        settings_register_item(0, PANEL_X+60, PANEL_Y+PANEL_H-80,
+                               (PANEL_W-160)/2, 44);
         ui_rect(ren, PANEL_X+60, PANEL_Y+PANEL_H-80, (PANEL_W-160)/2, 44,
                 {0x42,0x85,0xF4,0xFF});
         ui_text(ren, fmd, btn_a,
@@ -564,6 +607,8 @@ static void draw_setup_step(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd,
                 COL_WHITE, 1);
     }
     if (btn_b && btn_b[0]) {
+        settings_register_item(1, PANEL_X+PANEL_W/2+20, PANEL_Y+PANEL_H-80,
+                               (PANEL_W-160)/2, 44);
         ui_rect(ren, PANEL_X+PANEL_W/2+20, PANEL_Y+PANEL_H-80, (PANEL_W-160)/2, 44,
                 {0xEE,0xEE,0xEE,0xFF});
         ui_text(ren, fmd, btn_b,
@@ -575,7 +620,6 @@ static void draw_setup_step(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd,
     if (hint && hint[0])
         ui_text(ren, fsm, hint, PANEL_X+PANEL_W/2, PANEL_Y+PANEL_H-10, COL_GRAY, 1);
 
-    SDL_RenderPresent(ren);
 }
 
 static void draw_setup_intro(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
@@ -703,7 +747,11 @@ static void draw_mirror_info(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd,TTF_F
     ui_text(ren,fmd,"http://<WII-U-IP>:8088/",PANEL_X+PANEL_W/2,LIST_TOP+220,COL_BLUE,1);
     ui_text(ren,fsm,"Find the Wii U IPv4 address in Internet connection details.",PANEL_X+PANEL_W/2,LIST_TOP+274,COL_GRAY,1);
     ui_text(ren,fsm,"TV video only in this first version; GamePad and audio are not streamed.",PANEL_X+PANEL_W/2,LIST_TOP+322,COL_GRAY,1);
-    draw_hint(ren,fsm,"B: Back"); SDL_RenderPresent(ren);
+    int bx = PANEL_X + PANEL_W/2 - 120, by = PANEL_Y + PANEL_H - 80;
+    settings_register_item(0, bx, by, 240, 44);
+    ui_rect(ren, bx, by, 240, 44, {0x42,0x85,0xF4,0xFF});
+    ui_text(ren, fmd, "Back", bx + 120, by + 28, COL_WHITE, 1);
+    draw_hint(ren,fsm,"A: select  B: back");
 }
 static void draw_mirror_installing(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd,TTF_Font* flg)
 {
@@ -717,7 +765,6 @@ static void draw_mirror_installing(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd
     int fill=w*pct/100; if(fill>0)ui_rect(ren,x,y,fill,24,COL_BLUE);
     ui_outline(ren,x,y,w,24,{0xA0,0xA8,0xB5,0xFF},1);
     ui_text(ren,fsm,"The download runs on the Wii U and installs into Aroma.",PANEL_X+PANEL_W/2,y+66,COL_GRAY,1);
-    SDL_RenderPresent(ren);
 }
 static void draw_mirror_done(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd,TTF_Font* flg)
 {
@@ -730,14 +777,19 @@ static void draw_mirror_done(SDL_Renderer* ren,TTF_Font* fsm,TTF_Font* fmd,TTF_F
         ui_text(ren,fmd,"Mirror Screen could not be installed.",PANEL_X+PANEL_W/2,LIST_TOP+90,{0xCC,0x00,0x00,0xFF},1);
         ui_text(ren,fsm,"Check the internet connection and confirm Aroma is installed.",PANEL_X+PANEL_W/2,LIST_TOP+150,COL_GRAY,1);
     }
-    draw_hint(ren,fsm,mirror_installer_state()==mirror_installer::FAILED?"A: Back   B: Retry":"A: Done");
-    SDL_RenderPresent(ren);
+    int bx = PANEL_X + PANEL_W/2 - 120, by = PANEL_Y + PANEL_H - 80;
+    settings_register_item(0, bx, by, 240, 44);
+    ui_rect(ren, bx, by, 240, 44, {0x42,0x85,0xF4,0xFF});
+    ui_text(ren, fmd, mirror_installer_state()==mirror_installer::FAILED?"Retry":"Done",
+            bx + 120, by + 28, COL_WHITE, 1);
+    draw_hint(ren,fsm,"A: select  B: back");
 }
 
 // ─── Public draw ─────────────────────────────────────────────────────────────
 
 void settings_draw(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* flg)
 {
+    ui_focus_begin_frame();
     mirror_installer_poll();
     if(s_page==PAGE_MIRROR_INSTALLING&&!mirror_installer_is_running())s_page=PAGE_MIRROR_DONE;
     switch (s_page) {
@@ -758,24 +810,168 @@ void settings_draw(SDL_Renderer* ren, TTF_Font* fsm, TTF_Font* fmd, TTF_Font* fl
         case PAGE_SETUP_INSTALLING: draw_setup_installing(ren, fsm, fmd, flg);break;
         case PAGE_SETUP_DONE:       draw_setup_done(ren, fsm, fmd, flg);      break;
     }
+    ui_focus_end_frame();
+    ui_focus_draw_current(ren);
+    SDL_RenderPresent(ren);
 }
 
-// ─── Input helpers ───────────────────────────────────────────────────────────
+// ─── Data-driven settings focus and activation ────────────────────────────────
 
-static void list_nav(int count, uint32_t btn)
+static int settings_current_item_count()
 {
-    if (btn & VPAD_BUTTON_UP) {
-        s_sel--;
-        if (s_sel < 0) s_sel = count - 1;
-        if (s_sel < s_scroll) s_scroll = s_sel;
-        if (s_scroll > s_sel - ROWS_VISIBLE + 1)
-            s_scroll = (s_sel - ROWS_VISIBLE + 1 > 0) ? s_sel - ROWS_VISIBLE + 1 : 0;
+    switch (s_page) {
+        case PAGE_MAIN: return ROW_MAIN_COUNT;
+        case PAGE_BRAND: return s_brand_count;
+        case PAGE_YEAR: return s_year_count;
+        case PAGE_MODEL: return s_model_count;
+        case PAGE_DETECT_RESULT: return 2;
+        case PAGE_MIRROR_INFO:
+        case PAGE_MIRROR_DONE:
+        case PAGE_DETECTING:
+        case PAGE_SETUP_INTRO:
+        case PAGE_SETUP_POINT:
+        case PAGE_SETUP_TEST:
+        case PAGE_SETUP_INSTALL:
+        case PAGE_SETUP_DONE:
+            return 1;
+        case PAGE_SETUP_RESULT:
+            return 2;
+        default:
+            return 0;
     }
-    if (btn & VPAD_BUTTON_DOWN) {
-        s_sel++;
-        if (s_sel >= count) s_sel = 0;
-        if (s_sel >= s_scroll + ROWS_VISIBLE) s_scroll = s_sel - ROWS_VISIBLE + 1;
-        if (s_scroll < 0) s_scroll = 0;
+}
+
+static void settings_focus_changed(void* user_data)
+{
+    int index = (int)(intptr_t)user_data;
+    int count = settings_current_item_count();
+    if (count <= 0) return;
+    if (index < 0) index = 0;
+    if (index >= count) index = count - 1;
+    s_sel = index;
+    if (s_sel < s_scroll) s_scroll = s_sel;
+    if (s_sel >= s_scroll + ROWS_VISIBLE)
+        s_scroll = s_sel - ROWS_VISIBLE + 1;
+    if (s_scroll < 0) s_scroll = 0;
+}
+
+static void settings_activate_item(int index)
+{
+    switch (s_page) {
+        case PAGE_MAIN:
+            if (index == ROW_MULTITASK) {
+                g_settings.improved_multitasking = !g_settings.improved_multitasking;
+            } else if (index == ROW_TV_SETUP) {
+                build_brands();
+                s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+            } else if (index == ROW_MIRROR_SCREEN) {
+                activate_mirror_row();
+            }
+            break;
+
+        case PAGE_BRAND:
+            if (index >= 0 && index < s_brand_count) {
+                strncpy(s_brand_sel, s_brands[index], sizeof(s_brand_sel)-1);
+                build_years();
+                s_page = PAGE_YEAR; s_sel = 0; s_scroll = 0;
+            }
+            break;
+
+        case PAGE_YEAR:
+            if (index >= 0 && index < s_year_count) {
+                s_year_sel = s_years[index];
+                build_models();
+                s_page = PAGE_MODEL; s_sel = 0; s_scroll = 0;
+            }
+            break;
+
+        case PAGE_MODEL:
+            if (index >= 0 && index < s_model_count) {
+                const TVRemoteModel* model = model_registry_get(s_model_indices[index]);
+                settings_make_key(model->brand, model->year, model->model,
+                                  g_settings.tv_model_key, sizeof(g_settings.tv_model_key));
+                tv_remote_set_model(model);
+                settings_save();
+                s_setup_test_fired = false;
+                s_setup_tv_responded = false;
+                s_setup_no_count = 0;
+                s_setup_anim = 0;
+                s_page = PAGE_SETUP_INTRO;
+            }
+            break;
+
+        case PAGE_DETECTING:
+            s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP;
+            break;
+
+        case PAGE_DETECT_RESULT:
+            if (index == 0) {
+                settings_save();
+                s_setup_test_fired = false;
+                s_setup_tv_responded = false;
+                s_setup_no_count = 0;
+                s_setup_anim = 0;
+                s_page = PAGE_SETUP_INTRO;
+            } else {
+                build_brands();
+                s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+            }
+            break;
+
+        case PAGE_MIRROR_INFO:
+            s_page = PAGE_MAIN; s_sel = ROW_MIRROR_SCREEN;
+            break;
+
+        case PAGE_MIRROR_DONE:
+            if (mirror_installer_state() == mirror_installer::FAILED) {
+                if (mirror_installer_start()) s_page = PAGE_MIRROR_INSTALLING;
+            } else {
+                s_page = PAGE_MAIN; s_sel = ROW_MIRROR_SCREEN;
+            }
+            break;
+
+        case PAGE_SETUP_INTRO:
+            s_page = PAGE_SETUP_POINT;
+            break;
+
+        case PAGE_SETUP_POINT:
+            s_setup_test_fired = false;
+            s_page = PAGE_SETUP_TEST;
+            break;
+
+        case PAGE_SETUP_TEST:
+            s_setup_test_fired = true;
+            s_page = PAGE_SETUP_RESULT;
+            break;
+
+        case PAGE_SETUP_RESULT:
+            if (index == 0) {
+                s_setup_tv_responded = true;
+                s_page = PAGE_SETUP_INSTALL;
+            } else {
+                ++s_setup_no_count;
+                s_setup_test_fired = false;
+                s_page = PAGE_SETUP_TEST;
+            }
+            break;
+
+        case PAGE_SETUP_INSTALL:
+            {
+                const TVRemoteModel* model = tv_remote_get_model();
+                if (model) plugin_write_config(model);
+                s_setup_anim = 0;
+                s_install_started = false;
+                s_page = PAGE_SETUP_INSTALLING;
+            }
+            break;
+
+        case PAGE_SETUP_DONE:
+            s_page = PAGE_MAIN;
+            s_sel = ROW_TV_SETUP;
+            break;
+
+        default:
+            break;
     }
 }
 
@@ -784,218 +980,124 @@ static void list_nav(int count, uint32_t btn)
 bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y)
 {
     mirror_installer_poll();
-    if(s_page==PAGE_MIRROR_INSTALLING&&!mirror_installer_is_running())s_page=PAGE_MIRROR_DONE;
+    if (s_page == PAGE_MIRROR_INSTALLING && !mirror_installer_is_running())
+        s_page = PAGE_MIRROR_DONE;
+
     uint32_t btn = vpad->trigger;
 
-    switch (s_page) {
+    // Keep directional navigation identical on every settings page.
+    if (btn & VPAD_BUTTON_UP)    ui_focus_move(0, -1);
+    if (btn & VPAD_BUTTON_DOWN)  ui_focus_move(0, 1);
+    if (btn & VPAD_BUTTON_LEFT)  ui_focus_move(-1, 0);
+    if (btn & VPAD_BUTTON_RIGHT) ui_focus_move(1, 0);
 
-    // ── Main ──────────────────────────────────────────────────────────────────
-    case PAGE_MAIN:
-        // Navigate rows with d-pad
-        if (btn & VPAD_BUTTON_UP)   s_sel = (s_sel > 0) ? s_sel - 1 : ROW_MAIN_COUNT - 1;
-        if (btn & VPAD_BUTTON_DOWN) s_sel = (s_sel < ROW_MAIN_COUNT - 1) ? s_sel + 1 : 0;
-
-        // Multitasking toggle — A, left, or right all toggle it
-        if (s_sel == ROW_MULTITASK &&
-            ((btn & VPAD_BUTTON_A) || (btn & VPAD_BUTTON_LEFT) || (btn & VPAD_BUTTON_RIGHT)))
-        {
-            g_settings.improved_multitasking = !g_settings.improved_multitasking;
+    static int stick_held = 0;
+    float sx = vpad->leftStick.x, sy = vpad->leftStick.y;
+    bool moving = sx < -0.45f || sx > 0.45f || sy > 0.45f || sy < -0.45f;
+    if (moving) {
+        ++stick_held;
+        if (stick_held == 1 || stick_held >= 18) {
+            if (stick_held >= 18) stick_held = 18;
+            if (abs((int)(sx * 1000)) > abs((int)(sy * 1000)))
+                ui_focus_move(sx < 0 ? -1 : 1, 0);
+            else
+                ui_focus_move(0, sy > 0 ? -1 : 1);
         }
-
-        // TV Remote Setup — A enters brand picker
-        if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_A)) {
-            build_brands();
-            s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
-        }
-        if (s_sel == ROW_MIRROR_SCREEN && (btn & VPAD_BUTTON_A))
-            activate_mirror_row();
-
-        // SELECT on TV Setup row → auto-detect via CEC
-        if (s_sel == ROW_TV_SETUP && (btn & VPAD_BUTTON_MINUS)) {
-            tv_detect_start();
-            s_page = PAGE_DETECTING;
-            s_detect_anim = 0;
-        }
-
-        // Touch — tap a row to select it; tap an already-selected row to activate it
-        if (tp_pressed) {
-            for (int i = 0; i < ROW_MAIN_COUNT; i++) {
-                int ry = SETTINGS_ROW_START + i * (SETTINGS_ROW_H + SETTINGS_ROW_PAD);
-                if (tp_x >= SETTINGS_ROW_X &&
-                    tp_x <  SETTINGS_ROW_X + SETTINGS_ROW_W &&
-                    tp_y >= ry &&
-                    tp_y <  ry + SETTINGS_ROW_H)
-                {
-                    if (i == ROW_MULTITASK) {
-                        // Always toggle on tap
-                        g_settings.improved_multitasking = !g_settings.improved_multitasking;
-                    } else if (i == ROW_TV_SETUP) {
-                        // Always open brand picker on tap
-                        build_brands();
-                        s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
-                    } else if (i == ROW_MIRROR_SCREEN) {
-                        activate_mirror_row();
-                    }
-                    s_sel = i;
-                    break;
-                }
-            }
-        }
-
-        // B — save and close settings
-        if (btn & VPAD_BUTTON_B) { settings_save(); return false; }
-        break;
-
-    // ── Brand ─────────────────────────────────────────────────────────────────
-    case PAGE_BRAND:
-        list_nav(s_brand_count, btn);
-        if (btn & VPAD_BUTTON_A) {
-            strncpy(s_brand_sel, s_brands[s_sel], sizeof(s_brand_sel)-1);
-            build_years();
-            s_page = PAGE_YEAR; s_sel = 0; s_scroll = 0;
-        }
-        if (btn & VPAD_BUTTON_B) { s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP; }
-        break;
-
-    // ── Year ──────────────────────────────────────────────────────────────────
-    case PAGE_YEAR:
-        list_nav(s_year_count, btn);
-        if (btn & VPAD_BUTTON_A) {
-            s_year_sel = s_years[s_sel];
-            build_models();
-            s_page = PAGE_MODEL; s_sel = 0; s_scroll = 0;
-        }
-        if (btn & VPAD_BUTTON_B) {
-            build_brands();
-            s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
-        }
-        break;
-
-    // ── Model ─────────────────────────────────────────────────────────────────
-    case PAGE_MODEL:
-        list_nav(s_model_count, btn);
-        if (btn & VPAD_BUTTON_A) {
-            const TVRemoteModel* m = model_registry_get(s_model_indices[s_sel]);
-            settings_make_key(m->brand, m->year, m->model,
-                              g_settings.tv_model_key, sizeof(g_settings.tv_model_key));
-            tv_remote_set_model(m);
-            settings_save();
-            // Launch setup wizard
-            s_setup_test_fired   = false;
-            s_setup_tv_responded = false;
-            s_setup_no_count     = 0;
-            s_setup_anim         = 0;
-            s_page = PAGE_SETUP_INTRO;
-        }
-        if (btn & VPAD_BUTTON_B) {
-            build_years();
-            s_page = PAGE_YEAR; s_sel = 0; s_scroll = 0;
-        }
-        break;
-
-    // ── Detecting ─────────────────────────────────────────────────────────────
-    case PAGE_DETECTING:
-        // draw_detecting() transitions to RESULT automatically
-        if (btn & VPAD_BUTTON_B) { s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP; }
-        break;
-
-    // ── Detect result ─────────────────────────────────────────────────────────
-    case PAGE_MIRROR_INFO:
-        if(btn & VPAD_BUTTON_B) { s_page=PAGE_MAIN; s_sel=ROW_MIRROR_SCREEN; }
-        break;
-    case PAGE_MIRROR_INSTALLING:
-        // Download runs asynchronously while the progress screen is refreshed.
-        break;
-    case PAGE_MIRROR_DONE:
-        if(btn & VPAD_BUTTON_A) { s_page=PAGE_MAIN; s_sel=ROW_MIRROR_SCREEN; }
-        else if((btn & VPAD_BUTTON_B)&&mirror_installer_state()==mirror_installer::FAILED) {
-            if(mirror_installer_start())s_page=PAGE_MIRROR_INSTALLING;
-        }
-        break;
-
-    case PAGE_DETECT_RESULT:
-        if (btn & VPAD_BUTTON_A) {
-            settings_save();
-            s_setup_test_fired   = false;
-            s_setup_tv_responded = false;
-            s_setup_no_count     = 0;
-            s_setup_anim         = 0;
-            s_page = PAGE_SETUP_INTRO;
-        }
-        if (btn & VPAD_BUTTON_B) {
-            build_brands();
-            s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
-        }
-        break;
-
-    case PAGE_SETUP_INTRO:
-        if (btn & VPAD_BUTTON_A) { s_page = PAGE_SETUP_POINT; }
-        break;
-
-    case PAGE_SETUP_POINT:
-        if (btn & VPAD_BUTTON_A) { s_setup_test_fired = false; s_page = PAGE_SETUP_TEST; }
-        break;
-
-    case PAGE_SETUP_TEST: {
-        // VPAD_BUTTON_TV is often consumed by the OS before the app sees it in
-        // trigger, so we accept either the TV button OR A to advance.
-        // If TV button fires first it marks s_setup_test_fired; A confirms and moves on.
-        bool tv_pressed = (btn & VPAD_BUTTON_TV) != 0;
-        bool a_pressed  = (btn & VPAD_BUTTON_A)  != 0;
-
-        if (tv_pressed) {
-            // Mark fired — user will see the animation, then press A to confirm
-            const TVRemoteModel* m = tv_remote_get_model();
-            if (m && m->ir[TVBTN_POWER].code)
-                s_setup_test_fired = true;
-            // If TV button is visible to us, advance immediately to result
-            s_page = PAGE_SETUP_RESULT;
-        } else if (a_pressed) {
-            // User says "I pressed the TV button" — treat as fired and advance
-            s_setup_test_fired = true;
-            s_page = PAGE_SETUP_RESULT;
-        }
-        break;
+    } else {
+        stick_held = 0;
     }
 
-    case PAGE_SETUP_RESULT:
-        if (btn & VPAD_BUTTON_A) {
-            // Yes — TV responded, move to install step
-            s_setup_tv_responded = true;
-            s_page = PAGE_SETUP_INSTALL;
-        }
-        if (btn & VPAD_BUTTON_B) {
-            // No — go back to test, increment attempt counter
-            s_setup_no_count++;
-            s_setup_test_fired = false;
-            s_page = PAGE_SETUP_TEST;
-        }
-        break;
+    // Left/right also toggles the first settings switch when it is focused.
+    if (s_page == PAGE_MAIN && s_sel == ROW_MULTITASK &&
+        (btn & (VPAD_BUTTON_LEFT | VPAD_BUTTON_RIGHT)))
+        g_settings.improved_multitasking = !g_settings.improved_multitasking;
 
-    case PAGE_SETUP_INSTALL:
-        if (btn & VPAD_BUTTON_A) {
-            const TVRemoteModel* m = tv_remote_get_model();
-            if (m) plugin_write_config(m);
-            s_setup_anim = 0;
-            s_page = PAGE_SETUP_INSTALLING;
-        }
-        break;
+    if (btn & VPAD_BUTTON_A)
+        ui_focus_activate();
 
-    case PAGE_SETUP_INSTALLING:
-        // plugin_install() is blocking — runs download + extract this frame
+    // Installation starts automatically after the Install Plugin action.
+    if (s_page == PAGE_SETUP_INSTALLING && !s_install_started) {
+        s_install_started = true;
         s_install_pct = 0.0;
         strncpy(s_install_msg, "Connecting to GitHub...", sizeof(s_install_msg)-1);
         s_setup_install_result = plugin_install(plugin_progress_cb);
         s_page = PAGE_SETUP_DONE;
-        break;
+    }
 
-    case PAGE_SETUP_DONE:
-        if (btn & VPAD_BUTTON_A) {
-            s_page = PAGE_MAIN;
-            s_sel  = ROW_TV_SETUP;
+    // SELECT on TV Setup row starts HDMI-CEC detection.
+    if (s_page == PAGE_MAIN && s_sel == ROW_TV_SETUP &&
+        (btn & VPAD_BUTTON_MINUS)) {
+        tv_detect_start();
+        s_page = PAGE_DETECTING;
+        s_detect_anim = 0;
+    }
+
+    // Touch input uses the same registered identities as controller focus.
+    if (tp_pressed && s_page == PAGE_MAIN) {
+        for (int i = 0; i < ROW_MAIN_COUNT; ++i) {
+            int ry = SETTINGS_ROW_START + i * (SETTINGS_ROW_H + SETTINGS_ROW_PAD);
+            if (tp_x >= SETTINGS_ROW_X && tp_x < SETTINGS_ROW_X + SETTINGS_ROW_W &&
+                tp_y >= ry && tp_y < ry + SETTINGS_ROW_H) {
+                ui_focus_set_current(settings_focus_id(i));
+                s_sel = i;
+                if (i == ROW_MULTITASK) {
+                    g_settings.improved_multitasking = !g_settings.improved_multitasking;
+                } else if (i == ROW_TV_SETUP) {
+                    build_brands();
+                    s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+                } else if (i == ROW_MIRROR_SCREEN) {
+                    activate_mirror_row();
+                }
+                break;
+            }
         }
-        break;
+    }
 
+    if (btn & VPAD_BUTTON_B) {
+        switch (s_page) {
+            case PAGE_MAIN:
+                settings_save();
+                ui_focus_set_current(5); // Browser settings/gear control is restored by main.
+                return false;
+
+            case PAGE_BRAND:
+                s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP; s_scroll = 0;
+                ui_focus_set_current(settings_focus_id(ROW_TV_SETUP));
+                break;
+
+            case PAGE_YEAR:
+                build_brands();
+                s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+                break;
+
+            case PAGE_MODEL:
+                build_years();
+                s_page = PAGE_YEAR; s_sel = 0; s_scroll = 0;
+                break;
+
+            case PAGE_DETECTING:
+                s_page = PAGE_MAIN; s_sel = ROW_TV_SETUP;
+                break;
+
+            case PAGE_DETECT_RESULT:
+                build_brands();
+                s_page = PAGE_BRAND; s_sel = 0; s_scroll = 0;
+                break;
+
+            case PAGE_MIRROR_INFO:
+            case PAGE_MIRROR_DONE:
+                s_page = PAGE_MAIN; s_sel = ROW_MIRROR_SCREEN; s_scroll = 0;
+                break;
+
+            case PAGE_SETUP_RESULT:
+                ++s_setup_no_count;
+                s_setup_test_fired = false;
+                s_page = PAGE_SETUP_TEST;
+                break;
+
+            default:
+                break;
+        }
     }
 
     return true;

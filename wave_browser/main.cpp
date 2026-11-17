@@ -13,6 +13,7 @@
 #include "font_data.h"
 #include "settings.h"
 #include "ui_common.h"
+#include "ui_focus.h"
 #include "webkit_engine.h"
 #include "gamepad_keyboard.h"
 
@@ -113,12 +114,30 @@ static int s_active_tab = 0;
 static bool s_in_settings       = false;
 static bool s_show_tab_switcher = false;
 
-// ─── Focus ────────────────────────────────────────────────────────────────────
+// ─── Data-driven UI focus ─────────────────────────────────────────────────────
 
-static int s_focus_row = 0;
-static int s_focus_col = 3;
-static int s_stick_held   = 0;  // GamePad left stick repeat
-static int s_wii_stick_held = 0;  // Nunchuk stick repeat
+enum BrowserFocusId {
+    BROWSER_FOCUS_BACK = 1,
+    BROWSER_FOCUS_FORWARD,
+    BROWSER_FOCUS_RELOAD,
+    BROWSER_FOCUS_ADDRESS,
+    BROWSER_FOCUS_SETTINGS,
+    BROWSER_FOCUS_TAB_BASE = 1000,
+    BROWSER_FOCUS_SWITCHER_BASE = 5000
+};
+
+static int s_stick_held = 0;
+static int s_wii_stick_held = 0;
+static int s_switcher_stick_held = 0;
+
+static void open_url_keyboard();
+static void close_tab_at(int index);
+static void add_new_tab();
+static void focus_open_address(void*);
+static void focus_open_settings(void*);
+static void focus_select_tab(void*);
+static void focus_close_tab(void*);
+static void focus_switcher_select_tab(void*);
 
 // ─── Touch state ──────────────────────────────────────────────────────────────
 
@@ -238,6 +257,7 @@ static void draw_splash(const char* status, double pct)
 
 static void draw_tab_switcher()
 {
+    ui_focus_begin_frame();
     ui_dim_overlay(s_renderer);
     sdl_text(s_font_lg, "Open Tabs", TV_W/2, 54, COL_WHITE, 1);
 
@@ -248,6 +268,11 @@ static void draw_tab_switcher()
     for (int i = 0; i < s_tab_count; i++) {
         int cx = sx + i*(CW+CG);
         bool active = (i == s_active_tab);
+        ui_focus_register(BROWSER_FOCUS_SWITCHER_BASE + i,
+                          cx, cy, CW, CH,
+                          focus_switcher_select_tab,
+                          focus_switcher_select_tab,
+                          (void*)(intptr_t)i);
         sdl_rect(cx+3, cy+3, CW, CH, {0x00,0x00,0x00,0x60});
         sdl_rect(cx, cy, CW, CH, COL_WHITE);
         if (active) for (int d=0;d<3;d++) sdl_outline(cx-d,cy-d,CW+d*2,CH+d*2,COL_BLUE);
@@ -266,8 +291,10 @@ static void draw_tab_switcher()
         sdl_rect(cx+CW-22, cy+32, 18, 18, active ? COL_BLUE : COL_GRAY);
         sdl_text(s_font_sm, num, cx+CW-13, cy+48, COL_WHITE, 1);
     }
-    sdl_text(s_font_sm, "ZL/ZR: switch  |  A: open  |  B/SELECT: close",
+    sdl_text(s_font_sm, "Stick/D-pad: move  |  A: open  |  B/SELECT: close",
              TV_W/2, TV_H-16, COL_WHITE_DIM, 1);
+    ui_focus_end_frame();
+    ui_focus_draw_current(s_renderer);
     SDL_RenderPresent(s_renderer);
 }
 
@@ -275,9 +302,25 @@ static void handle_switcher_input(VPADStatus* vpad)
 {
     uint32_t btn = vpad->trigger;
     if ((btn & VPAD_BUTTON_MINUS) || (btn & VPAD_BUTTON_B)) { s_show_tab_switcher = false; return; }
-    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0)               s_active_tab--;
-    if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) s_active_tab++;
-    if (btn & VPAD_BUTTON_A) { s_show_tab_switcher = false; return; }
+    if (btn & VPAD_BUTTON_UP)    ui_focus_move(0, -1);
+    if (btn & VPAD_BUTTON_DOWN)  ui_focus_move(0, 1);
+    if (btn & VPAD_BUTTON_LEFT)  ui_focus_move(-1, 0);
+    if (btn & VPAD_BUTTON_RIGHT) ui_focus_move(1, 0);
+
+    float sx = vpad->leftStick.x, sy = vpad->leftStick.y;
+    bool moving = sx < -STICK_DEAD || sx > STICK_DEAD ||
+                  sy > STICK_DEAD || sy < -STICK_DEAD;
+    if (moving) {
+        ++s_switcher_stick_held;
+        if (s_switcher_stick_held == 1 || s_switcher_stick_held >= STICK_REPEAT) {
+            if (s_switcher_stick_held >= STICK_REPEAT) s_switcher_stick_held = STICK_REPEAT;
+            if (fabsf(sx) > fabsf(sy)) ui_focus_move(sx < 0 ? -1 : 1, 0);
+            else ui_focus_move(0, sy > 0 ? -1 : 1);
+        }
+    } else {
+        s_switcher_stick_held = 0;
+    }
+    if (btn & VPAD_BUTTON_A) ui_focus_activate();
 
     if (s_tp_pressed) {
         const int CW=210, CH=130, CG=24;
@@ -286,7 +329,10 @@ static void handle_switcher_input(VPADStatus* vpad)
         for (int i=0;i<s_tab_count;i++) {
             int cx=sx+i*(CW+CG);
             if (s_tp_x>=cx&&s_tp_x<cx+CW&&s_tp_y>=cy&&s_tp_y<cy+CH) {
-                s_active_tab=i; s_show_tab_switcher=false; break;
+                s_active_tab=i;
+                ui_focus_set_current(BROWSER_FOCUS_SWITCHER_BASE + i);
+                s_show_tab_switcher=false;
+                break;
             }
         }
     }
@@ -297,52 +343,58 @@ static void handle_switcher_input(VPADStatus* vpad)
 static void draw_tab(int idx, bool active)
 {
     int tx = idx*TAB_W, ty = TOOLBAR_H;
+    ui_focus_register(BROWSER_FOCUS_TAB_BASE + idx * 2,
+                      tx + 1, ty + 2, TAB_W - 28, TAB_H,
+                      focus_select_tab, focus_select_tab,
+                      (void*)(intptr_t)idx);
+    ui_focus_register(BROWSER_FOCUS_TAB_BASE + idx * 2 + 1,
+                      tx + TAB_W - 25, ty + 4, 21, TAB_H - 4,
+                      focus_select_tab, focus_close_tab,
+                      (void*)(intptr_t)idx);
     sdl_rect(tx, ty+2, TAB_W-2, TAB_H, active ? COL_TAB_ACTIVE : COL_TAB_INACTIVE);
     sdl_rect(tx+8, ty+10, 14, 14, COL_FAVICON_BG);
-    if (s_focus_row == 1 && s_focus_col == idx * 2)
-        sdl_outline(tx+1, ty+2, TAB_W-3, TAB_H, COL_FOCUS_RING, 2);
-    if (s_focus_row == 1 && s_focus_col == idx * 2 + 1)
-        sdl_outline(tx + TAB_W - 25, ty + 4, 21, TAB_H - 4, COL_FOCUS_RING, 2);
     const char* title = s_tabs[idx].title[0] ? s_tabs[idx].title : "New Tab";
     char trunc[24]; strncpy(trunc,title,20); trunc[20]='\0';
     sdl_text(s_font_sm, trunc,    tx+28,       ty+TAB_H-4, COL_TAB_TEXT,  0);
-    sdl_text(s_font_sm, "x",      tx+TAB_W-18, ty+TAB_H-4,
-             (s_focus_row == 1 && s_focus_col == idx * 2 + 1) ? COL_FOCUS_RING : COL_CLOSE_BTN, 0);
+    sdl_text(s_font_sm, "x",      tx+TAB_W-18, ty+TAB_H-4, COL_CLOSE_BTN, 0);
     if (active) sdl_rect(tx, ty+TAB_H, TAB_W-2, 2, COL_TAB_ACTIVE);
 }
 
 static void draw_browser_ui()
 {
+    ui_focus_begin_frame();
     sdl_rect(0, 0, TV_W, TV_H,      COL_CONTENT_BG);
     sdl_rect(0, 0, TV_W, TOOLBAR_H, COL_CHROME_BG);
 
-    bool f0=(s_focus_row==0&&s_focus_col==0);
-    bool f1=(s_focus_row==0&&s_focus_col==1);
-    bool f2=(s_focus_row==0&&s_focus_col==2);
-    bool f3=(s_focus_row==0&&s_focus_col==3);
-    bool f4=(s_focus_row==0&&s_focus_col==4);
+    ui_focus_register(BROWSER_FOCUS_BACK, BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE,
+                      nullptr, nullptr, nullptr);
+    ui_focus_register(BROWSER_FOCUS_FORWARD, BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE,
+                      nullptr, nullptr, nullptr);
+    ui_focus_register(BROWSER_FOCUS_RELOAD, BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE,
+                      nullptr, nullptr, nullptr);
+    ui_focus_register(BROWSER_FOCUS_ADDRESS, ADDR_BAR_X, ADDR_BAR_Y,
+                      ADDR_BAR_W, ADDR_BAR_H, nullptr,
+                      focus_open_address, nullptr);
+    ui_focus_register(BROWSER_FOCUS_SETTINGS, GEAR_BTN_X, GEAR_BTN_Y,
+                      GEAR_BTN_SIZE, GEAR_BTN_SIZE, nullptr,
+                      focus_open_settings, nullptr);
 
     sdl_rect(BTN_BACK_X,   6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
-    if (f0) ui_focus_ring(s_renderer, BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE);
     sdl_text(s_font_md, "<", BTN_BACK_X+BTN_SIZE/2, TOOLBAR_H-8, COL_GRAY, 1);
 
     sdl_rect(BTN_FWD_X,    6, BTN_SIZE, BTN_SIZE, COL_CHROME_BG);
-    if (f1) ui_focus_ring(s_renderer, BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE);
     sdl_text(s_font_md, ">", BTN_FWD_X+BTN_SIZE/2, TOOLBAR_H-8, COL_GRAY, 1);
 
     sdl_outline(BTN_RELOAD_X+4, 10, BTN_SIZE-8, BTN_SIZE-8, COL_GRAY);
-    if (f2) ui_focus_ring(s_renderer, BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE);
 
     sdl_rect(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BG);
-    sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H,
-                f3 ? COL_FOCUS_RING : COL_ADDR_BORDER, f3 ? 2 : 1);
+    sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BORDER, 1);
     const char* url = s_tabs[s_active_tab].url[0]
         ? s_tabs[s_active_tab].url : "Select and press A to enter URL";
     sdl_text(s_font_md, url, ADDR_BAR_X+10, ADDR_BAR_Y+ADDR_BAR_H-4,
              s_tabs[s_active_tab].url[0] ? COL_ADDR_TEXT : COL_GRAY, 0);
 
     sdl_rect(GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE, COL_CHROME_BG);
-    if (f4) ui_focus_ring(s_renderer, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE);
     draw_gear_icon(GEAR_BTN_X+6, GEAR_BTN_Y+8, GEAR_BTN_SIZE-12, COL_GRAY);
 
     sdl_rect(0, TOOLBAR_H-1, TV_W, 1, COL_TOOLBAR_LINE);
@@ -351,9 +403,11 @@ static void draw_browser_ui()
     for (int i = 0; i < s_tab_count; i++) draw_tab(i, i == s_active_tab);
 
     int ntx = s_tab_count * TAB_W;
-    bool fn = (s_focus_row == 1 && s_focus_col == 2 * s_tab_count);
-    sdl_text(s_font_md, "+", ntx+8, TOOLBAR_H+TAB_BAR_H-6, fn ? COL_FOCUS_RING : COL_NEW_TAB_BTN, 0);
-    if (fn) sdl_outline(ntx+2, TOOLBAR_H+2, 28, TAB_H, COL_FOCUS_RING, 2);
+    if (s_tab_count < MAX_TABS)
+        ui_focus_register(BROWSER_FOCUS_TAB_BASE + s_tab_count * 2,
+                          ntx + 2, TOOLBAR_H + 2, 28, TAB_H,
+                          nullptr, focus_add_tab, nullptr);
+    sdl_text(s_font_md, "+", ntx+8, TOOLBAR_H+TAB_BAR_H-6, COL_NEW_TAB_BTN, 0);
 
     sdl_rect(0, TOOLBAR_H+TAB_BAR_H-1, TV_W, 1, COL_TOOLBAR_LINE);
 
@@ -371,6 +425,8 @@ static void draw_browser_ui()
         : "\xe2\x96\xb2\xe2\x96\xbc: rows  \xe2\x97\x84\xe2\x96\xba: move  A: select  B: back  X: new tab  A: close focused X";
     sdl_text(s_font_sm, hint, TV_W/2, TV_H-8, COL_GRAY, 1);
 
+    ui_focus_end_frame();
+    ui_focus_draw_current(s_renderer);
     SDL_RenderPresent(s_renderer);
 }
 
@@ -716,17 +772,50 @@ static void run_splash_and_update()
 static bool touch_hit(int tx,int ty,int x,int y,int w,int h)
 { return tx>=x&&tx<x+w&&ty>=y&&ty<y+h; }
 
-// ─── Focus helpers ────────────────────────────────────────────────────────────
+// ─── Generic focus actions ────────────────────────────────────────────────────
 
-static void focus_clamp()
+static void add_new_tab()
 {
-    if (s_focus_row == 0) {
-        if (s_focus_col < 0) s_focus_col = 0;
-        if (s_focus_col > 4) s_focus_col = 4;
-    } else {
-        if (s_focus_col < 0) s_focus_col = 0;
-        if (s_focus_col > 2 * s_tab_count) s_focus_col = 2 * s_tab_count;
-    }
+    if (s_tab_count >= MAX_TABS) return;
+    int index = s_tab_count;
+    memset(&s_tabs[index], 0, sizeof(Tab));
+    strcpy(s_tabs[index].title, "New Tab");
+    s_active_tab = s_tab_count++;
+    ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + index * 2);
+}
+
+static void focus_open_address(void*)
+{
+    open_url_keyboard();
+}
+
+static void focus_open_settings(void*)
+{
+    s_in_settings = true;
+    settings_open();
+}
+
+static void focus_select_tab(void* user_data)
+{
+    int index = (int)(intptr_t)user_data;
+    if (index >= 0 && index < s_tab_count) s_active_tab = index;
+}
+
+static void focus_close_tab(void* user_data)
+{
+    close_tab_at((int)(intptr_t)user_data);
+}
+
+static void focus_switcher_select_tab(void* user_data)
+{
+    int index = (int)(intptr_t)user_data;
+    if (index >= 0 && index < s_tab_count) s_active_tab = index;
+    s_show_tab_switcher = false;
+}
+
+static void focus_add_tab(void*)
+{
+    add_new_tab();
 }
 
 static void close_tab_at(int index)
@@ -738,40 +827,12 @@ static void close_tab_at(int index)
     --s_tab_count;
     if (s_active_tab > index) --s_active_tab;
     else if (s_active_tab == index && s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
-    s_focus_row = 1;
-    s_focus_col = 2 * (s_active_tab < s_tab_count ? s_active_tab : s_tab_count - 1);
-}
-
-static void focus_move_horizontal(int direction)
-{
-    s_focus_col += direction;
-    focus_clamp();
-    if (s_focus_row == 1 && s_focus_col < 2 * s_tab_count && !(s_focus_col & 1))
-        s_active_tab = s_focus_col / 2;
+    ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
 }
 
 static void focus_activate()
 {
-    if (s_focus_row==0) {
-        switch(s_focus_col) {
-            case 0: break;
-            case 1: break;
-            case 2: break;
-            case 3: open_url_keyboard(); break;
-            case 4: s_in_settings = true; settings_open(); break;
-        }
-    } else if (s_focus_col < 2 * s_tab_count) {
-        int tabIndex = s_focus_col / 2;
-        if (s_focus_col & 1)
-            close_tab_at(tabIndex);
-        else
-            s_active_tab = tabIndex;
-    } else if (s_tab_count < MAX_TABS) {
-        memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
-        strcpy(s_tabs[s_tab_count].title, "New Tab");
-        s_active_tab = s_tab_count++;
-        s_focus_col = 2 * s_active_tab;
-    }
+    ui_focus_activate();
 }
 
 
@@ -782,89 +843,35 @@ static void handle_wii_remote_input(KPADStatus* kp)
     if (!kp) return;
     uint32_t btn = kp->trigger;
 
-    if (btn & WPAD_BUTTON_UP) {
-        if (s_focus_row == 1) { s_focus_row = 0; s_focus_col = 3; }
-    }
-    if (btn & WPAD_BUTTON_DOWN) {
-        if (s_focus_row == 0) { s_focus_row = 1; s_focus_col = 2 * s_active_tab; }
-    }
-    if (btn & WPAD_BUTTON_LEFT) focus_move_horizontal(-1);
-    if (btn & WPAD_BUTTON_RIGHT) focus_move_horizontal(1);
-
-    if (btn & WPAD_BUTTON_A)
-        focus_activate();
-
-    if (btn & WPAD_BUTTON_B) {
-        if (s_show_tab_switcher) { s_show_tab_switcher = false; }
-        else if (s_in_settings)  { s_in_settings = false; }
-    }
-
-    if ((btn & WPAD_BUTTON_PLUS) && s_tab_count < MAX_TABS) {
-        memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
-        strcpy(s_tabs[s_tab_count].title, "New Tab");
-        s_active_tab = s_tab_count++;
-        s_focus_row = 1;
-        s_focus_col = 2 * s_active_tab;
-    }
+    // The D-pad, A/B buttons and Nunchuk stick are merged into VPADStatus
+    // in the main loop. Only Wii-Remote-specific shortcuts are handled here.
+    if ((btn & WPAD_BUTTON_PLUS) && s_tab_count < MAX_TABS)
+        add_new_tab();
 
     if (btn & WPAD_BUTTON_MINUS) {
         if (g_settings.improved_multitasking) {
             s_show_tab_switcher = true;
+            ui_focus_set_current(BROWSER_FOCUS_SWITCHER_BASE + s_active_tab);
         } else if (s_tab_count > 1) {
-            int ci = (s_focus_row == 1 && s_focus_col < 2 * s_tab_count)
-                     ? s_focus_col / 2 : s_active_tab;
-            close_tab_at(ci);
+            close_tab_at(s_active_tab);
         }
     }
 
-    if (btn & WPAD_BUTTON_1) {
-        s_focus_row = 0;
-        s_focus_col = 2;
-        focus_activate();
-    }
-
-    if (btn & WPAD_BUTTON_2) {
-        s_focus_row = 0;
-        s_focus_col = 3;
-        open_url_keyboard();
-    }
+    if (btn & WPAD_BUTTON_1)
+        ui_focus_activate_id(BROWSER_FOCUS_RELOAD);
+    if (btn & WPAD_BUTTON_2)
+        ui_focus_activate_id(BROWSER_FOCUS_ADDRESS);
 
     if (kp->extensionType == WPAD_EXT_NUNCHUK ||
         kp->extensionType == WPAD_EXT_MPLUS_NUNCHUK)
     {
-        float nx = kp->nunchuk.stick.x;
-        float ny = kp->nunchuk.stick.y;
-        bool any = (nx < -STICK_DEAD || nx > STICK_DEAD ||
-                    ny > STICK_DEAD  || ny < -STICK_DEAD);
-        if (any) {
-            s_wii_stick_held++;
-            bool fire = (s_wii_stick_held == 1 || s_wii_stick_held >= STICK_REPEAT);
-            if (s_wii_stick_held >= STICK_REPEAT) s_wii_stick_held = STICK_REPEAT;
-            if (fire) {
-                if (ny > STICK_DEAD && s_focus_row == 1) {
-                    s_focus_row = 0; s_focus_col = 3;
-                }
-                if (ny < -STICK_DEAD && s_focus_row == 0) {
-                    s_focus_row = 1; s_focus_col = 2 * s_active_tab;
-                }
-                if (nx < -STICK_DEAD) focus_move_horizontal(-1);
-                if (nx > STICK_DEAD) focus_move_horizontal(1);
-            }
-        } else {
-            s_wii_stick_held = 0;
-        }
-
         uint32_t nbtn = kp->nunchuk.trigger;
-        if ((nbtn & WPAD_NUNCHUK_BUTTON_C) && s_tab_count < MAX_TABS) {
-            memset(&s_tabs[s_tab_count], 0, sizeof(Tab));
-            strcpy(s_tabs[s_tab_count].title, "New Tab");
-            s_active_tab = s_tab_count++;
-            s_focus_row = 1;
-            s_focus_col = 2 * s_active_tab;
-        }
-
-        if ((nbtn & WPAD_NUNCHUK_BUTTON_Z) && g_settings.improved_multitasking)
+        if ((nbtn & WPAD_NUNCHUK_BUTTON_C) && s_tab_count < MAX_TABS)
+            add_new_tab();
+        if ((nbtn & WPAD_NUNCHUK_BUTTON_Z) && g_settings.improved_multitasking) {
             s_show_tab_switcher = true;
+            ui_focus_set_current(BROWSER_FOCUS_SWITCHER_BASE + s_active_tab);
+        }
     }
 }
 
@@ -874,72 +881,85 @@ static void handle_input(VPADStatus* vpad)
 {
     uint32_t btn = vpad->trigger;
 
-    if (btn&VPAD_BUTTON_UP)    { if(s_focus_row==1){s_focus_row=0;s_focus_col=3;} }
-    if (btn&VPAD_BUTTON_DOWN)  { if(s_focus_row==0){s_focus_row=1;s_focus_col=2*s_active_tab;} }
-    if (btn&VPAD_BUTTON_LEFT)  focus_move_horizontal(-1);
-    if (btn&VPAD_BUTTON_RIGHT) focus_move_horizontal(1);
+    if (btn & VPAD_BUTTON_UP)    ui_focus_move(0, -1);
+    if (btn & VPAD_BUTTON_DOWN)  ui_focus_move(0, 1);
+    if (btn & VPAD_BUTTON_LEFT)  ui_focus_move(-1, 0);
+    if (btn & VPAD_BUTTON_RIGHT) ui_focus_move(1, 0);
 
-    float sx=vpad->leftStick.x, sy=vpad->leftStick.y;
-    bool any=(sx<-STICK_DEAD||sx>STICK_DEAD||sy>STICK_DEAD||sy<-STICK_DEAD);
-    if (any) {
-        s_stick_held++;
-        bool fire = (s_stick_held==1||s_stick_held>=STICK_REPEAT);
-        if (s_stick_held>=STICK_REPEAT) s_stick_held=STICK_REPEAT;
-        if (fire) {
-            if (sy> STICK_DEAD&&s_focus_row==1){s_focus_row=0;s_focus_col=3;}
-            if (sy<-STICK_DEAD&&s_focus_row==0){s_focus_row=1;s_focus_col=2*s_active_tab;}
-            if (sx<-STICK_DEAD) focus_move_horizontal(-1);
-            if (sx> STICK_DEAD) focus_move_horizontal(1);
+    float sx = vpad->leftStick.x, sy = vpad->leftStick.y;
+    bool moving = sx < -STICK_DEAD || sx > STICK_DEAD ||
+                  sy > STICK_DEAD || sy < -STICK_DEAD;
+    if (moving) {
+        ++s_stick_held;
+        if (s_stick_held == 1 || s_stick_held >= STICK_REPEAT) {
+            if (s_stick_held >= STICK_REPEAT) s_stick_held = STICK_REPEAT;
+            if (fabsf(sx) > fabsf(sy)) ui_focus_move(sx < 0 ? -1 : 1, 0);
+            else ui_focus_move(0, sy > 0 ? -1 : 1);
         }
-    } else s_stick_held=0;
-
-    if ((btn&VPAD_BUTTON_ZL)&&s_active_tab>0)              { s_active_tab--;s_focus_row=1;s_focus_col=2*s_active_tab; }
-    if ((btn&VPAD_BUTTON_ZR)&&s_active_tab<s_tab_count-1)  { s_active_tab++;s_focus_row=1;s_focus_col=2*s_active_tab; }
-    if (btn&VPAD_BUTTON_A) focus_activate();
-
-    if ((btn&VPAD_BUTTON_X)&&s_tab_count<MAX_TABS) {
-        memset(&s_tabs[s_tab_count],0,sizeof(Tab)); strcpy(s_tabs[s_tab_count].title,"New Tab");
-        s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=2*s_active_tab;
+    } else {
+        s_stick_held = 0;
     }
-    // Tab closing is performed by activating the focused X in the tab strip.
-    // The Y button is intentionally not assigned to close-tab anymore.
-    if ((btn&VPAD_BUTTON_MINUS)&&g_settings.improved_multitasking) s_show_tab_switcher=true;
 
-    // Touch — fires on finger-DOWN (s_tp_pressed) for instant response
+    if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0) {
+        --s_active_tab;
+        ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
+    }
+    if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) {
+        ++s_active_tab;
+        ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
+    }
+    if (btn & VPAD_BUTTON_A) focus_activate();
+    if ((btn & VPAD_BUTTON_X) && s_tab_count < MAX_TABS)
+        add_new_tab();
+
+    // Y is intentionally not assigned to close tabs. Closing a tab is an
+    // explicit activation of that tab's registered close control.
+
+    if ((btn & VPAD_BUTTON_MINUS) && g_settings.improved_multitasking) {
+        s_show_tab_switcher = true;
+        ui_focus_set_current(BROWSER_FOCUS_SWITCHER_BASE + s_active_tab);
+    }
+
     if (s_tp_pressed) {
-        int tx=s_tp_x, ty=s_tp_y;
+        int tx = s_tp_x, ty = s_tp_y;
 
-        if (touch_hit(tx,ty,GEAR_BTN_X,GEAR_BTN_Y,GEAR_BTN_SIZE,GEAR_BTN_SIZE)) {
-            s_in_settings=true; settings_open(); return;
+        if (touch_hit(tx, ty, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE)) {
+            ui_focus_activate_id(BROWSER_FOCUS_SETTINGS);
+            return;
         }
-        if (touch_hit(tx,ty,ADDR_BAR_X,ADDR_BAR_Y,ADDR_BAR_W,ADDR_BAR_H)) {
-            s_focus_row=0; s_focus_col=3; open_url_keyboard(); return;
+        if (touch_hit(tx, ty, ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H)) {
+            ui_focus_activate_id(BROWSER_FOCUS_ADDRESS);
+            return;
         }
-        if (touch_hit(tx,ty,BTN_BACK_X,  6,BTN_SIZE,BTN_SIZE)) {
-            s_focus_row=0; s_focus_col=0; return;
+        if (touch_hit(tx, ty, BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE)) {
+            ui_focus_set_current(BROWSER_FOCUS_BACK);
+            return;
         }
-        if (touch_hit(tx,ty,BTN_FWD_X,   6,BTN_SIZE,BTN_SIZE)) {
-            s_focus_row=0; s_focus_col=1; return;
+        if (touch_hit(tx, ty, BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE)) {
+            ui_focus_set_current(BROWSER_FOCUS_FORWARD);
+            return;
         }
-        if (touch_hit(tx,ty,BTN_RELOAD_X, 6,BTN_SIZE,BTN_SIZE)) {
-            s_focus_row=0; s_focus_col=2; return;
+        if (touch_hit(tx, ty, BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE)) {
+            ui_focus_set_current(BROWSER_FOCUS_RELOAD);
+            return;
         }
 
         for (int i = 0; i < s_tab_count; ++i) {
-            if (s_tab_count > 1 && touch_hit(tx, ty, i * TAB_W + TAB_W - 20, TOOLBAR_H, 20, TAB_H)) {
+            if (s_tab_count > 1 &&
+                touch_hit(tx, ty, i * TAB_W + TAB_W - 20, TOOLBAR_H, 20, TAB_H)) {
                 close_tab_at(i);
                 return;
             }
             if (touch_hit(tx, ty, i * TAB_W, TOOLBAR_H, TAB_W - 20, TAB_H)) {
-                s_active_tab = i; s_focus_row = 1; s_focus_col = 2 * i; return;
+                s_active_tab = i;
+                ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + i * 2);
+                return;
             }
         }
 
-        if (s_tab_count<MAX_TABS &&
-            touch_hit(tx,ty, s_tab_count*TAB_W, TOOLBAR_H, 40, TAB_BAR_H)) {
-            memset(&s_tabs[s_tab_count],0,sizeof(Tab));
-            strcpy(s_tabs[s_tab_count].title,"New Tab");
-            s_active_tab=s_tab_count++; s_focus_row=1; s_focus_col=2*s_active_tab;
+        if (s_tab_count < MAX_TABS &&
+            touch_hit(tx, ty, s_tab_count * TAB_W, TOOLBAR_H, 40, TAB_BAR_H)) {
+            add_new_tab();
         }
     }
 }
@@ -991,6 +1011,7 @@ int main(int, char**)
     s_tabs[0].title[sizeof(s_tabs[0].title) - 1] = '\0';
     s_active_tab = 0;
     if (s_tab_count < 1) s_tab_count = 1;
+    ui_focus_set_current(BROWSER_FOCUS_ADDRESS);
     webkit_engine_navigate(s_tabs[0].url);
 
     run_splash_and_update();
