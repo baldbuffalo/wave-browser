@@ -112,6 +112,14 @@ typedef struct { char url[MAX_URL]; char title[64]; } Tab;
 static Tab s_tabs[MAX_TABS];
 static int s_tab_count  = 1;
 static int s_active_tab = 0;
+static bool s_active_tab_is_new_tab = true;
+
+static void on_webkit_page_title_changed(const char* title)
+{
+    if (s_active_tab_is_new_tab || !title || !title[0]) return;
+    strncpy(s_tabs[s_active_tab].title, title, sizeof(s_tabs[s_active_tab].title) - 1);
+    s_tabs[s_active_tab].title[sizeof(s_tabs[s_active_tab].title) - 1] = '\0';
+}
 
 // The New Tab document is the selected provider's real homepage. Keep its
 // browser-chrome URL empty so it remains a true New Tab rather than a fake
@@ -137,6 +145,9 @@ static const char* search_engine_home()
 
 static void open_new_tab_page()
 {
+    s_active_tab_is_new_tab = true;
+    strncpy(s_tabs[s_active_tab].title, "New Tab", sizeof(s_tabs[s_active_tab].title) - 1);
+    s_tabs[s_active_tab].title[sizeof(s_tabs[s_active_tab].title) - 1] = '\0';
     webkit_engine_navigate(search_engine_home());
 }
 
@@ -154,6 +165,7 @@ static void create_new_tab()
 static void navigate_address_input(const char* input)
 {
     if (!input || !input[0]) return;
+    s_active_tab_is_new_tab = false;
 
     bool looks_like_url = strstr(input, "://") != nullptr ||
                           strstr(input, ".") != nullptr ||
@@ -1497,6 +1509,7 @@ int main(int, char**)
 
     // Init WebKit engine and give it the SDL renderer for blitting
     webkit_engine_init(TV_W, TV_H);
+    webkit_engine_set_title_callback(on_webkit_page_title_changed);
     webkit_engine_set_renderer(s_renderer);
 
     // Init gamepad-to-keyboard mapper for browser games
@@ -1516,8 +1529,11 @@ int main(int, char**)
             strncpy(s_tabs[0].title, "New Tab", sizeof(s_tabs[0].title) - 1);
         }
     }
-    if (s_tabs[s_active_tab].url[0])
+    s_active_tab_is_new_tab = !s_tabs[s_active_tab].url[0] && (!s_tabs[s_active_tab].title[0] || strcmp(s_tabs[s_active_tab].title, "New Tab") == 0);
+    if (s_tabs[s_active_tab].url[0]) {
+        s_active_tab_is_new_tab = false;
         webkit_engine_navigate(s_tabs[s_active_tab].url);
+    }
     else
         open_new_tab_page();
 
