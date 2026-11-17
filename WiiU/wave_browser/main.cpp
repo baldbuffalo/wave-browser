@@ -1491,6 +1491,7 @@ int main(int, char**)
     // These paths are read before the first page is created.
     setenv("CURL_COOKIE_JAR_PATH", INSTALL_DIR "/cookie.jar.db", 1);
     setenv("WKC_INDEXEDDB_PATH", INSTALL_DIR "/IndexedDB", 1);
+    setenv("WKC_LOCAL_STORAGE_PATH", INSTALL_DIR "/LocalStorage", 1);
 
     ProcUIInitEx(SaveCallback, nullptr);
     AXInit();
