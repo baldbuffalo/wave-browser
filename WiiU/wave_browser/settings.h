@@ -14,6 +14,9 @@
 struct WaveSettings {
     bool improved_multitasking = false;
 
+    // Default search provider: 0=Google, 1=Bing, 2=DuckDuckGo, 3=Yahoo
+    int search_engine = 0;
+
     // TV remote model selection
     // Stored as "brand/year/model" string, e.g. "Samsung/2014/UE40H6400"
     // Empty = no model selected / use generic remote
