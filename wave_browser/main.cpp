@@ -811,13 +811,9 @@ static void handle_wii_remote_input(KPADStatus* kp)
         if (g_settings.improved_multitasking) {
             s_show_tab_switcher = true;
         } else if (s_tab_count > 1) {
-            int ci = (s_focus_row == 1 && s_focus_col < s_tab_count)
-                     ? s_focus_col : s_active_tab;
-            for (int i = ci; i < s_tab_count - 1; i++) s_tabs[i] = s_tabs[i+1];
-            s_tab_count--;
-            if (s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
-            s_active_tab = (s_focus_col < s_tab_count) ? s_focus_col : s_tab_count - 1;
-            s_focus_col  = 2 * s_active_tab;
+            int ci = (s_focus_row == 1 && s_focus_col < 2 * s_tab_count)
+                     ? s_focus_col / 2 : s_active_tab;
+            close_tab_at(ci);
         }
     }
 
@@ -849,7 +845,7 @@ static void handle_wii_remote_input(KPADStatus* kp)
                     s_focus_row = 0; s_focus_col = 3;
                 }
                 if (ny < -STICK_DEAD && s_focus_row == 0) {
-                    s_focus_row = 1; s_focus_col = s_active_tab;
+                    s_focus_row = 1; s_focus_col = 2 * s_active_tab;
                 }
                 if (nx < -STICK_DEAD) focus_move_horizontal(-1);
                 if (nx > STICK_DEAD) focus_move_horizontal(1);
@@ -864,7 +860,7 @@ static void handle_wii_remote_input(KPADStatus* kp)
             strcpy(s_tabs[s_tab_count].title, "New Tab");
             s_active_tab = s_tab_count++;
             s_focus_row = 1;
-            s_focus_col = s_active_tab;
+            s_focus_col = 2 * s_active_tab;
         }
 
         if ((nbtn & WPAD_NUNCHUK_BUTTON_Z) && g_settings.improved_multitasking)
@@ -879,7 +875,7 @@ static void handle_input(VPADStatus* vpad)
     uint32_t btn = vpad->trigger;
 
     if (btn&VPAD_BUTTON_UP)    { if(s_focus_row==1){s_focus_row=0;s_focus_col=3;} }
-    if (btn&VPAD_BUTTON_DOWN)  { if(s_focus_row==0){s_focus_row=1;s_focus_col=s_active_tab;} }
+    if (btn&VPAD_BUTTON_DOWN)  { if(s_focus_row==0){s_focus_row=1;s_focus_col=2*s_active_tab;} }
     if (btn&VPAD_BUTTON_LEFT)  focus_move_horizontal(-1);
     if (btn&VPAD_BUTTON_RIGHT) focus_move_horizontal(1);
 
@@ -891,14 +887,14 @@ static void handle_input(VPADStatus* vpad)
         if (s_stick_held>=STICK_REPEAT) s_stick_held=STICK_REPEAT;
         if (fire) {
             if (sy> STICK_DEAD&&s_focus_row==1){s_focus_row=0;s_focus_col=3;}
-            if (sy<-STICK_DEAD&&s_focus_row==0){s_focus_row=1;s_focus_col=s_active_tab;}
+            if (sy<-STICK_DEAD&&s_focus_row==0){s_focus_row=1;s_focus_col=2*s_active_tab;}
             if (sx<-STICK_DEAD) focus_move_horizontal(-1);
             if (sx> STICK_DEAD) focus_move_horizontal(1);
         }
     } else s_stick_held=0;
 
-    if ((btn&VPAD_BUTTON_ZL)&&s_active_tab>0)              { s_active_tab--;s_focus_row=1;s_focus_col=s_active_tab; }
-    if ((btn&VPAD_BUTTON_ZR)&&s_active_tab<s_tab_count-1)  { s_active_tab++;s_focus_row=1;s_focus_col=s_active_tab; }
+    if ((btn&VPAD_BUTTON_ZL)&&s_active_tab>0)              { s_active_tab--;s_focus_row=1;s_focus_col=2*s_active_tab; }
+    if ((btn&VPAD_BUTTON_ZR)&&s_active_tab<s_tab_count-1)  { s_active_tab++;s_focus_row=1;s_focus_col=2*s_active_tab; }
     if (btn&VPAD_BUTTON_A) focus_activate();
 
     if ((btn&VPAD_BUTTON_X)&&s_tab_count<MAX_TABS) {
