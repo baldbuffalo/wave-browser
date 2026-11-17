@@ -270,7 +270,7 @@ static void draw_tab_switcher()
         bool active = (i == s_active_tab);
         ui_focus_register(BROWSER_FOCUS_SWITCHER_BASE + i,
                           cx, cy, CW, CH,
-                          focus_switcher_select_tab,
+                          focus_switcher_focus_tab,
                           focus_switcher_select_tab,
                           (void*)(intptr_t)i);
         sdl_rect(cx+3, cy+3, CW, CH, {0x00,0x00,0x00,0x60});
@@ -806,10 +806,15 @@ static void focus_close_tab(void* user_data)
     close_tab_at((int)(intptr_t)user_data);
 }
 
-static void focus_switcher_select_tab(void* user_data)
+static void focus_switcher_focus_tab(void* user_data)
 {
     int index = (int)(intptr_t)user_data;
     if (index >= 0 && index < s_tab_count) s_active_tab = index;
+}
+
+static void focus_switcher_select_tab(void* user_data)
+{
+    focus_switcher_focus_tab(user_data);
     s_show_tab_switcher = false;
 }
 
@@ -1112,8 +1117,12 @@ int main(int, char**)
                 SDL_GetTicks());
 
             if (s_in_settings) {
-                if (!settings_handle_input(&vpad, s_tp_pressed, s_tp_x, s_tp_y)) s_in_settings = false;
-                else settings_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
+                if (!settings_handle_input(&vpad, s_tp_pressed, s_tp_x, s_tp_y)) {
+                    s_in_settings = false;
+                    ui_focus_set_current(BROWSER_FOCUS_SETTINGS);
+                } else {
+                    settings_draw(s_renderer, s_font_sm, s_font_md, s_font_lg);
+                }
 
             } else if (s_show_tab_switcher) {
                 handle_switcher_input(&vpad);

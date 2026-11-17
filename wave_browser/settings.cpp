@@ -1057,7 +1057,6 @@ bool settings_handle_input(VPADStatus* vpad, bool tp_pressed, int tp_x, int tp_y
         switch (s_page) {
             case PAGE_MAIN:
                 settings_save();
-                ui_focus_set_current(5); // Browser settings/gear control is restored by main.
                 return false;
 
             case PAGE_BRAND:
