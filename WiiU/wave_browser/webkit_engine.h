@@ -18,6 +18,8 @@ bool webkit_engine_init(int screen_w, int screen_h);
 void webkit_engine_set_renderer(SDL_Renderer* ren);
 
 // Load a URL.
+typedef void (*WebKitEngineTitleCallback)(const char* utf8_title);
+void webkit_engine_set_title_callback(WebKitEngineTitleCallback callback);
 void webkit_engine_navigate(const char* url);
 
 // Per-frame tick (timers, JS, layout). Call every frame.
