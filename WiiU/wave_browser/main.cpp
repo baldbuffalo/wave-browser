@@ -458,12 +458,11 @@ static void draw_browser_ui()
     sdl_rect(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H, COL_ADDR_BG);
     sdl_outline(ADDR_BAR_X, ADDR_BAR_Y, ADDR_BAR_W, ADDR_BAR_H,
                 f3 ? COL_FOCUS_RING : COL_ADDR_BORDER, f3 ? 2 : 1);
-    char address_hint[96];
-    snprintf(address_hint, sizeof(address_hint), "Search %s or type a URL", search_engine_name());
-    const char* url = s_tabs[s_active_tab].url[0]
-        ? s_tabs[s_active_tab].url : address_hint;
-    sdl_text(s_font_md, url, ADDR_BAR_X+10, ADDR_BAR_Y+ADDR_BAR_H-4,
-             s_tabs[s_active_tab].url[0] ? COL_ADDR_TEXT : COL_GRAY, 0);
+    // A New Tab keeps the address field visually empty, like Chrome.
+    // The selected search provider is shown by the page itself, not in the URL bar.
+    if (s_tabs[s_active_tab].url[0])
+        sdl_text(s_font_md, s_tabs[s_active_tab].url, ADDR_BAR_X+10,
+                 ADDR_BAR_Y+ADDR_BAR_H-4, COL_ADDR_TEXT, 0);
 
     sdl_rect(GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE, COL_CHROME_BG);
     if (f4) ui_focus_ring(s_renderer, GEAR_BTN_X, GEAR_BTN_Y, GEAR_BTN_SIZE, GEAR_BTN_SIZE);
