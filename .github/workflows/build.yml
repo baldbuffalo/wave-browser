@@ -35,7 +35,7 @@ jobs:
       PORTLIBS: /opt/devkitpro/portlibs/wiiu
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |

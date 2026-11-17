@@ -31,7 +31,7 @@ jobs:
       WAVE_ONEDRIVE_PATH: WaveBrowser/Chromium
       WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android-production
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Install rclone
         shell: bash
@@ -112,7 +112,7 @@ jobs:
     outputs:
       built: ${{ steps.build.outputs.built }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       # The runner image ships several GB of toolchains this job never uses.
       # The Android SDK under /usr/local/lib/android is the big one: Chromium
@@ -420,7 +420,7 @@ jobs:
       WAVE_CHECKPOINT_ROOT: WaveBrowser/Chromium/build/android-production
       WAVE_WORK_ROOT: chromium-checkout
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Free runner disk space
         shell: bash
