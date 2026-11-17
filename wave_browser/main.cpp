@@ -505,19 +505,40 @@ static bool sha256_file(const char* path, char* out, size_t out_size)
 static bool extract_json_digest(const char* json, const char* asset_name, char* out, size_t out_size)
 {
     if (!json || !asset_name || !out || out_size < 65) return false;
-    char needle[128];
-    snprintf(needle, sizeof(needle), "\"name\": \"%s\"", asset_name);
-    const char* p = strstr(json, needle);
-    if (!p) return false;
-    const char* asset_end = strstr(p, "\"browser_download_url\"");
-    if (!asset_end) return false;
-    const char* d = strstr(p, "\"digest\": \"sha256:");
-    if (!d || d > asset_end) return false;
-    d += strlen("\"digest\": \"sha256:");
-    const char* end = strchr(d, '"');
-    if (!end || (size_t)(end - d) != 64) return false;
-    memcpy(out, d, 64); out[64] = '\0';
-    return true;
+
+    // Match the asset name while accepting compact or pretty-printed JSON.
+    const char* p = json;
+    while ((p = strstr(p, "\"name\"")) != nullptr) {
+        const char* v = strchr(p, ':');
+        if (!v) return false;
+        ++v;
+        while (*v == ' ' || *v == '\t' || *v == '\r' || *v == '\n') ++v;
+        if (*v != '"') { p += 6; continue; }
+        const char* name = ++v;
+        const char* name_end = strchr(name, '"');
+        if (!name_end) return false;
+
+        if ((size_t)(name_end - name) == strlen(asset_name) &&
+            memcmp(name, asset_name, strlen(asset_name)) == 0) {
+            const char* asset_end = strstr(name_end, "\"browser_download_url\"");
+            const char* d = strstr(name_end, "\"digest\"");
+            if (!asset_end || !d || d > asset_end) return false;
+            d = strchr(d, ':');
+            if (!d || d > asset_end) return false;
+            ++d;
+            while (*d == ' ' || *d == '\t' || *d == '\r' || *d == '\n') ++d;
+            if (*d++ != '"') return false;
+            if (strncmp(d, "sha256:", 7) != 0) return false;
+            d += 7;
+            const char* digest_end = strchr(d, '"');
+            if (!digest_end || digest_end > asset_end || (size_t)(digest_end - d) != 64) return false;
+            memcpy(out, d, 64);
+            out[64] = '\0';
+            return true;
+        }
+        p = name_end + 1;
+    }
+    return false;
 }
 
 // ─── File backup / restore ────────────────────────────────────────────────────
