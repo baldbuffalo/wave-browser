@@ -997,6 +997,11 @@ static void handle_input(VPADStatus* vpad)
 
 int main(int, char**)
 {
+    // Keep WebKit site data on the browser's installed storage volume.
+    // These paths must be set before the first WKC page is created.
+    setenv("WKC_INDEXEDDB_PATH", INSTALL_DIR "/IndexedDB", 1);
+    setenv("WKC_LOCAL_STORAGE_PATH", INSTALL_DIR "/LocalStorage", 1);
+
     ProcUIInitEx(SaveCallback, nullptr);
     AXInit();
     SDL_Init(SDL_INIT_VIDEO);
