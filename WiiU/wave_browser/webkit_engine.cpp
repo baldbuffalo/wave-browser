@@ -1571,21 +1571,44 @@ void webkit_engine_input_text(const char* u)
     for (const unsigned char* p = (const unsigned char*)u; *p; ++p)
         s_webview->notifyKeyChar(*p);
 }
-void webkit_engine_scroll(int x,int y)
+// Keep the most recent page-space pointer location so wheel events carry
+// a real cursor position and a delta (the old implementation incorrectly
+// used the delta as both values).
+static int s_pointer_x = 0;
+static int s_pointer_y = 0;
+
+void webkit_engine_scroll(int dx,int dy)
 {
-    if (s_available && s_webview) s_webview->notifyMouseWheel(WKCPoint{x, y}, WKCSize{x, y}, WKC::EModifierNone);
+    if (s_available && s_webview)
+        s_webview->notifyMouseWheel(WKCPoint{s_pointer_x, s_pointer_y}, WKCSize{dx, dy}, WKC::EModifierNone);
 }
 void webkit_engine_touch_down(int x,int y)
 {
-    if (s_available && s_webview) s_webview->notifyMouseDown(WKCPoint{x, y}, WKC::EMouseButtonLeft, WKC::EModifierNone);
+    s_pointer_x = x;
+    s_pointer_y = y;
+    if (s_available && s_webview)
+        s_webview->notifyMouseDown(WKCPoint{x, y}, WKC::EMouseButtonLeft, WKC::EModifierNone);
 }
 void webkit_engine_touch_up(int x,int y)
 {
-    if (s_available && s_webview) s_webview->notifyMouseUp(WKCPoint{x, y}, WKC::EMouseButtonLeft, WKC::EModifierNone);
+    s_pointer_x = x;
+    s_pointer_y = y;
+    if (s_available && s_webview)
+        s_webview->notifyMouseUp(WKCPoint{x, y}, WKC::EMouseButtonLeft, WKC::EModifierNone);
+}
+void webkit_engine_touch_move(int x,int y)
+{
+    s_pointer_x = x;
+    s_pointer_y = y;
+    if (s_available && s_webview)
+        s_webview->notifyMouseMove(WKCPoint{x, y}, WKC::EModifierNone);
 }
 void webkit_engine_mouse_move(int x,int y)
 {
-    if (s_available && s_webview) s_webview->notifyMouseMove(WKCPoint{x, y}, WKC::EModifierNone);
+    s_pointer_x = x;
+    s_pointer_y = y;
+    if (s_available && s_webview)
+        s_webview->notifyMouseMove(WKCPoint{x, y}, WKC::EModifierNone);
 }
 bool webkit_engine_available(void){ return s_available; }
 
