@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 345
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Free runner disk space
         shell: bash

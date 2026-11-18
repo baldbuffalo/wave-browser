@@ -62,7 +62,7 @@ jobs:
     outputs:
       built: ${{ steps.build.outputs.built }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The Windows runner is a single fixed drive and ships less reclaimable
       # tooling than the Ubuntu image, so unlike the Android workflow there is

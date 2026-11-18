@@ -19,7 +19,7 @@ jobs:
   build-plugin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Build plugin via Docker
         run: |
@@ -38,7 +38,7 @@ jobs:
   build-mirror-plugin:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
       - name: Build Mirror Screen plugin via Docker
         run: |
