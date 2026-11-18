@@ -1388,6 +1388,14 @@ static void handle_input(VPADStatus* vpad)
 
     // Complete page clicks on touch-up. Coordinates are transformed back from
     // the displayed content rectangle to the WebKit viewport dimensions.
+    if (s_tp_touching && s_tp_page_touch) {
+        const int pageX = s_tp_cur_x;
+        int pageY = (s_tp_cur_y - CONTENT_Y) * TV_H / CONTENT_H;
+        if (pageY < 0) pageY = 0;
+        if (pageY >= TV_H) pageY = TV_H - 1;
+        webkit_engine_touch_move(pageX, pageY);
+    }
+
     if (s_tp_released && s_tp_page_touch) {
         const int pageX = s_tp_cur_x;
         int pageY = (s_tp_cur_y - CONTENT_Y) * TV_H / CONTENT_H;
