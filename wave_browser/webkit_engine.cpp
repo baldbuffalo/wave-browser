@@ -1037,6 +1037,40 @@ void webkit_engine_navigate(const char* url)
     s_dirty = true;
 }
 
+bool webkit_engine_can_go_back(void)
+{
+    return s_available && s_webview && s_webview->canGoBack();
+}
+
+bool webkit_engine_can_go_forward(void)
+{
+    return s_available && s_webview && s_webview->canGoForward();
+}
+
+void webkit_engine_go_back(void)
+{
+    if (!webkit_engine_can_go_back())
+        return;
+    s_webview->goBack();
+    s_dirty = true;
+}
+
+void webkit_engine_go_forward(void)
+{
+    if (!webkit_engine_can_go_forward())
+        return;
+    s_webview->goForward();
+    s_dirty = true;
+}
+
+void webkit_engine_reload(void)
+{
+    if (!s_available || !s_webview)
+        return;
+    s_webview->reload();
+    s_dirty = true;
+}
+
 void webkit_engine_tick(void)
 {
     // Drain WebCore's main RunLoop before servicing timers and painting. The
@@ -1210,6 +1244,11 @@ void webkit_engine_key_up(int keycode)
 bool webkit_engine_init(int, int) { return true; }
 void webkit_engine_set_renderer(SDL_Renderer*) {}
 void webkit_engine_navigate(const char*) {}
+bool webkit_engine_can_go_back(void) { return false; }
+bool webkit_engine_can_go_forward(void) { return false; }
+void webkit_engine_go_back(void) {}
+void webkit_engine_go_forward(void) {}
+void webkit_engine_reload(void) {}
 void webkit_engine_tick(void) {}
 void webkit_engine_draw(int, int, int, int) {}
 void webkit_engine_input_text(const char*) {}
