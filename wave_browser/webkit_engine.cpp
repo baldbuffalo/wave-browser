@@ -189,14 +189,14 @@ public:
     bool shouldInterruptJavaScript() override { return false; }
     void registerProtocolHandler(const WKC::String&, const WKC::String&, const WKC::String&, const WKC::String&) override { }
     WKCRect windowResizerRect() const override { return {}; }
-    void repaint(const WKCRect&, bool, bool, bool) override { s_dirty = true; }
-    void invalidateContentsForSlowScroll(const WKCRect&, bool) override { s_dirty = true; }
-    void scroll(const WKCSize&, const WKCRect&, const WKCRect&) override { s_dirty = true; }
+    void repaint(const WKCRect&, bool, bool, bool) override { /* the selected page is repainted every frame */ }
+    void invalidateContentsForSlowScroll(const WKCRect&, bool) override { /* the selected page is repainted every frame */ }
+    void scroll(const WKCSize&, const WKCRect&, const WKCRect&) override { /* the selected page is repainted every frame */ }
     WKCPoint screenToWindow(const WKCPoint&) const override { return {}; }
     WKCRect windowToScreen(const WKCRect&) const override { return {}; }
     PlatformPageClient platformPageClient() const override { return {}; }
-    void contentsSizeChanged(WKC::Frame*, const WKCSize&) const override { s_dirty = true; }
-    void scheduleAnimation() override { s_dirty = true; }
+    void contentsSizeChanged(WKC::Frame*, const WKCSize&) const override { /* the selected page is repainted every frame */ }
+    void scheduleAnimation() override { /* the selected page is repainted every frame */ }
     void scrollbarsModeDidChange() const override { }
     void mouseDidMoveOverElement(const WKC::HitTestResult&, unsigned) override { }
     void setToolTip(const WKC::String&, WKC::TextDirection) override { }
@@ -229,8 +229,8 @@ public:
     bool shouldReplaceWithGeneratedFileForUpload(const WKC::String&, WKC::String&) override { return false; }
     WKC::String generateReplacementFile(const WKC::String&) override { return WKC::String(); }
     void attachRootGraphicsLayer(WKC::Frame*, WKC::GraphicsLayer*) override { }
-    void setNeedsOneShotDrawingSynchronization() override { s_dirty = true; }
-    void scheduleCompositingLayerSync() override { s_dirty = true; }
+    void setNeedsOneShotDrawingSynchronization() override { /* the selected page is repainted every frame */ }
+    void scheduleCompositingLayerSync() override { /* the selected page is repainted every frame */ }
     bool allowsAcceleratedCompositing() const override { return false; }
     CompositingTriggerFlags allowedCompositingTriggers() const override { return {}; }
     bool supportsFullscreenForNode(const WKC::Node*) override { return false; }
