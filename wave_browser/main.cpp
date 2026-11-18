@@ -133,6 +133,9 @@ static void open_url_keyboard();
 static void close_tab_at(int index);
 static void add_new_tab();
 static void focus_open_address(void*);
+static void focus_go_back(void*);
+static void focus_go_forward(void*);
+static void focus_reload_page(void*);
 static void focus_open_settings(void*);
 static void focus_select_tab(void*);
 static void focus_close_tab(void*);
@@ -372,11 +375,11 @@ static void draw_browser_ui()
     sdl_rect(0, 0, TV_W, TOOLBAR_H, COL_CHROME_BG);
 
     ui_focus_register(BROWSER_FOCUS_BACK, BTN_BACK_X, 6, BTN_SIZE, BTN_SIZE,
-                      nullptr, nullptr, nullptr);
+                      nullptr, focus_go_back, nullptr);
     ui_focus_register(BROWSER_FOCUS_FORWARD, BTN_FWD_X, 6, BTN_SIZE, BTN_SIZE,
-                      nullptr, nullptr, nullptr);
+                      nullptr, focus_go_forward, nullptr);
     ui_focus_register(BROWSER_FOCUS_RELOAD, BTN_RELOAD_X, 6, BTN_SIZE, BTN_SIZE,
-                      nullptr, nullptr, nullptr);
+                      nullptr, focus_reload_page, nullptr);
     ui_focus_register(BROWSER_FOCUS_ADDRESS, ADDR_BAR_X, ADDR_BAR_Y,
                       ADDR_BAR_W, ADDR_BAR_H, nullptr,
                       focus_open_address, nullptr);
@@ -792,6 +795,21 @@ static void add_new_tab()
 static void focus_open_address(void*)
 {
     open_url_keyboard();
+}
+
+static void focus_go_back(void*)
+{
+    webkit_engine_go_back();
+}
+
+static void focus_go_forward(void*)
+{
+    webkit_engine_go_forward();
+}
+
+static void focus_reload_page(void*)
+{
+    webkit_engine_reload();
 }
 
 static void focus_open_settings(void*)
