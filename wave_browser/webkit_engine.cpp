@@ -1195,16 +1195,11 @@ bool webkit_engine_init(int w, int h)
     s_page_count = 0;
     s_active_page = -1;
 
-    // Set up the real CA/CRL registry before WKC initializes its OpenSSL
-    // adapter. WKC can call this peer again; initialization is idempotent.
-    if (!wkcSSLInitializePeer())
-        return false;
-
+    // WKCWebKitInitialize initializes platform peers (including the SSL
+    // registry) in its required order before creating WebCore networking.
     if (!WKC::WKCWebKitInitialize(nullptr, 0, nullptr, 0,
-                                  s_memory_event_handler, s_timer_event_handler)) {
-        wkcSSLFinalizePeer();
+                                  s_memory_event_handler, s_timer_event_handler))
         return false;
-    }
     s_webkit_initialized = true;
     s_available = true;
 
@@ -1567,9 +1562,8 @@ void webkit_engine_shutdown(void)
         WKC::WKCWebKitFinalize();
         s_webkit_initialized = false;
     }
-    // WKC may already have finalized the peer; the adapter safely ignores a
-    // second finalization and clears any remaining registered certificate data.
-    wkcSSLFinalizePeer();
+    // WKCWebKitFinalize owns the platform-peer shutdown sequence, including
+    // releasing the SSL certificate registry.
     s_available = false;
 
     if (s_timer_init) {
