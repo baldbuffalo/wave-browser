@@ -20,6 +20,13 @@ void webkit_engine_set_renderer(SDL_Renderer* ren);
 // Load a URL.
 void webkit_engine_navigate(const char* url);
 
+// Browser toolbar actions backed by the active WKCWebView.
+bool webkit_engine_can_go_back(void);
+bool webkit_engine_can_go_forward(void);
+void webkit_engine_go_back(void);
+void webkit_engine_go_forward(void);
+void webkit_engine_reload(void);
+
 // Per-frame tick (timers, JS, layout). Call every frame.
 void webkit_engine_tick(void);
 
