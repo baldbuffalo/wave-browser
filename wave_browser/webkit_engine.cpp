@@ -39,6 +39,7 @@ extern "C" {
 #include <sys/stat.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <math.h>
 
@@ -361,14 +362,23 @@ struct WKCThread {
     void*   (*fn)(void*);
     void*     arg;
     void*     result;
+    const char* argv[1];
 };
 
-// Use OSThreadSpecificID slot 0 to store WKCThread pointer
+// The worker receives its own argument vector. A thread-local value set by the
+// creator is not inherited by the new Wii U thread.
 #define WKC_THREAD_SLOT ((OSThreadSpecificID)0)
 
-static int thread_trampoline(int, void*) {
-    WKCThread* t = (WKCThread*)OSGetThreadSpecific(WKC_THREAD_SLOT);
-    if (t) t->result = t->fn(t->arg);
+static int thread_trampoline(int argc, void* argvRaw) {
+    const char** argv = static_cast<const char**>(argvRaw);
+    if (argc < 1 || !argv || !argv[0])
+        return -1;
+    WKCThread* t = (WKCThread*)(uintptr_t)strtoull(argv[0], nullptr, 16);
+    if (!t)
+        return -1;
+    OSSetThreadSpecific(WKC_THREAD_SLOT, t);
+    if (t->fn)
+        t->result = t->fn(t->arg);
     return 0;
 }
 
@@ -476,9 +486,24 @@ void* wkcThreadCreatePeer(void*(*fn)(void*), void* arg) {
     t->fn=fn; t->arg=arg;
     t->stack=(uint8_t*)malloc(64*1024);
     if (!t->stack) { free(t); return nullptr; }
-    OSCreateThread(&t->ost, thread_trampoline, 0, nullptr,
-                   t->stack+64*1024, 64*1024, 16, OS_THREAD_ATTRIB_AFFINITY_ANY);
-    OSSetThreadSpecific(WKC_THREAD_SLOT, t);
+
+    char context[2 * sizeof(uintptr_t) + 1];
+    snprintf(context, sizeof(context), "%llx",
+             (unsigned long long)(uintptr_t)t);
+    t->argv[0] = strdup(context);
+    if (!t->argv[0]) {
+        free(t->stack);
+        free(t);
+        return nullptr;
+    }
+
+    if (!OSCreateThread(&t->ost, thread_trampoline, 1, t->argv,
+                        t->stack+64*1024, 64*1024, 16, OS_THREAD_ATTRIB_AFFINITY_ANY)) {
+        free((void*)t->argv[0]);
+        free(t->stack);
+        free(t);
+        return nullptr;
+    }
     OSResumeThread(&t->ost);
     return t;
 }
@@ -489,6 +514,7 @@ int wkcThreadJoinPeer(void* p, void** res) {
     auto* t=(WKCThread*)p;
     OSJoinThread(&t->ost, nullptr);
     if (res) *res=t->result;
+    free((void*)t->argv[0]);
     free(t->stack); free(t);
     return 0;
 }
@@ -714,43 +740,182 @@ bool wkcSystemSetSystemStringPeer(const unsigned char*,const unsigned char*){ re
 const unsigned char* wkcSystemGetSystemStringPeer(const unsigned char*)     { return nullptr; }
 
 // ── SSL ──────────────────────────────────────────────────────────────────────
+// WKC passes PEM data directly to these registration peers. Keep real opaque
+// handles and expose the registered material through the OpenSSL pseudo-file
+// hooks so libcurl/OpenSSL can actually load it for peer verification.
 
-bool wkcHWOffscreenInitializePeer(void) { return true; }
-void wkcHWOffscreenFinalizePeer(void) {}
-void wkcHWOffscreenForceTerminatePeer(void) {}
-bool wkcAudioInitializePeer(void) { return true; }
-void wkcAudioFinalizePeer(void) {}
-void wkcAudioForceTerminatePeer(void) {}
-bool wkcMediaPlayerInitializePeer(void) { return true; }
-void wkcMediaPlayerFinalizePeer(void) {}
-void wkcMediaPlayerForceTerminatePeer(void) {}
-bool wkcNetInitializePeer(void) { return true; }
-void wkcNetFinalizePeer(void) {}
-void wkcNetForceTerminatePeer(void) {}
-void wkcHeapInitializePeer(void*, size_t) {}
-void wkcHeapFinalizePeer(void) {}
-void wkcHeapForceTerminatePeer(void) {}
+struct WaveSSLBlob {
+    unsigned char* data;
+    size_t length;
+    WaveSSLBlob* next;
+};
+static WaveSSLBlob* s_root_cas = nullptr;
+static WaveSSLBlob* s_crls = nullptr;
+static OSMutex s_ssl_mtx;
+static bool s_ssl_initialized = false;
 
-bool  wkcSSLInitializePeer(void)           { return true; }
-void  wkcSSLFinalizePeer(void)             {}
-void  wkcSSLForceTerminatePeer(void)       {}
-void* wkcSSLRegisterRootCAPeer(const char*,int)  { return (void*)1; }
-int   wkcSSLUnregisterRootCAPeer(void*)    { return 0; }
-void  wkcSSLRootCADeleteAllPeer(void)      {}
-void* wkcSSLRegisterCRLPeer(const char*,int)     { return (void*)1; }
-int   wkcSSLUnregisterCRLPeer(void*)       { return 0; }
-void  wkcSSLCRLDeleteAllPeer(void)         {}
+static bool wave_ssl_has_pem_pair(const char* data, int length,
+                                  const char* begin, const char* end)
+{
+    if (!data || length <= 0) return false;
+    const size_t n = (size_t)length;
+    const size_t beginLen = strlen(begin), endLen = strlen(end);
+    bool hasBegin = false, hasEnd = false;
+    for (size_t i = 0; i + beginLen <= n; ++i)
+        if (!memcmp(data + i, begin, beginLen)) { hasBegin = true; break; }
+    for (size_t i = 0; i + endLen <= n; ++i)
+        if (!memcmp(data + i, end, endLen)) { hasEnd = true; break; }
+    return hasBegin && hasEnd;
+}
 
-FILE* wkcOsslCertfOpenPeer(const char* p,const char* m)        { return fopen(p,m); }
-int   wkcOsslCertfClosePeer(FILE* f)                           { return fclose(f); }
-size_t wkcOsslCertfReadPeer(void* b,size_t s,size_t n,FILE* f) { return fread(b,s,n,f); }
-size_t wkcOsslCertfWritePeer(const void* b,size_t s,size_t n,FILE* f){ return fwrite(b,s,n,f); }
-char*  wkcOsslCertfGetsPeer(char* s,int n,FILE* f)             { return fgets(s,n,f); }
-size_t wkcOsslCertfFlushPeer(FILE* f)                          { return fflush(f); }
-int    wkcOsslCertfSeekPeer(FILE* f,long o,int w)              { return fseek(f,o,w); }
-long   wkcOsslCertfTellPeer(FILE* f)                           { return ftell(f); }
-bool   wkcOsslCertfIsRegistPeer(void)                          { return false; }
-bool   wkcOsslCRLIsRegistPeer(void)                            { return false; }
+static void wave_ssl_delete_list(WaveSSLBlob*& head)
+{
+    while (head) {
+        WaveSSLBlob* next = head->next;
+        free(head->data);
+        free(head);
+        head = next;
+    }
+}
+
+static void* wave_ssl_register_blob(WaveSSLBlob*& head, const char* data,
+                                    int length, const char* begin, const char* end)
+{
+    if (!s_ssl_initialized || !wave_ssl_has_pem_pair(data, length, begin, end))
+        return nullptr;
+    WaveSSLBlob* blob = (WaveSSLBlob*)calloc(1, sizeof(WaveSSLBlob));
+    if (!blob) return nullptr;
+    blob->data = (unsigned char*)malloc((size_t)length);
+    if (!blob->data) { free(blob); return nullptr; }
+    memcpy(blob->data, data, (size_t)length);
+    blob->length = (size_t)length;
+    OSLockMutex(&s_ssl_mtx);
+    blob->next = head;
+    head = blob;
+    OSUnlockMutex(&s_ssl_mtx);
+    return blob;
+}
+
+static int wave_ssl_unregister_blob(WaveSSLBlob*& head, void* handle)
+{
+    if (!handle || !s_ssl_initialized) return -1;
+    OSLockMutex(&s_ssl_mtx);
+    WaveSSLBlob** cursor = &head;
+    while (*cursor && *cursor != handle) cursor = &(*cursor)->next;
+    WaveSSLBlob* found = *cursor;
+    if (found) *cursor = found->next;
+    OSUnlockMutex(&s_ssl_mtx);
+    if (!found) return -1;
+    free(found->data);
+    free(found);
+    return 0;
+}
+
+static bool wave_ssl_has_blobs(WaveSSLBlob* head)
+{
+    bool found;
+    OSLockMutex(&s_ssl_mtx);
+    found = head != nullptr;
+    OSUnlockMutex(&s_ssl_mtx);
+    return found;
+}
+
+bool wkcSSLInitializePeer(void)
+{
+    if (!s_ssl_initialized) {
+        OSInitMutex(&s_ssl_mtx);
+        s_root_cas = nullptr;
+        s_crls = nullptr;
+        s_ssl_initialized = true;
+    }
+    return true;
+}
+void wkcSSLFinalizePeer(void)
+{
+    if (!s_ssl_initialized) return;
+    OSLockMutex(&s_ssl_mtx);
+    wave_ssl_delete_list(s_root_cas);
+    wave_ssl_delete_list(s_crls);
+    OSUnlockMutex(&s_ssl_mtx);
+    s_ssl_initialized = false;
+}
+void wkcSSLForceTerminatePeer(void) { wkcSSLFinalizePeer(); }
+
+void* wkcSSLRegisterRootCAPeer(const char* cert, int length)
+{
+    return wave_ssl_register_blob(s_root_cas, cert, length,
+        "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----");
+}
+int wkcSSLUnregisterRootCAPeer(void* handle)
+{
+    return wave_ssl_unregister_blob(s_root_cas, handle);
+}
+void wkcSSLRootCADeleteAllPeer(void)
+{
+    if (!s_ssl_initialized) return;
+    OSLockMutex(&s_ssl_mtx);
+    wave_ssl_delete_list(s_root_cas);
+    OSUnlockMutex(&s_ssl_mtx);
+}
+void* wkcSSLRegisterCRLPeer(const char* crl, int length)
+{
+    return wave_ssl_register_blob(s_crls, crl, length,
+        "-----BEGIN X509 CRL-----", "-----END X509 CRL-----");
+}
+int wkcSSLUnregisterCRLPeer(void* handle)
+{
+    return wave_ssl_unregister_blob(s_crls, handle);
+}
+void wkcSSLCRLDeleteAllPeer(void)
+{
+    if (!s_ssl_initialized) return;
+    OSLockMutex(&s_ssl_mtx);
+    wave_ssl_delete_list(s_crls);
+    OSUnlockMutex(&s_ssl_mtx);
+}
+
+FILE* wkcOsslCertfOpenPeer(const char* path, const char* /*mode*/)
+{
+    if (!path || !s_ssl_initialized) return nullptr;
+    // WKC's OpenSSL port passes pseudo-paths for the CA bundle and CRL file.
+    // The CRL path is identifiable by its filename; all other supported
+    // certificate pseudo-paths map to the registered root CA bundle.
+    const char* leaf = strrchr(path, '/');
+    if (!leaf) leaf = strrchr(path, ':');
+    leaf = leaf ? leaf + 1 : path;
+    bool isCRL = (strstr(leaf, "crl") || strstr(leaf, "CRL") ||
+                  strstr(leaf, "Crl")) != nullptr;
+    FILE* stream = tmpfile();
+    if (!stream) return nullptr;
+
+    OSLockMutex(&s_ssl_mtx);
+    WaveSSLBlob* item = isCRL ? s_crls : s_root_cas;
+    size_t written = 0;
+    for (; item; item = item->next) {
+        if (item->length && fwrite(item->data, 1, item->length, stream) != item->length) {
+            written = 0;
+            break;
+        }
+        written += item->length;
+        if (fwrite("\n", 1, 1, stream) != 1) { written = 0; break; }
+        ++written;
+    }
+    OSUnlockMutex(&s_ssl_mtx);
+    if (!written || fflush(stream) != 0 || fseek(stream, 0, SEEK_SET) != 0) {
+        fclose(stream);
+        return nullptr;
+    }
+    return stream;
+}
+int   wkcOsslCertfClosePeer(FILE* f) { return f ? fclose(f) : EOF; }
+size_t wkcOsslCertfReadPeer(void* b,size_t s,size_t n,FILE* f) { return (f && b && s && n) ? fread(b,s,n,f) : 0; }
+size_t wkcOsslCertfWritePeer(const void* b,size_t s,size_t n,FILE* f) { return (f && b && s && n) ? fwrite(b,s,n,f) : 0; }
+char* wkcOsslCertfGetsPeer(char* s,int n,FILE* f) { return (f && s && n > 0) ? fgets(s,n,f) : nullptr; }
+size_t wkcOsslCertfFlushPeer(FILE* f) { return f ? (size_t)fflush(f) : (size_t)-1; }
+int    wkcOsslCertfSeekPeer(FILE* f,long o,int w) { return f ? fseek(f,o,w) : -1; }
+long   wkcOsslCertfTellPeer(FILE* f) { return f ? ftell(f) : -1; }
+bool   wkcOsslCertfIsRegistPeer(void) { return wave_ssl_has_blobs(s_root_cas); }
+bool   wkcOsslCRLIsRegistPeer(void) { return wave_ssl_has_blobs(s_crls); }
 
 FILE*  wkcOsslRandFilefOpenPeer(const char* p,const char* m)         { return fopen(p,m); }
 int    wkcOsslRandFilefClosePeer(FILE* f)                            { return fclose(f); }
@@ -760,7 +925,13 @@ size_t wkcOsslRandFilefWritePeer(const void* b,size_t s,size_t n,FILE* f){ retur
 
 int          wkcNetCheckCorrectIPAddressPeer(const char*) { return 1; }
 unsigned int wkcRandomNumberPeer(void)            { return (unsigned int)rand(); }
-int          wkcRandomNumbersPeer(unsigned char* b,int n){ for(int i=0;i<n;i++)b[i]=(unsigned char)rand();return n; }
+int          wkcRandomNumbersPeer(unsigned char* b,int n){
+    // Reject invalid requests instead of dereferencing a null buffer or
+    // reporting a negative byte count as a successful result.
+    if (n < 0 || (n > 0 && !b)) return -1;
+    for (int i = 0; i < n; ++i) b[i] = (unsigned char)rand();
+    return n;
+}
 unsigned int wkcRandomMaxPeer(void)               { return RAND_MAX; }
 
 // ── PCAP ─────────────────────────────────────────────────────────────────────
@@ -1024,8 +1195,14 @@ bool webkit_engine_init(int w, int h)
     s_page_count = 0;
     s_active_page = -1;
 
+    // Set up the real CA/CRL registry before WKC initializes its OpenSSL
+    // adapter. WKC can call this peer again; initialization is idempotent.
+    if (!wkcSSLInitializePeer())
+        return false;
+
     if (!WKC::WKCWebKitInitialize(nullptr, 0, nullptr, 0,
                                   s_memory_event_handler, s_timer_event_handler)) {
+        wkcSSLFinalizePeer();
         return false;
     }
     s_webkit_initialized = true;
@@ -1390,6 +1567,9 @@ void webkit_engine_shutdown(void)
         WKC::WKCWebKitFinalize();
         s_webkit_initialized = false;
     }
+    // WKC may already have finalized the peer; the adapter safely ignores a
+    // second finalization and clears any remaining registered certificate data.
+    wkcSSLFinalizePeer();
     s_available = false;
 
     if (s_timer_init) {
