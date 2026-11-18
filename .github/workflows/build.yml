@@ -66,49 +66,45 @@ jobs:
           test -s wave_browser/font.ttf
           python3 -c "data=open('wave_browser/font.ttf','rb').read();open('wave_browser/font_data.h','w').write('static const unsigned char font_data[]={'+','.join(str(b) for b in data)+'};\\nstatic const unsigned int font_data_len='+str(len(data))+';\\n')"
 
-      - name: Use WebKit engine if available
+      - name: Require matching full WebKit engine
         id: webkit
         shell: bash
         timeout-minutes: 5
         run: |
-          set -uo pipefail
-          echo "wkc_available=0" >> "$GITHUB_OUTPUT"
-          mkdir -p build build/webkit-wiiu-artifact
-          WEBKIT_SHA=""
-          if WEBKIT_SHA=$(curl -fsSL --max-time 20 \
+          set -euo pipefail
+          mkdir -p build/webkit-wiiu-artifact
+          WEBKIT_SHA=$(curl -fsSL --max-time 20 \
             https://api.github.com/repos/baldbuffalo/webkit-wiiu/commits/main \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])'); then
-            TAG="engine-$WEBKIT_SHA"
-            if curl -fsSL --max-time 20 \
-              "https://api.github.com/repos/baldbuffalo/webkit-wiiu/releases/tags/$TAG" \
-              -o build/webkit-release.json; then
-              ASSET_URL=$(python3 -c '
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+          TAG="engine-$WEBKIT_SHA"
+          curl -fsSL --max-time 20 \
+            "https://api.github.com/repos/baldbuffalo/webkit-wiiu/releases/tags/$TAG" \
+            -o build/webkit-release.json
+          ASSET_URL=$(python3 - <<'PY'
           import json
-          data=json.load(open("build/webkit-release.json"))
-          assets=[a for a in data.get("assets", [])
-                  if a.get("name") == "webkit-wiiu-full-engine.tar.gz"
-                  and a.get("state") == "uploaded"
-                  and a.get("size", 0) > 0]
-          print(assets[0]["browser_download_url"] if assets else "")' 2>/dev/null || true)
-              if [ -n "${ASSET_URL:-}" ] && \
-                 curl -fsSL --max-time 180 --retry 2 --retry-delay 2 "$ASSET_URL" -o build/webkit-engine-artifact.tar.gz; then
-                if tar -xzf build/webkit-engine-artifact.tar.gz -C build/webkit-wiiu-artifact 2>/dev/null; then
-                  echo "wkc_available=1" >> "$GITHUB_OUTPUT"
-                  echo "Downloaded and extracted WebKit engine bundle for commit $WEBKIT_SHA (using it without additional validation)."
-                else
-                  rm -rf build/webkit-wiiu-artifact
-                  mkdir -p build/webkit-wiiu-artifact
-                  echo "::notice::WebKit engine bundle could not be extracted; WKC_AVAILABLE is temporarily disabled for this CI build."
-                fi
-              else
-                echo "::notice::No full WebKit engine asset found for $WEBKIT_SHA; WKC_AVAILABLE is temporarily disabled for this CI build."
-              fi
-            else
-              echo "::warning::No matching WebKit engine release found for $WEBKIT_SHA; WKC_AVAILABLE is temporarily disabled for this CI build."
-            fi
-          else
-            echo "::notice::Could not resolve WebKit-WiiU engine revision; WKC_AVAILABLE is temporarily disabled for this CI build."
-          fi
+          with open("build/webkit-release.json", encoding="utf-8") as f:
+              release = json.load(f)
+          assets = [
+              asset for asset in release.get("assets", [])
+              if asset.get("name") == "webkit-wiiu-full-engine.tar.gz"
+              and asset.get("state") == "uploaded"
+              and asset.get("size", 0) > 0
+          ]
+          print(assets[0]["browser_download_url"] if assets else "")
+          PY
+          )
+          test -n "$ASSET_URL" || {
+            echo "::error::The matching WebKit release exists but has no uploaded full-engine asset."
+            exit 1
+          }
+          curl -fsSL --max-time 180 --retry 2 --retry-delay 2 \
+            "$ASSET_URL" -o build/webkit-engine-artifact.tar.gz
+          tar -xzf build/webkit-engine-artifact.tar.gz -C build/webkit-wiiu-artifact
+          test -s build/webkit-wiiu-artifact/lib/libWebKitWKC.a
+          test -s build/webkit-wiiu-artifact/include/WKCWebView.h
+          echo "wkc_available=1" >> "$GITHUB_OUTPUT"
+          echo "Using full WebKit engine bundle from exact source commit $WEBKIT_SHA."
+          ls -lh build/webkit-wiiu-artifact/lib/libWebKitWKC.a
 
       - name: Build and install RPXLoader library
         run: |
