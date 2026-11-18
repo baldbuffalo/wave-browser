@@ -130,6 +130,8 @@ static int s_stick_held = 0;
 static int s_switcher_stick_held = 0;
 
 static void open_url_keyboard();
+static void select_tab(int index);
+static void sync_active_tab_url();
 static void close_tab_at(int index);
 static void add_new_tab();
 static void focus_open_address(void*);
@@ -198,8 +200,21 @@ static uint32_t SaveCallback(void*)
 
 // ─── Session persistence ──────────────────────────────────────────────────────
 
+static void sync_active_tab_url()
+{
+    if (s_active_tab < 0 || s_active_tab >= s_tab_count)
+        return;
+
+    char current_url[MAX_URL] = {};
+    if (webkit_engine_get_url(current_url, sizeof(current_url)) && current_url[0]) {
+        strncpy(s_tabs[s_active_tab].url, current_url, MAX_URL - 1);
+        s_tabs[s_active_tab].url[MAX_URL - 1] = '\0';
+    }
+}
+
 static void save_session()
 {
+    sync_active_tab_url();
     FILE* f = fopen(SESSION_PATH, "w");
     if (!f) return;
     fprintf(f, "tab_count=%d\nactive_tab=%d\n", s_tab_count, s_active_tab);
@@ -337,7 +352,7 @@ static void handle_switcher_input(VPADStatus* vpad)
         for (int i=0;i<s_tab_count;i++) {
             int cx=sx+i*(CW+CG);
             if (s_tp_x>=cx&&s_tp_x<cx+CW&&s_tp_y>=cy&&s_tp_y<cy+CH) {
-                s_active_tab=i;
+                select_tab(i);
                 ui_focus_set_current(BROWSER_FOCUS_SWITCHER_BASE + i);
                 s_show_tab_switcher=false;
                 break;
@@ -786,13 +801,28 @@ static bool touch_hit(int tx,int ty,int x,int y,int w,int h)
 
 // ─── Generic focus actions ────────────────────────────────────────────────────
 
+static void select_tab(int index)
+{
+    if (index < 0 || index >= s_tab_count || index == s_active_tab)
+        return;
+
+    // Save the old page's live URL before changing which WebKit page is active.
+    sync_active_tab_url();
+    s_active_tab = index;
+    webkit_engine_select_tab(index);
+}
+
 static void add_new_tab()
 {
     if (s_tab_count >= MAX_TABS) return;
     int index = s_tab_count;
+    if (!webkit_engine_create_tab(index))
+        return;
+
     memset(&s_tabs[index], 0, sizeof(Tab));
     strcpy(s_tabs[index].title, "New Tab");
-    s_active_tab = s_tab_count++;
+    ++s_tab_count;
+    select_tab(index);
     ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + index * 2);
 }
 
@@ -825,7 +855,7 @@ static void focus_open_settings(void*)
 static void focus_select_tab(void* user_data)
 {
     int index = (int)(intptr_t)user_data;
-    if (index >= 0 && index < s_tab_count) s_active_tab = index;
+    select_tab(index);
 }
 
 static void focus_close_tab(void* user_data)
@@ -836,7 +866,7 @@ static void focus_close_tab(void* user_data)
 static void focus_switcher_focus_tab(void* user_data)
 {
     int index = (int)(intptr_t)user_data;
-    if (index >= 0 && index < s_tab_count) s_active_tab = index;
+    select_tab(index);
 }
 
 static void focus_switcher_select_tab(void* user_data)
@@ -855,11 +885,24 @@ static void close_tab_at(int index)
 {
     if (s_tab_count <= 1 || index < 0 || index >= s_tab_count)
         return;
+
+    if (index == s_active_tab)
+        sync_active_tab_url();
+
+    const int previous_active = s_active_tab;
+    webkit_engine_close_tab(index);
     for (int i = index; i < s_tab_count - 1; ++i)
         s_tabs[i] = s_tabs[i + 1];
     --s_tab_count;
-    if (s_active_tab > index) --s_active_tab;
-    else if (s_active_tab == index && s_active_tab >= s_tab_count) s_active_tab = s_tab_count - 1;
+
+    if (previous_active > index)
+        s_active_tab = previous_active - 1;
+    else if (previous_active == index)
+        s_active_tab = index < s_tab_count ? index : s_tab_count - 1;
+
+    // Keep the engine/UI indices aligned after removing a tab. The engine's
+    // close operation has already focused the replacement when needed.
+    webkit_engine_select_tab(s_active_tab);
     ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
 }
 
@@ -934,11 +977,11 @@ static void handle_input(VPADStatus* vpad)
     }
 
     if ((btn & VPAD_BUTTON_ZL) && s_active_tab > 0) {
-        --s_active_tab;
+        select_tab(s_active_tab - 1);
         ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
     }
     if ((btn & VPAD_BUTTON_ZR) && s_active_tab < s_tab_count - 1) {
-        ++s_active_tab;
+        select_tab(s_active_tab + 1);
         ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + s_active_tab * 2);
     }
     if (btn & VPAD_BUTTON_A) focus_activate();
@@ -984,7 +1027,7 @@ static void handle_input(VPADStatus* vpad)
                 return;
             }
             if (touch_hit(tx, ty, i * TAB_W, TOOLBAR_H, TAB_W - 20, TAB_H)) {
-                s_active_tab = i;
+                select_tab(i);
                 ui_focus_set_current(BROWSER_FOCUS_TAB_BASE + i * 2);
                 return;
             }
@@ -1050,6 +1093,24 @@ int main(int, char**)
     s_active_tab = 0;
     if (s_tab_count < 1) s_tab_count = 1;
     ui_focus_set_current(BROWSER_FOCUS_ADDRESS);
+    // Recreate a real WebKit page for every tab restored from the last
+    // browser session. Each page is then loaded into its own WKCWebView.
+    const int restored_tab_count = s_tab_count;
+    for (int i = 1; i < restored_tab_count; ++i) {
+        if (!webkit_engine_create_tab(i)) {
+            // Do not leave UI tabs pointing at page indices that could not be
+            // allocated (for example after WebKit reports memory pressure).
+            s_tab_count = i;
+            break;
+        }
+    }
+    for (int i = 1; i < s_tab_count; ++i) {
+        if (s_tabs[i].url[0]) {
+            webkit_engine_select_tab(i);
+            webkit_engine_navigate(s_tabs[i].url);
+        }
+    }
+    webkit_engine_select_tab(0);
     webkit_engine_navigate(s_tabs[0].url);
 
     run_splash_and_update();
@@ -1137,8 +1198,9 @@ int main(int, char**)
             }
             poll_touch(&vpad);
 
-            // WebKit engine tick (timers, layout, JS)
+            // WebKit engine tick (timers, layout, JS) for all live tab pages.
             webkit_engine_tick();
+            sync_active_tab_url();
 
             // Gamepad → keyboard mapping for browser games
             // ZL/ZR hold state from vpad.hold (not trigger — we need sustained press)

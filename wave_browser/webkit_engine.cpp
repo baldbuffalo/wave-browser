@@ -44,15 +44,22 @@ extern "C" {
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
+static const int MAX_WEBKIT_TABS = 8;
+
+struct WebKitPage {
+    WKC::WKCWebView* view;
+    unsigned char* pixels;
+    SDL_Texture* texture;
+    bool dirty;
+};
+
 static bool           s_available = false;
 static int            s_w = 1280, s_h = 720;
-static unsigned char* s_pixels   = nullptr;
 static SDL_Renderer*  s_renderer = nullptr;
-static SDL_Texture*   s_texture  = nullptr;
-static bool           s_dirty    = false;
-static char           s_url[512] = {};
-static WKC::WKCWebView* s_webview = nullptr;
-static bool s_webkit_initialized = false;
+static bool           s_webkit_initialized = false;
+static WebKitPage     s_pages[MAX_WEBKIT_TABS] = {};
+static int            s_page_count = 0;
+static int            s_active_page = -1;
 
 // ─── Timer ───────────────────────────────────────────────────────────────────
 // wkcTimeoutProc returns bool (from wkcpeer.h)
@@ -963,14 +970,9 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
     auto*o=(WKCOff*)p;
     if(rb) *rb=o->rb;
     if(!o->bmp||o->w<=0||o->h<=0||o->rb<o->w*4) return nullptr;
-    if(s_pixels&&o->w==s_w&&o->h==s_h){
-        // The SDL framebuffer is tightly packed; WKC may supply a padded
-        // row stride. Copy only visible pixel bytes to avoid overrunning it.
-        const size_t rowBytes=(size_t)o->w*4;
-        for(int y=0;y<o->h;y++)
-            memcpy(s_pixels+(size_t)y*rowBytes,o->bmp+(size_t)y*o->rb,rowBytes);
-        s_dirty=true;
-    }
+    // setOffscreen() receives the owning tab's framebuffer. Return that
+    // buffer directly: copying into one global SDL surface would overwrite
+    // another tab's pixels whenever its WebKit page paints.
     return o->bmp;
 }
 
@@ -978,112 +980,260 @@ void* wkcOffscreenBitmapPeer(void* p,int* rb){
 } // extern "C"
 // =============================================================================
 
+static WebKitPage* active_webkit_page()
+{
+    if (s_active_page < 0 || s_active_page >= s_page_count)
+        return nullptr;
+    return &s_pages[s_active_page];
+}
+
+static WKC::WKCWebView* active_webkit_view()
+{
+    WebKitPage* page = active_webkit_page();
+    return page ? page->view : nullptr;
+}
+
+static void release_webkit_page(WebKitPage& page, bool had_focus)
+{
+    if (page.view) {
+        if (had_focus)
+            page.view->notifyFocusOut();
+        page.view->setVisibilityState(WKC::WKCWebView::PageVisibilityStateHidden, false);
+        WKC::WKCWebView::deleteWKCWebView(page.view);
+        page.view = nullptr;
+    }
+    if (page.texture) {
+        SDL_DestroyTexture(page.texture);
+        page.texture = nullptr;
+    }
+    free(page.pixels);
+    page.pixels = nullptr;
+    page.dirty = false;
+}
+
 bool webkit_engine_init(int w, int h)
 {
-    if (w <= 0 || h <= 0) return false;
-    s_w=w; s_h=h;
-    s_pixels=(unsigned char*)malloc((size_t)w*h*4);
-    if(!s_pixels) return false;
-    memset(s_pixels,0xFF,(size_t)w*h*4);
+    if (w <= 0 || h <= 0)
+        return false;
+    if (s_webkit_initialized || s_page_count)
+        webkit_engine_shutdown();
+
+    s_w = w;
+    s_h = h;
+    memset(s_pages, 0, sizeof(s_pages));
+    s_page_count = 0;
+    s_active_page = -1;
 
     if (!WKC::WKCWebKitInitialize(nullptr, 0, nullptr, 0,
                                   s_memory_event_handler, s_timer_event_handler)) {
-        free(s_pixels);
-        s_pixels = nullptr;
         return false;
     }
     s_webkit_initialized = true;
+    s_available = true;
 
-    s_webview = WKC::WKCWebView::create(s_client_builders);
-    if (!s_webview) {
-        WKC::WKCWebKitFinalize();
-        s_webkit_initialized = false;
-        free(s_pixels);
-        s_pixels = nullptr;
+    // A single WebKit runtime owns multiple independent WKCWebView/Page
+    // instances. Each browser tab gets a separate page and backing surface.
+    if (!webkit_engine_create_tab(0)) {
+        webkit_engine_shutdown();
+        return false;
+    }
+    webkit_engine_select_tab(0);
+    return true;
+}
+
+bool webkit_engine_create_tab(int tab_index)
+{
+    if (!s_available || !s_webkit_initialized
+        || tab_index != s_page_count
+        || tab_index < 0 || tab_index >= MAX_WEBKIT_TABS)
+        return false;
+
+    // Check width/height arithmetic before allocating the RGBA framebuffer.
+    if ((size_t)s_w > ((size_t)-1) / 4 / (size_t)s_h)
+        return false;
+    const size_t pixel_bytes = (size_t)s_w * (size_t)s_h * 4;
+
+    WebKitPage page = {};
+    page.pixels = static_cast<unsigned char*>(malloc(pixel_bytes));
+    if (!page.pixels)
+        return false;
+    memset(page.pixels, 0xFF, pixel_bytes);
+
+    page.view = WKC::WKCWebView::create(s_client_builders);
+    if (!page.view) {
+        free(page.pixels);
         return false;
     }
 
     WKC::WKCSize size = { s_w, s_h };
-    if (!s_webview->setOffscreen(WKC::EOffscreenFormatARGB8888,
-                                 s_pixels, s_w * 4, size, size, true, &size, true)) {
-        WKC::WKCWebView::deleteWKCWebView(s_webview);
-        s_webview = nullptr;
-        WKC::WKCWebKitFinalize();
-        s_webkit_initialized = false;
-        free(s_pixels);
-        s_pixels = nullptr;
+    if (!page.view->setOffscreen(WKC::EOffscreenFormatARGB8888,
+                                 page.pixels, s_w * 4, size, size, true, &size, true)) {
+        WKC::WKCWebView::deleteWKCWebView(page.view);
+        free(page.pixels);
         return false;
     }
 
-    s_available = true;
-    s_dirty = true;
+    page.view->setVisibilityState(WKC::WKCWebView::PageVisibilityStateHidden, false);
+    if (s_renderer) {
+        page.texture = SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888,
+                                         SDL_TEXTUREACCESS_STREAMING, s_w, s_h);
+        if (!page.texture) {
+            WKC::WKCWebView::deleteWKCWebView(page.view);
+            free(page.pixels);
+            return false;
+        }
+    }
+
+    page.dirty = true;
+    s_pages[tab_index] = page;
+    ++s_page_count;
     return true;
+}
+
+void webkit_engine_select_tab(int tab_index)
+{
+    if (!s_available || tab_index < 0 || tab_index >= s_page_count
+        || !s_pages[tab_index].view)
+        return;
+    if (s_active_page == tab_index)
+        return;
+
+    WebKitPage* previous = active_webkit_page();
+    if (previous && previous->view) {
+        previous->view->notifyFocusOut();
+        previous->view->setVisibilityState(WKC::WKCWebView::PageVisibilityStateHidden, false);
+    }
+
+    s_active_page = tab_index;
+    WebKitPage& next = s_pages[s_active_page];
+    next.view->setVisibilityState(WKC::WKCWebView::PageVisibilityStateVisible, false);
+    next.view->notifyFocusIn();
+    next.dirty = true;
+}
+
+void webkit_engine_close_tab(int tab_index)
+{
+    if (!s_available || s_page_count <= 1
+        || tab_index < 0 || tab_index >= s_page_count)
+        return;
+
+    const bool was_active = (tab_index == s_active_page);
+    release_webkit_page(s_pages[tab_index], was_active);
+
+    for (int i = tab_index; i < s_page_count - 1; ++i)
+        s_pages[i] = s_pages[i + 1];
+
+    --s_page_count;
+    memset(&s_pages[s_page_count], 0, sizeof(WebKitPage));
+
+    if (s_active_page > tab_index) {
+        // The same active page moved left in the array; its WebKit state and
+        // backing resources remain untouched.
+        --s_active_page;
+    } else if (was_active) {
+        // The tab to the right becomes active, or the previous final tab when
+        // the closed tab was at the end.
+        s_active_page = -1;
+        const int next_index = tab_index < s_page_count ? tab_index : s_page_count - 1;
+        webkit_engine_select_tab(next_index);
+    }
 }
 
 void webkit_engine_set_renderer(SDL_Renderer* ren)
 {
-    s_renderer=ren;
-    if(s_renderer&&!s_texture)
-        s_texture=SDL_CreateTexture(s_renderer,SDL_PIXELFORMAT_ARGB8888,
-                                    SDL_TEXTUREACCESS_STREAMING,s_w,s_h);
+    s_renderer = ren;
+    if (!s_renderer)
+        return;
+
+    for (int i = 0; i < s_page_count; ++i) {
+        WebKitPage& page = s_pages[i];
+        if (!page.texture && page.view) {
+            page.texture = SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888,
+                                             SDL_TEXTUREACCESS_STREAMING, s_w, s_h);
+            page.dirty = true;
+        }
+    }
 }
 
 void webkit_engine_navigate(const char* url)
 {
-    if(!url || !s_webview || !s_available) return;
-    strncpy(s_url,url,sizeof(s_url)-1);
-    s_url[sizeof(s_url)-1] = '\0';
-    s_webview->loadURLOrSearch(url);
-    s_dirty = true;
+    WKC::WKCWebView* view = active_webkit_view();
+    WebKitPage* page = active_webkit_page();
+    if (!url || !url[0] || !s_available || !view || !page)
+        return;
+    if (view->loadURLOrSearch(url))
+        page->dirty = true;
+}
+
+bool webkit_engine_get_url(char* out_url, unsigned int out_size)
+{
+    if (!out_url || !out_size)
+        return false;
+    out_url[0] = '\0';
+
+    WKC::WKCWebView* view = active_webkit_view();
+    if (!s_available || !view)
+        return false;
+    const char* uri = view->uri();
+    if (!uri || !uri[0])
+        return false;
+
+    strncpy(out_url, uri, out_size - 1);
+    out_url[out_size - 1] = '\0';
+    return true;
 }
 
 bool webkit_engine_can_go_back(void)
 {
-    return s_available && s_webview && s_webview->canGoBack();
+    WKC::WKCWebView* view = active_webkit_view();
+    return s_available && view && view->canGoBack();
 }
 
 bool webkit_engine_can_go_forward(void)
 {
-    return s_available && s_webview && s_webview->canGoForward();
+    WKC::WKCWebView* view = active_webkit_view();
+    return s_available && view && view->canGoForward();
 }
 
 void webkit_engine_go_back(void)
 {
-    if (!webkit_engine_can_go_back())
-        return;
-    s_webview->goBack();
-    s_dirty = true;
+    WKC::WKCWebView* view = active_webkit_view();
+    WebKitPage* page = active_webkit_page();
+    if (s_available && view && page && view->canGoBack()) {
+        view->goBack();
+        page->dirty = true;
+    }
 }
 
 void webkit_engine_go_forward(void)
 {
-    if (!webkit_engine_can_go_forward())
-        return;
-    s_webview->goForward();
-    s_dirty = true;
+    WKC::WKCWebView* view = active_webkit_view();
+    WebKitPage* page = active_webkit_page();
+    if (s_available && view && page && view->canGoForward()) {
+        view->goForward();
+        page->dirty = true;
+    }
 }
 
 void webkit_engine_reload(void)
 {
-    if (!s_available || !s_webview)
-        return;
-    s_webview->reload();
-    s_dirty = true;
+    WKC::WKCWebView* view = active_webkit_view();
+    WebKitPage* page = active_webkit_page();
+    if (s_available && view && page) {
+        view->reload();
+        page->dirty = true;
+    }
 }
 
 void webkit_engine_tick(void)
 {
-    // Drain WebCore's main RunLoop before servicing timers and painting. The
-    // WKC cURL backend completes transfers on its worker thread and posts the
-    // response callbacks to this loop; without this pump, HTTPS navigation can
-    // connect and receive bytes but never commit the document in the frame.
-    WKC::WKCWebKitProcessEvents();
+    // Network callbacks and other worker completions are serialized through
+    // WebCore's one process-wide main RunLoop, so pump it once for all tabs.
+    if (s_webkit_initialized)
+        WKC::WKCWebKitProcessEvents();
 
-    // A WebKit view must be serviced every frame, even before its first timer
-    // request. Returning here when the timer queue is empty can prevent the
-    // initial navigation, layout and paint pipeline from making progress.
     if (s_timer_init) {
-        unsigned int now = now_ms();
+        const unsigned int now = now_ms();
         OSLockMutex(&s_timer_mtx);
         for (WKCTimer* t = s_timers; t; t = t->next) {
             if (!t->active || now < t->fire_at)
@@ -1092,15 +1242,15 @@ void webkit_engine_tick(void)
             t->active = false;
             wkcTimeoutProc cb = t->proc;
             void* data = t->data;
-            unsigned int interval = t->interval;
-            bool wake_up = t->wkc_wakeup;
+            const unsigned int interval = t->interval;
+            const bool wake_up = t->wkc_wakeup;
             if (interval) {
                 t->fire_at = now + interval;
                 t->active = true;
             }
 
-            // Callbacks may schedule or cancel timers; never invoke them while
-            // holding the timer-list mutex.
+            // A callback can schedule/cancel timers, so never invoke it while
+            // holding the shared timer-list mutex.
             OSUnlockMutex(&s_timer_mtx);
             if (wake_up)
                 WKC::WKCWebKitWakeUp(data);
@@ -1111,30 +1261,53 @@ void webkit_engine_tick(void)
         OSUnlockMutex(&s_timer_mtx);
     }
 
-    if (s_webview && s_available) {
-        WKC::WKCWebKitWakeUp(nullptr);
-        s_webview->notifyServiceScriptedAnimations();
+    if (!s_available)
+        return;
+
+    WKC::WKCWebKitWakeUp(nullptr);
+    for (int i = 0; i < s_page_count; ++i) {
+        WebKitPage& page = s_pages[i];
+        if (page.view)
+            page.view->notifyServiceScriptedAnimations();
+    }
+
+    // Only the selected tab is painted to its offscreen backing store. Every
+    // other tab keeps its own page, document, JS heap and history in memory.
+    WebKitPage* page = active_webkit_page();
+    if (page && page->view) {
         WKC::WKCRect rect = { 0, 0, s_w, s_h };
-        s_webview->notifyPaintOffscreen(rect);
-        s_dirty = true;
+        page->view->notifyPaintOffscreen(rect);
+        page->dirty = true;
     }
 }
 
-void webkit_engine_draw(int cx,int cy,int cw,int ch)
+void webkit_engine_draw(int cx, int cy, int cw, int ch)
 {
-    if(!s_renderer||!s_texture||!s_pixels) return;
-    if(s_dirty||s_available){
-        SDL_UpdateTexture(s_texture,nullptr,s_pixels,s_w*4);
-        s_dirty=false;
+    WebKitPage* page = active_webkit_page();
+    if (!s_renderer || !page || !page->pixels || !page->view)
+        return;
+
+    if (!page->texture) {
+        page->texture = SDL_CreateTexture(s_renderer, SDL_PIXELFORMAT_ARGB8888,
+                                          SDL_TEXTUREACCESS_STREAMING, s_w, s_h);
+        if (!page->texture)
+            return;
     }
-    SDL_Rect src={0,0,s_w,s_h};
-    SDL_Rect dst={cx,cy,cw,ch};
-    SDL_RenderCopy(s_renderer,s_texture,&src,&dst);
+
+    if (page->dirty) {
+        SDL_UpdateTexture(page->texture, nullptr, page->pixels, s_w * 4);
+        page->dirty = false;
+    }
+
+    SDL_Rect src = { 0, 0, s_w, s_h };
+    SDL_Rect dst = { cx, cy, cw, ch };
+    SDL_RenderCopy(s_renderer, page->texture, &src, &dst);
 }
 
 void webkit_engine_input_text(const char* u)
 {
-    if (!u || !s_webview || !s_available) return;
+    WKC::WKCWebView* view = active_webkit_view();
+    if (!u || !view || !s_available) return;
 
     // Decode only when the entire UTF-8 sequence is present. Checking p[1]
     // and p[2] directly can read past the NUL terminator on truncated input.
@@ -1169,70 +1342,87 @@ void webkit_engine_input_text(const char* u)
             // Malformed or truncated input: replace one byte and keep going.
             ch = 0xFFFD;
         }
-        s_webview->notifyKeyChar(ch);
+        view->notifyKeyChar(ch);
         p += consumed;
         remaining -= consumed;
     }
 }
-void webkit_engine_scroll(int x,int y)
+void webkit_engine_scroll(int x, int y)
 {
-    if (s_webview && s_available) s_webview->notifyScroll(x,y);
-}
-void webkit_engine_touch_down(int x,int y)
-{
-    if (!s_webview || !s_available) return;
-    WKC::WKCPoint p = { x, y };
-    s_webview->notifyMouseDown(p, WKC::EMouseButtonLeft, WKC::EModifierNone);
-}
-void webkit_engine_touch_up(int x,int y)
-{
-    if (!s_webview || !s_available) return;
-    WKC::WKCPoint p = { x, y };
-    s_webview->notifyMouseUp(p, WKC::EMouseButtonLeft, WKC::EModifierNone);
+    WKC::WKCWebView* view = active_webkit_view();
+    if (s_available && view)
+        view->notifyScroll(x, y);
 }
 
-bool webkit_engine_available(void){ return s_available; }
+void webkit_engine_touch_down(int x, int y)
+{
+    WKC::WKCWebView* view = active_webkit_view();
+    if (!s_available || !view)
+        return;
+    WKC::WKCPoint p = { x, y };
+    view->notifyMouseDown(p, WKC::EMouseButtonLeft, WKC::EModifierNone);
+}
+
+void webkit_engine_touch_up(int x, int y)
+{
+    WKC::WKCWebView* view = active_webkit_view();
+    if (!s_available || !view)
+        return;
+    WKC::WKCPoint p = { x, y };
+    view->notifyMouseUp(p, WKC::EMouseButtonLeft, WKC::EModifierNone);
+}
+
+bool webkit_engine_available(void)
+{
+    return s_available;
+}
 
 void webkit_engine_shutdown(void)
 {
-    if(s_texture){SDL_DestroyTexture(s_texture);s_texture=nullptr;}
-    if (s_webview) {
-        WKC::WKCWebView::deleteWKCWebView(s_webview);
-        s_webview = nullptr;
-    }
+    // Destroy every page before finalizing the single shared WebKit runtime.
+    for (int i = 0; i < s_page_count; ++i)
+        release_webkit_page(s_pages[i], i == s_active_page);
+    memset(s_pages, 0, sizeof(s_pages));
+    s_page_count = 0;
+    s_active_page = -1;
+
     if (s_webkit_initialized) {
         WKC::WKCWebKitFinalize();
         s_webkit_initialized = false;
     }
-    s_available=false;
+    s_available = false;
+
     if (s_timer_init) {
         OSLockMutex(&s_timer_mtx);
         WKCTimer* t = s_timers;
         s_timers = nullptr;
-        while (t) { WKCTimer* next=t->next; free(t); t=next; }
+        while (t) {
+            WKCTimer* next = t->next;
+            free(t);
+            t = next;
+        }
         OSUnlockMutex(&s_timer_mtx);
     }
-    free(s_pixels);s_pixels=nullptr;
 }
 
 void webkit_engine_key_down(int keycode)
 {
-    if (!s_webview || !s_available) return;
+    WKC::WKCWebView* view = active_webkit_view();
+    if (!s_available || !view || keycode < 0 || keycode > 0xFF)
+        return;
 
     // The public Wave API specifies browser/virtual-key codes, matching WKC::Key
     // values (for example Backspace=0x08, Enter=0x0D, arrows=0x25..0x28).
     // Do not pass raw SDL scancode-masked key symbols through this interface.
-    if (keycode < 0 || keycode > 0xFF) return;
-    s_webview->notifyKeyPress(static_cast<WKC::Key>(keycode),
-                              WKC::EModifierNone, false);
+    view->notifyKeyPress(static_cast<WKC::Key>(keycode), WKC::EModifierNone, false);
 }
 
 void webkit_engine_key_up(int keycode)
 {
-    if (!s_webview || !s_available) return;
-    if (keycode < 0 || keycode > 0xFF) return;
-    s_webview->notifyKeyRelease(static_cast<WKC::Key>(keycode),
-                                WKC::EModifierNone);
+    WKC::WKCWebView* view = active_webkit_view();
+    if (!s_available || !view || keycode < 0 || keycode > 0xFF)
+        return;
+    view->notifyKeyRelease(static_cast<WKC::Key>(keycode), WKC::EModifierNone);
 }
 
 #else
@@ -1242,6 +1432,14 @@ void webkit_engine_key_up(int keycode)
 // or a prebuilt static WebKit archive.
 
 bool webkit_engine_init(int, int) { return true; }
+bool webkit_engine_create_tab(int) { return true; }
+void webkit_engine_select_tab(int) {}
+void webkit_engine_close_tab(int) {}
+bool webkit_engine_get_url(char* out_url, unsigned int out_size)
+{
+    if (out_url && out_size) out_url[0] = '\0';
+    return false;
+}
 void webkit_engine_set_renderer(SDL_Renderer*) {}
 void webkit_engine_navigate(const char*) {}
 bool webkit_engine_can_go_back(void) { return false; }

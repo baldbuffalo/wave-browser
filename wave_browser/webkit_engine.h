@@ -17,7 +17,16 @@ bool webkit_engine_init(int screen_w, int screen_h);
 // framebuffer as a texture and blit it into the content area.
 void webkit_engine_set_renderer(SDL_Renderer* ren);
 
-// Load a URL.
+// Per-tab page lifecycle. The index order must match the browser's tab array.
+bool webkit_engine_create_tab(int tab_index);
+void webkit_engine_select_tab(int tab_index);
+void webkit_engine_close_tab(int tab_index);
+
+// Copy the active page's committed URL into out_url. Returns false when the
+// page has not committed a URL yet or the output buffer is invalid.
+bool webkit_engine_get_url(char* out_url, unsigned int out_size);
+
+// Load a URL in the currently selected page.
 void webkit_engine_navigate(const char* url);
 
 // Browser toolbar actions backed by the active WKCWebView.
