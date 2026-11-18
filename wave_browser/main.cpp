@@ -355,16 +355,20 @@ static void draw_tab(int idx, bool active)
                       tx + 1, ty + 2, TAB_W - 28, TAB_H,
                       focus_select_tab, focus_select_tab,
                       (void*)(intptr_t)idx);
-    ui_focus_register(BROWSER_FOCUS_TAB_BASE + idx * 2 + 1,
-                      tx + TAB_W - 25, ty + 4, 21, TAB_H - 4,
-                      focus_select_tab, focus_close_tab,
-                      (void*)(intptr_t)idx);
+    // A close target only exists when another tab can remain open.
+    if (s_tab_count > 1) {
+        ui_focus_register(BROWSER_FOCUS_TAB_BASE + idx * 2 + 1,
+                          tx + TAB_W - 25, ty + 4, 21, TAB_H - 4,
+                          focus_select_tab, focus_close_tab,
+                          (void*)(intptr_t)idx);
+    }
     sdl_rect(tx, ty+2, TAB_W-2, TAB_H, active ? COL_TAB_ACTIVE : COL_TAB_INACTIVE);
     sdl_rect(tx+8, ty+10, 14, 14, COL_FAVICON_BG);
     const char* title = s_tabs[idx].title[0] ? s_tabs[idx].title : "New Tab";
     char trunc[24]; strncpy(trunc,title,20); trunc[20]='\0';
     sdl_text(s_font_sm, trunc,    tx+28,       ty+TAB_H-4, COL_TAB_TEXT,  0);
-    sdl_text(s_font_sm, "x",      tx+TAB_W-18, ty+TAB_H-4, COL_CLOSE_BTN, 0);
+    if (s_tab_count > 1)
+        sdl_text(s_font_sm, "x", tx+TAB_W-18, ty+TAB_H-4, COL_CLOSE_BTN, 0);
     if (active) sdl_rect(tx, ty+TAB_H, TAB_W-2, 2, COL_TAB_ACTIVE);
 }
 
